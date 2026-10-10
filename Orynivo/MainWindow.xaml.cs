@@ -115,6 +115,8 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     private IAudioPlayer?  _player;
+    private readonly AudioPlayerRetirement _audioPlayerRetirement = new(
+        exception => CrashLogger.Log(exception, "Background audio-player disposal"));
     private bool _audioDeviceExplicitlyReleased;
     private string? _releasedOutputPath;
     private RadioStationRecord? _releasedOutputRadioStation;

@@ -244,29 +244,17 @@ public partial class MainWindow : Window
         player?.Dispose();
     }
 
+    /// <summary>Detaches playback immediately and retires its player without blocking the dispatcher.</summary>
+    /// <param name="waitForCompleteDisposal">Whether all tracked retirements must finish before returning.</param>
+    /// <returns>A bounded transition wait, or a complete output-release wait.</returns>
     private async Task StopPlaybackAsync(bool waitForCompleteDisposal = false)
     {
         var player = StopPlaybackCore();
-        if (player is not null)
-        {
-            var disposalTask = Task.Run(() =>
-            {
-                try
-                {
-                    player.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    CrashLogger.Log(ex, "Background audio-player disposal");
-                }
-            });
-            if (waitForCompleteDisposal)
-                await disposalTask;
-            else
-                await Task.WhenAny(disposalTask, Task.Delay(TimeSpan.FromSeconds(2)));
-        }
+        await _audioPlayerRetirement.RetireAsync(player, waitForCompleteDisposal);
     }
 
+    /// <summary>Clears the window's active playback state and hands its unique player to disposal.</summary>
+    /// <returns>The detached player, or null when playback was already detached.</returns>
     private IAudioPlayer? StopPlaybackCore()
     {
         RecordPlaybackEnd(completed: false);
@@ -277,6 +265,8 @@ public partial class MainWindow : Window
         _playbackCts = null;
         var player = _player;
         _player = null;
+        if (player is IGaplessAudioPlayer gaplessPlayer)
+            gaplessPlayer.TrackChanged -= GaplessPlayer_OnTrackChanged;
         _currentPlaybackDuration = TimeSpan.Zero;
         UpdateNowPlayingRowHighlights();
 

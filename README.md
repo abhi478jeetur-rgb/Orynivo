@@ -646,7 +646,8 @@ byte-range streaming without FFmpeg.
   close the active exclusive player and release its audio device for another
   application. Orynivo preserves the source and playback position; selecting the
   open lock reacquires the device and resumes playback without restarting the
-  application.
+  application. Explicit release waits for both the active player and any earlier
+  player cleanup still running after a track transition's wait limit.
 - Seeking, volume control, pause, and an editable persistent **Up next** queue
   with play-next/append actions, drag-and-drop from track, album, and folder
   views, removal, reordering, complete clearing, restore-last-queue, playlist

@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Asynchronous player disposal is owned by a standalone retirement helper with
+  controllable-clock regression tests. Detached gapless players no longer retain
+  their window event subscription.
 - Shared smart playlists load selected catalogs and similarity features with
   bounded asynchronous requests and cancellation. Partial results offer retry;
   incomplete counts show an unavailable preview in all seven interface
@@ -18,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Complete output-device release also waits for older player disposals still
+  running after a timed-out track transition, including when no active player
+  remains. Ordinary transitions retain their two-second wait limit.
 - Remote similarity smart-playlist references now resolve correctly when server
   track IDs overlap with local or other server IDs. Runtime identity projection
   preserves stored criteria, source filters, and personal favorites.

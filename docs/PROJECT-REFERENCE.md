@@ -409,6 +409,20 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 - `Orynivo/OutputProfile.cs`: named audio output configuration (backend, device
   IDs, display name); multiple profiles allow switching between output devices
   without reconfiguring each time
+- `Orynivo/Audio/AudioPlayerRetirement.cs`: UI-free ownership of detached-player
+  background disposal. `MainWindow.StopPlaybackAsync` clears window playback
+  state, removes the gapless event subscription, and transfers its detached
+  player to this helper. Ordinary transitions wait at most two seconds for the
+  current disposal; an empty ordinary transition returns immediately. Timed-out
+  workers remain tracked until completion. A complete output-release wait covers
+  every retirement already registered, even when no active player remains.
+  Disposal and existing error-sink failures are isolated; completed work and
+  unused budget timers are removed. The injected TimeProvider makes deadline
+  tests deterministic. Active player, cancellation, queue, history, source
+  context and UI cleanup remain window-owned; synchronous stop/shutdown and
+  start/completion ownership are further lifecycle work, not covered by this
+  helper. No backend selection, PCM/DSD processing or native output changes are
+  introduced here.
 - `Orynivo/Audio/AirPlayDeviceDiscovery.cs` and `AirPlayAudioPlayer.cs`:
   cross-platform classic AirPlay/RAOP output. Profiles retain the stable DNS-SD
   service name and last resolved endpoint, discovery refreshes it before

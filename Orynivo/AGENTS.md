@@ -252,6 +252,17 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   and permits one-click reacquisition/resume. Ordinary playback clears that
   snapshot. Pausing alone must never be presented as releasing an exclusive
   WASAPI, ASIO, cwASIO, or direct ALSA device.
+- `Audio.AudioPlayerRetirement` owns asynchronous disposal of uniquely detached
+  players, not active playback or queue state. Ordinary transitions keep the
+  two-second wait budget; full device release drains all registered retirements,
+  including older timed-out disposals and when no active player remains. A null
+  ordinary transition must not add another wait. Dispose off the dispatcher,
+  isolate disposal/reporting failures, remove completed work, and cancel unused
+  budget timers. Detach gapless event subscriptions with active ownership.
+  Regression tests use fake players and a controllable TimeProvider, never real
+  devices or single-sample wall-clock speed comparisons. The synchronous stop
+  and shutdown path still require lifecycle work; do not describe this helper as
+  a complete playback-session coordinator.
 - AirPlay output is a cross-platform `OutputBackend.AirPlay` profile. Discover
   `_raop._tcp.local.` receivers away from the UI thread, persist only their
   stable service ID/display name/last endpoint and refresh the endpoint before
