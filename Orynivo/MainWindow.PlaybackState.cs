@@ -254,9 +254,12 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Clears the window's active playback state and hands its unique player to disposal.</summary>
+    /// <param name="invalidateStart">Whether pending starts are abandoned by this stop.</param>
     /// <returns>The detached player, or null when playback was already detached.</returns>
-    private IAudioPlayer? StopPlaybackCore()
+    private IAudioPlayer? StopPlaybackCore(bool invalidateStart = true)
     {
+        if (invalidateStart)
+            _playbackStarts.Invalidate();
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
         CancelAndDispose(ref _radioMetadataCts);

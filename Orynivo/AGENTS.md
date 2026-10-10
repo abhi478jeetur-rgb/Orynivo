@@ -263,6 +263,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   devices or single-sample wall-clock speed comparisons. The synchronous stop
   and shutdown path still require lifecycle work; do not describe this helper as
   a complete playback-session coordinator.
+- `Audio.PlaybackStartOwnership` assigns dispatcher-owned start identifiers
+  before remote lookup. Stop invalidates pending publication; a start detaches
+  current playback without invalidating itself. Check ownership after disposal,
+  factory and initial/resume seek awaits; retire obsolete factory results once.
+  Factories and native-format fallbacks use the captured playback token. Reject
+  stale remote metadata registration and suppress obsolete errors before caller
+  handlers can stop current playback. Active player and queue remain
+  window-owned. Pending lookup/factory drain, synchronous shutdown, and caller
+  actions after awaiting a playback lifetime remain further lifecycle work.
 - AirPlay output is a cross-platform `OutputBackend.AirPlay` profile. Discover
   `_raop._tcp.local.` receivers away from the UI thread, persist only their
   stable service ID/display name/last endpoint and refresh the endpoint before

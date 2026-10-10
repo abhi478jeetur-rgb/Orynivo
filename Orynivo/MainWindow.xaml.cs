@@ -115,6 +115,7 @@ public partial class MainWindow : Window
     // ------------------------------------------------------------------
 
     private IAudioPlayer?  _player;
+    private readonly PlaybackStartOwnership _playbackStarts = new();
     private readonly AudioPlayerRetirement _audioPlayerRetirement = new(
         exception => CrashLogger.Log(exception, "Background audio-player disposal"));
     private bool _audioDeviceExplicitlyReleased;
@@ -705,6 +706,13 @@ public partial class MainWindow : Window
     /// <param name="path">The tool-supplied path or remote reference.</param>
     /// <returns>The playable path, or <see langword="null"/> when a remote reference cannot be resolved.</returns>
     private async Task<string?> ResolveRemoteMcpTrackAsync(string path)
+        => await ResolveRemoteMcpTrackForPlaybackAsync(path, () => true);
+
+    /// <summary>Resolves a remote reference without registering metadata for an abandoned start.</summary>
+    /// <param name="path">The stable remote reference.</param>
+    /// <param name="isCurrent">The dispatcher-affine ownership guard.</param>
+    /// <returns>The resolved path, or null when unavailable or obsolete.</returns>
+    private async Task<string?> ResolveRemoteMcpTrackForPlaybackAsync(string path, Func<bool> isCurrent)
     {
         if (string.IsNullOrWhiteSpace(path))
             return path;
@@ -724,6 +732,8 @@ public partial class MainWindow : Window
             // Build/register on the UI thread because that cache and the transport are UI-affine.
             return await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (!isCurrent())
+                    return null;
                 var row = ToOrynivoTrackContentRow(server, track);
                 EnsureArtworkHydrated(row);
                 return row.FilePath;

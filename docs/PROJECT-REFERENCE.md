@@ -420,9 +420,18 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   unused budget timers are removed. The injected TimeProvider makes deadline
   tests deterministic. Active player, cancellation, queue, history, source
   context and UI cleanup remain window-owned; synchronous stop/shutdown and
-  start/completion ownership are further lifecycle work, not covered by this
+  complete pending-start drains are further lifecycle work, not covered by this
   helper. No backend selection, PCM/DSD processing or native output changes are
   introduced here.
+- `Orynivo/Audio/PlaybackStartOwnership.cs`: dispatcher-affine intent generation
+  and late-factory cleanup. Start captures ownership before remote lookup; stop
+  invalidates it. Backend creation receives a fixed token, including native DSD
+  fallbacks. Check ownership after retirement, creation and resume seeks before
+  publishing UI state. Late-created players transfer to the shared retirement
+  helper; obsolete lifetime errors do not reach caller stop handlers. Guard
+  remote lookup registration on the dispatcher. Active player and queue remain
+  window-owned. Pending lookup/factory drains and caller post-await actions are
+  not yet coordinated with complete device release or shutdown.
 - `Orynivo/Audio/AirPlayDeviceDiscovery.cs` and `AirPlayAudioPlayer.cs`:
   cross-platform classic AirPlay/RAOP output. Profiles retain the stable DNS-SD
   service name and last resolved endpoint, discovery refreshes it before

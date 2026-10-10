@@ -21,6 +21,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Overlapping playback starts reject obsolete lookup, creation and seek results.
+  Late players are retired, backend fallbacks retain the original cancellation
+  token, and obsolete failures cannot stop a newer player.
 - Complete output-device release also waits for older player disposals still
   running after a timed-out track transition, including when no active player
   remains. Ordinary transitions retain their two-second wait limit.

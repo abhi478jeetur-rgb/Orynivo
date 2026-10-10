@@ -149,139 +149,68 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Starts the requested source and ignores results superseded by another start or stop.</summary>
+    /// <param name="filePath">The local path or remote playback reference.</param>
+    /// <param name="radioStation">Optional radio source metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast source metadata.</param>
+    /// <param name="initialPosition">The requested initial position.</param>
+    /// <returns>The playback lifetime, including automatic queue advancement.</returns>
     private async Task StartPlaybackAsync(
         string filePath,
         RadioStationRecord? radioStation = null,
         PodcastPlayback? podcastPlayback = null,
         TimeSpan initialPosition = default)
     {
+        await _playbackStarts.RunAsync(intent =>
+            StartPlaybackIntentAsync(intent, filePath, radioStation, podcastPlayback, initialPosition));
+    }
+
+    /// <summary>Publishes playback state only while its captured start intent remains current.</summary>
+    /// <param name="intent">The owning start identifier.</param>
+    /// <param name="filePath">The local path or remote reference.</param>
+    /// <param name="radioStation">Optional radio metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast metadata.</param>
+    /// <param name="initialPosition">The requested initial position.</param>
+    /// <returns>The owning playback lifetime.</returns>
+    private async Task StartPlaybackIntentAsync(
+        long intent, string filePath, RadioStationRecord? radioStation,
+        PodcastPlayback? podcastPlayback, TimeSpan initialPosition)
+    {
         if (filePath.StartsWith("orynivo://", StringComparison.OrdinalIgnoreCase))
         {
-            var resolvedPath = await ResolveRemoteMcpTrackAsync(filePath);
+            var resolvedPath = await ResolveRemoteMcpTrackForPlaybackAsync(filePath, () => _playbackStarts.IsCurrent(intent));
+            if (!_playbackStarts.IsCurrent(intent))
+                return;
             if (string.IsNullOrWhiteSpace(resolvedPath))
                 throw new InvalidOperationException(LocalizationManager.Current.PlaybackStopped);
             filePath = resolvedPath;
         }
-        await StopPlaybackAsync();
+        var previousPlayer = StopPlaybackCore(invalidateStart: false);
+        await _audioPlayerRetirement.RetireAsync(previousPlayer);
+        if (!_playbackStarts.IsCurrent(intent))
+            return;
         _currentFilePath = filePath;
         _currentRadioStation = radioStation;
         _currentPodcastPlayback = podcastPlayback;
         if (radioStation is null && podcastPlayback is null)
             _playedQueuePaths.Add(filePath);
-        _playbackCts     = new CancellationTokenSource();
 
-        var playbackTrack = ResolveGaplessPlaybackItem(filePath);
-        var ext = Path.GetExtension(playbackTrack.PlaybackPath);
-        IAudioPlayer player;
-        AudioFileInfo info;
-        var gaplessItems = BuildGaplessPlaybackItems(
-            filePath,
-            radioStation is null && podcastPlayback is null);
-
-        if (_settings.OutputBackend is OutputBackend.Asio or OutputBackend.CwAsio)
+        var playbackCancellation = new CancellationTokenSource();
+        _playbackCts = playbackCancellation;
+        var playbackToken = playbackCancellation.Token;
+        var created = await _playbackStarts.CreateAsync(
+            intent,
+            token => CreatePlaybackPlayerAsync(filePath, radioStation is null && podcastPlayback is null, token),
+            playbackToken,
+            _audioPlayerRetirement);
+        if (created is not { } result)
+            return;
+        if (!_playbackStarts.IsCurrent(intent))
         {
-            if (!SteinbergAsioStream.IsBackendAvailable(_settings.OutputBackend))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.AsioBridgeMissing;
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(_settings.SelectedDriverName))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.SelectAsioDevice;
-                return;
-            }
-            if (!_settings.AlwaysConvertDsdToPcm &&
-                ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase))
-                (player, info) = await DsfAudioPlayer.CreateAsync(
-                    filePath,
-                    _settings.OutputBackend,
-                    _settings.SelectedDriverName,
-                    _playbackCts.Token);
-            else if (!_settings.AlwaysConvertDsdToPcm &&
-                     IsRemoteOrynivoDsdCandidate(filePath))
-                (player, info) = await CreateRemoteOrynivoDsdOrPcmPlayerAsync(filePath, playbackTrack);
-            else if (!_settings.AlwaysConvertDsdToPcm &&
-                     ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
-                (player, info) = await DffAudioPlayer.CreateAsync(
-                    filePath,
-                    _settings.OutputBackend,
-                    _settings.SelectedDriverName,
-                    _playbackCts.Token);
-            else
-                (player, info) = await FfmpegAudioPlayer.CreateAsync(
-                    gaplessItems,
-                    _settings.OutputBackend,
-                    _settings.SelectedDriverName,
-                    _settings.EqualizerEnabled,
-                    _settings.EqualizerProfile,
-                    _playbackCts.Token,
-                    _settings.MaxOutputSampleRateHz);
-        }
-        else if (_settings.OutputBackend == OutputBackend.AirPlay)
-        {
-            if (string.IsNullOrWhiteSpace(_settings.SelectedAirPlayDeviceId))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.SelectAirPlayDevice;
-                return;
-            }
-            (player, info) = await CreateAirPlayPlayerAsync(playbackTrack, _playbackCts.Token);
-        }
-        else if (_settings.OutputBackend == OutputBackend.Wasapi)
-        {
-            if (string.IsNullOrWhiteSpace(_settings.SelectedWasapiDeviceId))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.SelectWasapiDevice;
-                return;
-            }
-#if !WINDOWS
-            if (OperatingSystem.IsLinux() &&
-                _settings.DsdOverPcmEnabled &&
-                (ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase) ||
-                 ext.Equals(".dff", StringComparison.OrdinalIgnoreCase) ||
-                 IsRemoteOrynivoDsdCandidate(filePath)))
-            {
-                if (Uri.TryCreate(filePath, UriKind.Absolute, out var dopUri) &&
-                    dopUri.Scheme is "http" or "https")
-                {
-                    if (IsRemoteOrynivoDffCandidate(filePath))
-                        (player, info) = await DffDopAudioPlayer.CreateRemoteAsync(
-                            filePath,
-                            _settings.SelectedWasapiDeviceId,
-                            _playbackCts.Token);
-                    else
-                        (player, info) = await RemoteDsfDopAudioPlayer.CreateAsync(
-                            filePath,
-                            _settings.SelectedWasapiDeviceId,
-                            _playbackCts.Token);
-                }
-                else if (ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
-                    (player, info) = await DffDopAudioPlayer.CreateLocalAsync(
-                        playbackTrack.PlaybackPath,
-                        _settings.SelectedWasapiDeviceId,
-                        _playbackCts.Token);
-                else
-                {
-                    (player, info) = await DsfDopAudioPlayer.CreateAsync(
-                        playbackTrack.PlaybackPath,
-                        _settings.SelectedWasapiDeviceId,
-                        _playbackCts.Token);
-                }
-            }
-            else
-#endif
-            (player, info) = await WasapiAudioPlayer.CreateAsync(
-                gaplessItems,
-                _settings.SelectedWasapiDeviceId,
-                _settings.EqualizerEnabled,
-                _settings.EqualizerProfile,
-                _playbackCts.Token,
-                _settings.MaxOutputSampleRateHz);
-        }
-        else
-        {
-            StatusTextBlock.Text = string.Format(LocalizationManager.Current.NotImplemented, _settings.OutputBackend);
+            await _audioPlayerRetirement.RetireAsync(result.Player);
             return;
         }
+        var (player, info) = result;
 
         _player        = player;
         ApplyCrossfeedSettings(_player);
@@ -298,6 +227,8 @@ public partial class MainWindow : Window
             try { await player.SeekAsync(initialPosition); }
             catch { /* seek failure must not prevent playback */ }
         }
+        if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
+            return;
         UpdateNowPlayingRowHighlights();
         _player.Volume = _settings.OutputBackend == OutputBackend.Wasapi &&
                          _endpointVolumeSynchronizer is not null
@@ -326,6 +257,8 @@ public partial class MainWindow : Window
                 // A corrupt or unavailable resume point must not prevent playback.
             }
         }
+        if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
+            return;
         _lastPodcastProgressSave = DateTimeOffset.UtcNow;
         if (podcastPlayback is null && _currentOrynivoTrackRow is { } remoteResumeRow)
             _ = OfferRemoteResumeAsync(remoteResumeRow, initialPosition.TotalSeconds);
@@ -490,7 +423,7 @@ public partial class MainWindow : Window
             ToolTip.SetTip(ArtistInfoButton, LocalizationManager.Current.ShowPodcastInfo);
             _ = LoadPodcastArtworkAsync(
                 podcastPlayback.Podcast.ArtworkUrl,
-                _playbackCts?.Token ?? CancellationToken.None);
+                playbackToken);
         }
         else if (radioStation is not null)
         {
@@ -584,16 +517,142 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_player == player)
+        if (_playbackStarts.IsCurrent(intent) && ReferenceEquals(_player, player))
         {
             RecordPlaybackEnd(completed: true);
             SavePodcastProgress(completed: true);
             if (radioStation is not null || podcastPlayback is not null || !await TryPlayNextAsync())
             {
+                if (!ReferenceEquals(_player, player))
+                    return;
                 StopPlayback();
                 StatusTextBlock.Text = LocalizationManager.Current.PlaybackFinished;
             }
         }
+    }
+
+    /// <summary>Creates a player using the captured cancellation token and existing backend selection.</summary>
+    /// <param name="filePath">The resolved playable path.</param>
+    /// <param name="allowQueuedTracks">Whether gapless queued tracks are allowed.</param>
+    /// <param name="cancellationToken">The owning playback cancellation token.</param>
+    /// <returns>The created player and format, or null when output selection is incomplete.</returns>
+    private async Task<(IAudioPlayer Player, AudioFileInfo Info)?> CreatePlaybackPlayerAsync(
+        string filePath, bool allowQueuedTracks, CancellationToken cancellationToken)
+    {
+        var playbackTrack = ResolveGaplessPlaybackItem(filePath);
+        var ext = Path.GetExtension(playbackTrack.PlaybackPath);
+        IAudioPlayer player;
+        AudioFileInfo info;
+        var gaplessItems = BuildGaplessPlaybackItems(
+            filePath,
+            allowQueuedTracks);
+
+        if (_settings.OutputBackend is OutputBackend.Asio or OutputBackend.CwAsio)
+        {
+            if (!SteinbergAsioStream.IsBackendAvailable(_settings.OutputBackend))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.AsioBridgeMissing;
+                return null;
+            }
+            if (string.IsNullOrWhiteSpace(_settings.SelectedDriverName))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.SelectAsioDevice;
+                return null;
+            }
+            if (!_settings.AlwaysConvertDsdToPcm &&
+                ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase))
+                (player, info) = await DsfAudioPlayer.CreateAsync(
+                    filePath,
+                    _settings.OutputBackend,
+                    _settings.SelectedDriverName,
+                    cancellationToken);
+            else if (!_settings.AlwaysConvertDsdToPcm &&
+                     IsRemoteOrynivoDsdCandidate(filePath))
+                (player, info) = await CreateRemoteOrynivoDsdOrPcmPlayerAsync(filePath, playbackTrack, cancellationToken);
+            else if (!_settings.AlwaysConvertDsdToPcm &&
+                     ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
+                (player, info) = await DffAudioPlayer.CreateAsync(
+                    filePath,
+                    _settings.OutputBackend,
+                    _settings.SelectedDriverName,
+                    cancellationToken);
+            else
+                (player, info) = await FfmpegAudioPlayer.CreateAsync(
+                    gaplessItems,
+                    _settings.OutputBackend,
+                    _settings.SelectedDriverName,
+                    _settings.EqualizerEnabled,
+                    _settings.EqualizerProfile,
+                    cancellationToken,
+                    _settings.MaxOutputSampleRateHz);
+        }
+        else if (_settings.OutputBackend == OutputBackend.AirPlay)
+        {
+            if (string.IsNullOrWhiteSpace(_settings.SelectedAirPlayDeviceId))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.SelectAirPlayDevice;
+                return null;
+            }
+            (player, info) = await CreateAirPlayPlayerAsync(playbackTrack, cancellationToken);
+        }
+        else if (_settings.OutputBackend == OutputBackend.Wasapi)
+        {
+            if (string.IsNullOrWhiteSpace(_settings.SelectedWasapiDeviceId))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.SelectWasapiDevice;
+                return null;
+            }
+#if !WINDOWS
+            if (OperatingSystem.IsLinux() &&
+                _settings.DsdOverPcmEnabled &&
+                (ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase) ||
+                 ext.Equals(".dff", StringComparison.OrdinalIgnoreCase) ||
+                 IsRemoteOrynivoDsdCandidate(filePath)))
+            {
+                if (Uri.TryCreate(filePath, UriKind.Absolute, out var dopUri) &&
+                    dopUri.Scheme is "http" or "https")
+                {
+                    if (IsRemoteOrynivoDffCandidate(filePath))
+                        (player, info) = await DffDopAudioPlayer.CreateRemoteAsync(
+                            filePath,
+                            _settings.SelectedWasapiDeviceId,
+                            cancellationToken);
+                    else
+                        (player, info) = await RemoteDsfDopAudioPlayer.CreateAsync(
+                            filePath,
+                            _settings.SelectedWasapiDeviceId,
+                            cancellationToken);
+                }
+                else if (ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
+                    (player, info) = await DffDopAudioPlayer.CreateLocalAsync(
+                        playbackTrack.PlaybackPath,
+                        _settings.SelectedWasapiDeviceId,
+                        cancellationToken);
+                else
+                {
+                    (player, info) = await DsfDopAudioPlayer.CreateAsync(
+                        playbackTrack.PlaybackPath,
+                        _settings.SelectedWasapiDeviceId,
+                        cancellationToken);
+                }
+            }
+            else
+#endif
+            (player, info) = await WasapiAudioPlayer.CreateAsync(
+                gaplessItems,
+                _settings.SelectedWasapiDeviceId,
+                _settings.EqualizerEnabled,
+                _settings.EqualizerProfile,
+                cancellationToken,
+                _settings.MaxOutputSampleRateHz);
+        }
+        else
+        {
+            StatusTextBlock.Text = string.Format(LocalizationManager.Current.NotImplemented, _settings.OutputBackend);
+            return null;
+        }
+
+        return (player, info);
     }
 
     private IReadOnlyList<GaplessPlaybackItem> BuildGaplessPlaybackItems(
@@ -710,18 +769,25 @@ public partial class MainWindow : Window
         return new GaplessPlaybackItem(path, GetReplayGainFactor(path));
     }
 
+    /// <summary>Probes native remote DSD formats and falls back to PCM using one owning token.</summary>
+    /// <param name="filePath">The remote playable path.</param>
+    /// <param name="playbackTrack">The resolved PCM fallback item.</param>
+    /// <param name="cancellationToken">The owning playback cancellation token.</param>
+    /// <returns>The created native or PCM player and format.</returns>
     private async Task<(IAudioPlayer Player, AudioFileInfo Info)> CreateRemoteOrynivoDsdOrPcmPlayerAsync(
         string filePath,
-        GaplessPlaybackItem playbackTrack)
+        GaplessPlaybackItem playbackTrack,
+        CancellationToken cancellationToken)
     {
         var driverName = _settings.SelectedDriverName ?? string.Empty;
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var (dsfPlayer, dsfInfo) = await RemoteDsfAudioPlayer.CreateAsync(
                 filePath,
                 _settings.OutputBackend,
                 driverName,
-                _playbackCts?.Token ?? CancellationToken.None);
+                cancellationToken);
             return (dsfPlayer, dsfInfo);
         }
         catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
@@ -731,13 +797,14 @@ public partial class MainWindow : Window
                 $"native-skip reason={ex.GetType().Name} message={ex.Message}");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var (dffPlayer, dffInfo) = await RemoteDffAudioPlayer.CreateAsync(
                 filePath,
                 _settings.OutputBackend,
                 driverName,
-                _playbackCts?.Token ?? CancellationToken.None);
+                cancellationToken);
             return (dffPlayer, dffInfo);
         }
         catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
@@ -745,13 +812,14 @@ public partial class MainWindow : Window
             SeekDiagnostics.Log(
                 "remote-dff-player",
                 $"native-fallback reason={ex.GetType().Name} message={ex.Message}");
+            cancellationToken.ThrowIfCancellationRequested();
             return await FfmpegAudioPlayer.CreateAsync(
                 [playbackTrack],
                 _settings.OutputBackend,
                 driverName,
                 _settings.EqualizerEnabled,
                 _settings.EqualizerProfile,
-                _playbackCts?.Token ?? CancellationToken.None,
+                cancellationToken,
                 _settings.MaxOutputSampleRateHz);
         }
     }

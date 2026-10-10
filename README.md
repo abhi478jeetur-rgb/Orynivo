@@ -648,6 +648,9 @@ byte-range streaming without FFmpeg.
   open lock reacquires the device and resumes playback without restarting the
   application. Explicit release waits for both the active player and any earlier
   player cleanup still running after a track transition's wait limit.
+- Overlapping playback requests keep the latest start: obsolete remote lookups
+  cannot register playback metadata, late-created players are cleaned up, and
+  failures from older starts cannot stop the current player.
 - Seeking, volume control, pause, and an editable persistent **Up next** queue
   with play-next/append actions, drag-and-drop from track, album, and folder
   views, removal, reordering, complete clearing, restore-last-queue, playlist
