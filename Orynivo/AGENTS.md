@@ -286,6 +286,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   must unwrap asynchronous actions and propagate failures; reject cancellation
   before dispatch. Request cancellation does not implicitly stop active
   playback.
+- Radio and podcast UI actions await readiness and guard preparation errors
+  against the captured start intent. Observe later lifetime errors through the
+  shared readiness path. A nonzero initial podcast position takes precedence
+  over saved episode progress; check ownership after resume seek before source
+  and history publication. Preserve progress capture before stop cancellation.
+  Save episode progress only after resume preparation; abandoning a pending seek
+  preserves its previously saved position.
+
 - `Audio.PlaybackReadiness` separates prepared-player publication from track
   completion. Apply initial seek and paused state before publication. Output
   switching and lock reacquisition await readiness; retain observation of later

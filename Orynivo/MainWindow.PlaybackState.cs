@@ -318,6 +318,7 @@ public partial class MainWindow : Window
         }
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
+        _podcastResumePrepared = false;
         if (invalidateStart)
             _playbackPreparations.CancelAll();
         CancelAndDispose(ref _radioMetadataCts);
@@ -408,9 +409,12 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Saves progress only after the owning episode resume preparation.</summary>
+    /// <param name="completed">Whether playback ended normally.</param>
     private void SavePodcastProgress(bool completed)
     {
-        if (_currentPodcastPlayback is not { Podcast.Id: > 0 } playback ||
+        if (!_podcastResumePrepared ||
+            _currentPodcastPlayback is not { Podcast.Id: > 0 } playback ||
             _player is null)
             return;
 

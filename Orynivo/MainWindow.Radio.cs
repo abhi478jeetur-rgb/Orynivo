@@ -330,14 +330,20 @@ public partial class MainWindow : Window
             await PlayRadioAsync(station);
     }
 
+    /// <summary>Prepares a radio station and observes its playback independently.</summary>
+    /// <param name="station">Selected radio station.</param>
+    /// <returns>Player preparation, including initial resume seek.</returns>
     private async Task PlayRadioAsync(RadioStationRecord station)
     {
         RefreshQueueNavigationButtons();
         _ = _radioBrowserService.RegisterClickAsync(station.StationUuid);
+        var ready = StartReadyPlaybackAsync(station.StreamUrl, station);
+        var intent = _playbackStarts.Current;
         try
         {
-            await StartPlaybackAsync(station.StreamUrl, station);
+            await ready;
         }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException)
         {
             StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;

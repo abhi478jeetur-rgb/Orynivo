@@ -476,6 +476,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   asynchronous actions and propagates their failures, checking cancellation
   before dispatch. This does not add request-token cancellation of an accepted
   playback session.
+- Radio and podcast actions use the same readiness boundary and reject obsolete
+  preparation error handlers. Later lifetime failures stay observed. Saved
+  podcast resume applies only when initial position is zero; nonzero explicit
+  positions retain precedence. Source/history publication follows guarded seeks.
+  Stop saves episode progress only after resume preparation, preserving stored
+  positions when a pending seek is abandoned. Gapless notifications check
+  active-player identity on the dispatcher before advancing queue occurrences
+  and closing/opening their history records.
+
 - `Orynivo/Audio/PlaybackPreparationTracker.cs`: dispatcher-owned cancellation
   and completion leases for lookup, creation and initial/resume seek. They end
   before waiting for track completion. Cancellation never removes an unresolved

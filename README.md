@@ -408,6 +408,12 @@ Late results cannot change the queue or overwrite a newer refill indicator.
 Complete output release waits for pending refills, and starting an idle mix
 returns after player preparation.
 
+Radio and podcast actions also complete after preparation. Podcasts apply saved
+progress when no nonzero initial position is requested; explicit resume
+positions retain precedence, including paused output switching and lock
+reacquisition. Cancelling a pending episode resume preserves its previously
+saved progress.
+
 Playback commands from Mobile Remote and MCP wait for player preparation,
 including initial seek, rather than the end of the track. Later playback errors
 remain observed by the desktop. An abandoned MCP start is cancelled; an

@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Radio and podcast actions complete after player preparation while later
+  playback errors remain observed. Obsolete preparation errors cannot stop a
+  replacement. A nonzero requested podcast position takes precedence over saved
+  episode progress, preserving explicit paused resume positions. Aborting a
+  pending resume no longer replaces saved progress with an unprepared position.
+
 - Infinite Mix rejects obsolete refill results after Stop, pause, replacement or
   a newer mix. Late results cannot append tracks, register remote metadata or
   clear a newer refill indicator. Full output release drains pending refills; an

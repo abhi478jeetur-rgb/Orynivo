@@ -45,6 +45,9 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    // Progress is publishable only after the owning podcast resume seek finishes.
+    private bool _podcastResumePrepared;
+
     // ------------------------------------------------------------------
     // Wiedergabe
     // ------------------------------------------------------------------
@@ -168,7 +171,7 @@ public partial class MainWindow : Window
     /// <param name="filePath">The local path or remote playback reference.</param>
     /// <param name="radioStation">Optional radio metadata.</param>
     /// <param name="podcastPlayback">Optional podcast metadata.</param>
-    /// <param name="initialPosition">The requested initial position.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
     /// <param name="initiallyPaused">Whether to pause the prepared player before publishing readiness.</param>
     /// <param name="onPrepared">Optional synchronous action on the current prepared player.</param>
     /// <returns>The prepared player, or null for an abandoned or unavailable start.</returns>
@@ -208,7 +211,7 @@ public partial class MainWindow : Window
     /// <param name="filePath">The local path or remote playback reference.</param>
     /// <param name="radioStation">Optional radio source metadata.</param>
     /// <param name="podcastPlayback">Optional podcast source metadata.</param>
-    /// <param name="initialPosition">The requested initial position.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
     /// <param name="initiallyPaused">Whether to pause before publishing readiness.</param>
     /// <param name="onPrepared">Optional synchronous callback after preparation and ownership checks.</param>
     /// <returns>The playback lifetime, including automatic queue advancement.</returns>
@@ -234,7 +237,7 @@ public partial class MainWindow : Window
     /// <param name="filePath">The local path or remote reference.</param>
     /// <param name="radioStation">Optional radio metadata.</param>
     /// <param name="podcastPlayback">Optional podcast metadata.</param>
-    /// <param name="initialPosition">The requested initial position.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
     /// <param name="initiallyPaused">Whether to pause the prepared player before readiness.</param>
     /// <param name="onPrepared">Optional synchronous current-player callback.</param>
     /// <returns>The owning playback lifetime.</returns>
@@ -260,6 +263,7 @@ public partial class MainWindow : Window
         _currentFilePath = filePath;
         _currentRadioStation = radioStation;
         _currentPodcastPlayback = podcastPlayback;
+        _podcastResumePrepared = false;
         if (radioStation is null && podcastPlayback is null)
             _playedQueuePaths.Add(filePath);
 
@@ -304,7 +308,8 @@ public partial class MainWindow : Window
             : (float)VolumeSlider.Value;
         _player.ReplayGainFactor = GetReplayGainFactor(filePath);
         _currentPlaybackDuration = player.Duration;
-        if (podcastPlayback is not null &&
+        if (initialPosition == TimeSpan.Zero &&
+            podcastPlayback is not null &&
             podcastPlayback.Podcast.Id > 0 &&
             player.CanSeek)
         {
@@ -327,6 +332,7 @@ public partial class MainWindow : Window
         }
         if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
             return;
+        _podcastResumePrepared = podcastPlayback is not null;
         _lastPodcastProgressSave = DateTimeOffset.UtcNow;
         if (podcastPlayback is null && _currentOrynivoTrackRow is { } remoteResumeRow)
             _ = OfferRemoteResumeAsync(remoteResumeRow, initialPosition.TotalSeconds);
