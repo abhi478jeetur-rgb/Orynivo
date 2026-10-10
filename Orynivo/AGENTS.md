@@ -264,6 +264,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   registers disposal in the background. Normal window closure is deferred until
   pending preparation and all retirements finish; reject new starts while
   closing. Do not describe retirement alone as a complete session coordinator.
+- MCP single-track Play forwards the opaque reference to PlayFileFunc so the
+  existing playback preparation owns remote lookup. Mobile single-track Play
+  claims a start intent and preparation lease before local/server identity
+  lookup; pass captured cancellation and a dispatcher-owned registration guard.
+  Reject stale results and errors, dispose the lookup lease before readiness
+  handoff, and include pending lookup in full output-release drain. Queue
+  append/next retains its independent resolution semantics; playlist/replacement
+  lookup requires a separate intent audit.
 - Mobile/MCP play and queue-start commands await prepared-player readiness, not
   the audible lifetime. Abandoned/unavailable MCP starts are cancelled; mobile
   track and queue-index starts return false without a current ready player. Skip

@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- MCP single-track Play passes opaque remote references directly to the owning
+  playback preparation. Mobile single-track Play claims its start before local
+  or remote identity lookup. Newer starts and Stop cancel pending lookup;
+  obsolete results cannot register metadata or restart playback. Complete output
+  release also waits for pending mobile identity lookup.
+
 - Mobile Remote and MCP playback, queue replacement and skip commands complete
   after player preparation instead of waiting for track completion. Abandoned
   MCP starts are cancelled; unavailable mobile track starts return failure. The

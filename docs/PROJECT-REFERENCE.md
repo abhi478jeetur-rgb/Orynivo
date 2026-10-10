@@ -441,6 +441,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   preserves retry context. `Orynivo/Audio/PlaybackPlayerFactory.cs` is the
   creation adapter used by production routing and isolated fake-factory window
   checks; it does not introduce another active player or queue.
+- Single-track MCP Play forwards the original opaque reference to the owning
+  playback callback; do not resolve it through the independent queue resolver
+  first. Mobile single-track Play allocates start ownership and a preparation
+  lease before local/server identity lookup. Its captured token cancels pending
+  work; dispatcher registration and returned paths check the owning intent. End
+  that lease before handing off to the existing readiness start. Stop,
+  replacement and normal full output release include this pending lookup. Queue
+  append/next and playlist/replacement resolution are separate contracts and
+  still require their own command-intent audit.
 - Mobile/MCP play and queue replacement use readiness; mobile track and
   queue-index callbacks return false without their current prepared player, and
   MCP play/replace commands cancel abandoned or unavailable starts. Skip and

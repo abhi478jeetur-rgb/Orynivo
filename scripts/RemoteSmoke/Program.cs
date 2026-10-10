@@ -71,6 +71,25 @@ var run = Task.Run(async () =>
         });
         using var failedCommand = await client.PostAsJsonAsync("/remote/api/command", new { command = "pause-resume" });
         Check(failedCommand.StatusCode == HttpStatusCode.InternalServerError, "async command failure is not acknowledged as success");
+        var playbackEntered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var playbackReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var legacyLookups = 0;
+        await bridge.OnUiAsync(() =>
+        {
+            bridge.ResolveRemoteTrackFunc = _ =>
+            {
+                legacyLookups++;
+                throw new InvalidOperationException("Play must resolve inside its playback owner");
+            };
+            bridge.PlayFileFunc = async path => { playbackEntered.SetResult(path); await playbackReady.Task; };
+        });
+        const string opaqueReference = "orynivo://fixture/track/70001";
+        var toolPlay = new McpTools(bridge).PlayAsync(opaqueReference);
+        Check(await playbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(10)) == opaqueReference,
+            "MCP playback receives opaque identity before resolution");
+        Check(!toolPlay.IsCompleted && legacyLookups == 0, "MCP lookup bypassed owning playback preparation");
+        playbackReady.SetResult();
+        Check((await toolPlay).Contains(opaqueReference), "MCP confirmation retains opaque identity");
         var snapshot = await client.GetStringAsync("/remote/api/state");
         Check(!snapshot.Contains("private-path") && !snapshot.Contains("secret-path") && !snapshot.Contains(token), "safe state DTO");
         Check(snapshot.Contains("\"title\":\"Fixture track\""), "camelCase state");

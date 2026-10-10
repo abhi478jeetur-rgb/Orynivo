@@ -238,11 +238,13 @@ public partial class MainWindow
             .ToList();
     }
 
-    /// <summary>Resolves an opaque mobile result and applies a bounded playback or queue action.</summary>
-    /// <param name="identity">Opaque local or server track identity.</param>
-    /// <param name="action">One of <c>play</c>, <c>next</c>, or <c>append</c>.</param>
-    /// <returns><see langword="true"/> when the identity and action were accepted.</returns>
-    private async Task<bool> QueueMobileRemoteTrackAsync(string identity, string action)
+    /// <summary>Resolves an opaque mobile identity without publishing obsolete remote metadata.</summary>
+    /// <param name="identity">The opaque local or server identity.</param>
+    /// <param name="isCurrent">Dispatcher-owned publication guard.</param>
+    /// <param name="cancellationToken">The owning preparation token.</param>
+    /// <returns>The current playable path, or null when unavailable or superseded.</returns>
+    private async Task<string?> ResolveMobilePlaybackPathAsync(
+        string identity, Func<bool> isCurrent, CancellationToken cancellationToken)
     {
         string? path = null;
         if (identity.StartsWith("local:", StringComparison.Ordinal) &&
@@ -252,7 +254,7 @@ public partial class MainWindow
             {
                 using var db = AudioDatabase.OpenDefault();
                 return db.GetTrackById(localId)?.Path;
-            });
+            }, cancellationToken);
         }
         else if (identity.StartsWith("server:", StringComparison.Ordinal))
         {
@@ -261,18 +263,45 @@ public partial class MainWindow
                 long.TryParse(identity[(separator + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var trackId))
             {
                 var serverId = Uri.UnescapeDataString(identity[7..separator]);
-                path = await ResolveRemoteMcpTrackAsync(
-                    $"orynivo://{Uri.EscapeDataString(serverId)}/track/{trackId.ToString(CultureInfo.InvariantCulture)}");
+                path = await ResolveRemoteMcpTrackForPlaybackAsync(
+                    $"orynivo://{Uri.EscapeDataString(serverId)}/track/{trackId.ToString(CultureInfo.InvariantCulture)}", isCurrent, cancellationToken);
             }
         }
 
+        return isCurrent() ? path : null;
+    }
+
+    /// <summary>Resolves an opaque mobile result and applies a bounded playback or queue action.</summary>
+    /// <param name="identity">Opaque local or server track identity.</param>
+    /// <param name="action">One of <c>play</c>, <c>next</c>, or <c>append</c>.</param>
+    /// <returns><see langword="true"/> when the identity and action were accepted.</returns>
+    private async Task<bool> QueueMobileRemoteTrackAsync(string identity, string action)
+    {
+        var requestedAction = action.Trim().ToLowerInvariant();
+        if (requestedAction == "play")
+        {
+            if (_playbackShuttingDown) return false;
+            var intent = _playbackStarts.Begin();
+            _playbackPreparations.CancelAll();
+            using var preparation = _playbackPreparations.Begin();
+            string? resolved;
+            try
+            {
+                resolved = await ResolveMobilePlaybackPathAsync(identity,
+                    () => _playbackStarts.IsCurrent(intent), preparation.Token);
+            }
+            catch (Exception) when (!_playbackStarts.IsCurrent(intent)) { return false; }
+            if (!_playbackStarts.IsCurrent(intent) || string.IsNullOrWhiteSpace(resolved))
+                return false;
+            preparation.Dispose();
+            var player = await StartReadyPlaybackAsync(resolved);
+            return player is not null && ReferenceEquals(_player, player);
+        }
+        var path = await ResolveMobilePlaybackPathAsync(identity, () => true, CancellationToken.None);
         if (string.IsNullOrWhiteSpace(path))
             return false;
-        switch (action.Trim().ToLowerInvariant())
+        switch (requestedAction)
         {
-            case "play":
-                var player = await StartReadyPlaybackAsync(path);
-                return player is not null && ReferenceEquals(_player, player);
             case "next":
                 if (_mcpBridge.PlayNextFunc is null)
                     return false;

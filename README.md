@@ -394,6 +394,10 @@ resolved inside the desktop for playback. Do not forward this unencrypted HTTP
 port to the internet; use a trusted VPN or an HTTPS reverse proxy for access
 outside the home network.
 
+Single-track Play from MCP resolves remote references inside the owning playback
+preparation. Mobile single-track Play also guards its identity lookup: a newer
+start or Stop rejects older results before metadata registration or playback.
+
 Playback commands from Mobile Remote and MCP wait for player preparation,
 including initial seek, rather than the end of the track. Later playback errors
 remain observed by the desktop. An abandoned MCP start is cancelled; an

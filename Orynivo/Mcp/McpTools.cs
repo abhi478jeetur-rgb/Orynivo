@@ -127,7 +127,7 @@ public sealed class McpTools(McpPlayerBridge bridge)
     // Playback control
     // ------------------------------------------------------------------
 
-    /// <summary>Plays the specified file or resumes the current track.</summary>
+    /// <summary>Starts playback through its owning source resolver or resumes the current track.</summary>
     /// <param name="path">Absolute path to play. Omit to resume.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Confirmation message.</returns>
@@ -144,12 +144,10 @@ public sealed class McpTools(McpPlayerBridge bridge)
                 await bridge.OnUiAsync(async () => await bridge.TogglePauseFunc(), ct);
             return "Resumed playback.";
         }
-        var resolved = await ResolvePlayablePathAsync(path);
-        if (resolved is null)
-            return $"Could not resolve remote track reference: {path}";
+        // Playback owns remote lookup, cancellation and stale metadata guards.
         if (bridge.PlayFileFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.PlayFileFunc(resolved), ct);
-        return $"Playing: {DisplayNameForPath(path, resolved)}";
+            await bridge.OnUiAsync(async () => await bridge.PlayFileFunc(path), ct);
+        return $"Playing: {DisplayNameForPath(path, path)}";
     }
 
     /// <summary>Toggles between paused and playing states.</summary>
