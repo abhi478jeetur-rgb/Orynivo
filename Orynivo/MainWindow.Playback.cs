@@ -149,24 +149,66 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Creates a desktop window with an injected backend creation adapter.</summary>
+    /// <param name="playbackPlayerFactory">The dispatcher-invoked factory for playback creation.</param>
+    internal MainWindow(PlaybackPlayerFactory playbackPlayerFactory) : this()
+    {
+        ArgumentNullException.ThrowIfNull(playbackPlayerFactory);
+        _playbackPlayerFactory = playbackPlayerFactory;
+    }
+
+    /// <summary>Returns when preparation finishes, while observing the remaining playback lifetime.</summary>
+    /// <param name="filePath">The local path or remote playback reference.</param>
+    /// <param name="radioStation">Optional radio metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast metadata.</param>
+    /// <param name="initialPosition">The requested initial position.</param>
+    /// <param name="initiallyPaused">Whether to pause the prepared player before publishing readiness.</param>
+    /// <param name="onPrepared">Optional synchronous action on the current prepared player.</param>
+    /// <returns>The prepared player, or null for an abandoned or unavailable start.</returns>
+    private Task<IAudioPlayer?> StartReadyPlaybackAsync(
+        string filePath, RadioStationRecord? radioStation = null,
+        PodcastPlayback? podcastPlayback = null, TimeSpan initialPosition = default,
+        bool initiallyPaused = false, Action<IAudioPlayer>? onPrepared = null)
+    {
+        var readiness = new PlaybackReadiness();
+        var lifetime = StartPlaybackAsync(filePath, radioStation, podcastPlayback, initialPosition,
+            initiallyPaused, player =>
+            {
+                onPrepared?.Invoke(player);
+                readiness.Publish(player);
+            });
+        return readiness.Observe(lifetime, (player, error) =>
+        {
+            if (_playbackShuttingDown || !ReferenceEquals(_player, player))
+                return;
+            StopPlayback();
+            StatusTextBlock.Text = error is OperationCanceledException
+                ? LocalizationManager.Current.PlaybackStopped : error.Message;
+        });
+    }
+
     /// <summary>Starts the requested source and ignores results superseded by another start or stop.</summary>
     /// <param name="filePath">The local path or remote playback reference.</param>
     /// <param name="radioStation">Optional radio source metadata.</param>
     /// <param name="podcastPlayback">Optional podcast source metadata.</param>
     /// <param name="initialPosition">The requested initial position.</param>
+    /// <param name="initiallyPaused">Whether to pause before publishing readiness.</param>
+    /// <param name="onPrepared">Optional synchronous callback after preparation and ownership checks.</param>
     /// <returns>The playback lifetime, including automatic queue advancement.</returns>
     private async Task StartPlaybackAsync(
         string filePath,
         RadioStationRecord? radioStation = null,
         PodcastPlayback? podcastPlayback = null,
-        TimeSpan initialPosition = default)
+        TimeSpan initialPosition = default,
+        bool initiallyPaused = false,
+        Action<IAudioPlayer>? onPrepared = null)
     {
         if (_playbackShuttingDown)
             return;
         await _playbackStarts.RunAsync(intent =>
         {
             _playbackPreparations.CancelAll();
-            return StartPlaybackIntentAsync(intent, filePath, radioStation, podcastPlayback, initialPosition);
+            return StartPlaybackIntentAsync(intent, filePath, radioStation, podcastPlayback, initialPosition, initiallyPaused, onPrepared);
         });
     }
 
@@ -176,10 +218,13 @@ public partial class MainWindow : Window
     /// <param name="radioStation">Optional radio metadata.</param>
     /// <param name="podcastPlayback">Optional podcast metadata.</param>
     /// <param name="initialPosition">The requested initial position.</param>
+    /// <param name="initiallyPaused">Whether to pause the prepared player before readiness.</param>
+    /// <param name="onPrepared">Optional synchronous current-player callback.</param>
     /// <returns>The owning playback lifetime.</returns>
     private async Task StartPlaybackIntentAsync(
         long intent, string filePath, RadioStationRecord? radioStation,
-        PodcastPlayback? podcastPlayback, TimeSpan initialPosition)
+        PodcastPlayback? podcastPlayback, TimeSpan initialPosition,
+        bool initiallyPaused, Action<IAudioPlayer>? onPrepared)
     {
         using var preparation = _playbackPreparations.Begin();
         if (filePath.StartsWith("orynivo://", StringComparison.OrdinalIgnoreCase))
@@ -206,7 +251,7 @@ public partial class MainWindow : Window
         var playbackToken = playbackCancellation.Token;
         var created = await _playbackStarts.CreateAsync(
             intent,
-            token => CreatePlaybackPlayerAsync(filePath, radioStation is null && podcastPlayback is null, token),
+            token => _playbackPlayerFactory(filePath, radioStation is null && podcastPlayback is null, token),
             playbackToken,
             _audioPlayerRetirement);
         if (created is not { } result)
@@ -514,6 +559,11 @@ public partial class MainWindow : Window
             _currentPlayHistoryId = null;
         }
 
+        if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
+            return;
+        if (initiallyPaused)
+            PausePlayback();
+        onPrepared?.Invoke(player);
         preparation.Dispose();
         try
         {

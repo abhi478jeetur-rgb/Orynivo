@@ -539,6 +539,9 @@ public partial class MainWindow : Window
             : _queueIndex + 1 < _queue.Count;
     }
 
+    /// <summary>Transitions to the prepared next player while preserving start ownership.</summary>
+    /// <param name="fade">The duration of each volume ramp.</param>
+    /// <returns>The guarded transition lifetime.</returns>
     private async Task RunNonGaplessFadeTransitionAsync(TimeSpan fade)
     {
         if (_nonGaplessFadeTransitionInProgress || _player is null)
@@ -546,11 +549,13 @@ public partial class MainWindow : Window
 
         _nonGaplessFadeTransitionInProgress = true;
         var outgoing = _player;
+        var transitionIntent = _playbackStarts.Current;
         var outgoingVolume = outgoing.Volume;
         try
         {
             await FadePlayerVolumeAsync(outgoing, outgoingVolume, 0f, fade);
-            if (!ReferenceEquals(_player, outgoing) || !TryMoveToNextQueueIndex())
+            if (!_playbackStarts.IsCurrent(transitionIntent) ||
+                !ReferenceEquals(_player, outgoing) || !TryMoveToNextQueueIndex())
                 return;
 
             PersistPlaybackQueue();
@@ -558,18 +563,13 @@ public partial class MainWindow : Window
             RefreshQueueNavigationButtons();
 
             var nextPath = _queue[_queueIndex].FilePath;
-            var playbackTask = StartPlaybackAsync(nextPath);
-            _ = playbackTask.ContinueWith(task =>
-            {
-                if (task.Exception is { } exception)
-                    CrashLogger.Log(exception.GetBaseException(), "Non-gapless fade playback");
-            }, TaskContinuationOptions.OnlyOnFaulted);
-
-            var incoming = await WaitForCurrentPlayerReplacementAsync(outgoing, TimeSpan.FromSeconds(3));
-            if (incoming is null)
+            var ready = StartReadyPlaybackAsync(nextPath, onPrepared: player => player.Volume = 0f);
+            var incomingIntent = _playbackStarts.Current;
+            var incoming = await ready;
+            if (incoming is null || !_playbackStarts.IsCurrent(incomingIntent) ||
+                !ReferenceEquals(_player, incoming))
                 return;
             var targetVolume = GetNormalPlayerVolume();
-            incoming.Volume = 0f;
             await FadePlayerVolumeAsync(incoming, 0f, targetVolume, fade);
         }
         catch (OperationCanceledException)
@@ -587,36 +587,30 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<IAudioPlayer?> WaitForCurrentPlayerReplacementAsync(
-        IAudioPlayer outgoing,
-        TimeSpan timeout)
-    {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (_player is { } current && !ReferenceEquals(current, outgoing))
-                return current;
-            await Task.Delay(25);
-        }
-        return _player is { } player && !ReferenceEquals(player, outgoing) ? player : null;
-    }
-
+    /// <summary>Changes volume only while the captured player and start remain current.</summary>
+    /// <param name="player">The owning player.</param>
+    /// <param name="from">Initial volume.</param>
+    /// <param name="to">Target volume.</param>
+    /// <param name="duration">The ramp duration.</param>
+    /// <returns>The guarded volume ramp.</returns>
     private async Task FadePlayerVolumeAsync(
         IAudioPlayer player,
         float from,
         float to,
         TimeSpan duration)
     {
+        var fadeIntent = _playbackStarts.Current;
         var steps = Math.Max(1, (int)Math.Ceiling(duration.TotalMilliseconds / 50d));
         for (var step = 1; step <= steps; step++)
         {
-            if (!ReferenceEquals(_player, player) && step > 1)
+            if (!_playbackStarts.IsCurrent(fadeIntent) || !ReferenceEquals(_player, player))
                 return;
             var ratio = (float)step / steps;
             player.Volume = from + ((to - from) * ratio);
             await Task.Delay(TimeSpan.FromMilliseconds(duration.TotalMilliseconds / steps));
         }
-        player.Volume = to;
+        if (_playbackStarts.IsCurrent(fadeIntent) && ReferenceEquals(_player, player))
+            player.Volume = to;
     }
 
     private float GetNormalPlayerVolume() =>

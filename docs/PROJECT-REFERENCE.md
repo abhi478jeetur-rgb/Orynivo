@@ -429,7 +429,18 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   publishing UI state. Late-created players transfer to the shared retirement
   helper; obsolete lifetime errors do not reach caller stop handlers. Guard
   remote lookup registration on the dispatcher. Active player and queue remain
-  window-owned. Caller post-await actions remain further lifecycle work.
+  window-owned.
+- `Orynivo/Audio/PlaybackReadiness.cs`: dispatcher-owned prepared-player result
+  separate from track completion. Initial seek and paused state precede
+  readiness; abandoned starts return null, preparation errors reach the awaiting
+  caller, and later failures reach an active-player-guarded observer. Output
+  switching and lock reacquisition use readiness instead of awaiting the full
+  track. Selection generation guards retirement completion; fades bind to their
+  own ready player and guard every volume write, including after the final
+  delay. Failed reacquisition drains output before publishing release and
+  preserves retry context. `Orynivo/Audio/PlaybackPlayerFactory.cs` is the
+  creation adapter used by production routing and isolated fake-factory window
+  checks; it does not introduce another active player or queue.
 - `Orynivo/Audio/PlaybackPreparationTracker.cs`: dispatcher-owned cancellation
   and completion leases for lookup, creation and initial/resume seek. They end
   before waiting for track completion. Cancellation never removes an unresolved

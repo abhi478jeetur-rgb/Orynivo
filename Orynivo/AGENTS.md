@@ -264,6 +264,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   registers disposal in the background. Normal window closure is deferred until
   pending preparation and all retirements finish; reject new starts while
   closing. Do not describe retirement alone as a complete session coordinator.
+- `Audio.PlaybackReadiness` separates prepared-player publication from track
+  completion. Apply initial seek and paused state before publication. Output
+  switching and lock reacquisition await readiness; retain observation of later
+  lifetime failures and check active ownership before stopping. Guard selection
+  generation after retirement and every fade volume write, including the final
+  delay. Failed reacquisition drains output before reporting release and retains
+  its retry context. `Audio.PlaybackPlayerFactory` provides the backend creation
+  adapter; keep routing in the existing window implementation and use fake
+  factories for lifecycle verification.
 - `Audio.PlaybackStartOwnership` assigns dispatcher-owned start identifiers
   before remote lookup. Stop invalidates pending publication; a start detaches
   current playback without invalidating itself. Check ownership after disposal,

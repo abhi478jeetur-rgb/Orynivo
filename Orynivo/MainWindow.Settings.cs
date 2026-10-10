@@ -554,6 +554,9 @@ public partial class MainWindow : Window
     /// <returns>A task representing the asynchronous device switch.</returns>
     private async Task SelectOutputProfileAsync(OutputProfile profile)
     {
+        if (_playbackShuttingDown)
+            return;
+        var selectionVersion = ++_outputProfileSelectionVersion;
         if (string.Equals(profile.Name, _settings.SelectedOutputProfileName, StringComparison.Ordinal)) return;
 
         var outputChanged =
@@ -570,8 +573,15 @@ public partial class MainWindow : Window
         var wasPaused      = outputChanged && _player?.IsPaused == true;
         var shouldResume   = outputChanged && _player is not null && !string.IsNullOrEmpty(resumePath);
 
-        if (outputChanged && _player is not null)
-            await StopPlaybackAsync();
+        if (outputChanged)
+        {
+            var stopped = StopPlaybackAsync();
+            var stoppedIntent = _playbackStarts.Current;
+            await stopped;
+            if (_playbackShuttingDown || selectionVersion != _outputProfileSelectionVersion ||
+                !_playbackStarts.IsCurrent(stoppedIntent))
+                return;
+        }
 
         _settings.SelectedOutputProfileName  = profile.Name;
         _settings.OutputBackend              = profile.Backend;
@@ -586,12 +596,10 @@ public partial class MainWindow : Window
 
         if (!shouldResume)
             return;
-        try
-        {
-            await StartPlaybackAsync(resumePath, resumeStation, resumePodcast, resumePosition);
-            if (wasPaused)
-                PausePlayback();
-        }
+        var ready = StartReadyPlaybackAsync(resumePath, resumeStation, resumePodcast, resumePosition, wasPaused);
+        var resumeIntent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(resumeIntent)) { }
         catch (OperationCanceledException)
         {
             StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;
@@ -643,23 +651,26 @@ public partial class MainWindow : Window
         var podcast = _releasedOutputPodcastPlayback;
         var position = _releasedOutputPosition;
         var wasPaused = _releasedOutputWasPaused;
-        try
-        {
-            await StartPlaybackAsync(path, station, podcast, position);
-            if (wasPaused)
-                PausePlayback();
-        }
-        catch (OperationCanceledException)
-        {
-            _audioDeviceExplicitlyReleased = true;
-            UpdateOutputDeviceLockButton();
-            StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;
-        }
+        var ready = StartReadyPlaybackAsync(path, station, podcast, position, wasPaused);
+        var resumeIntent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(resumeIntent)) { }
         catch (Exception ex)
         {
+            var stopped = StopPlaybackAsync(waitForCompleteDisposal: true);
+            var stoppedIntent = _playbackStarts.Current;
+            await stopped;
+            if (_playbackShuttingDown || !_playbackStarts.IsCurrent(stoppedIntent))
+                return;
+            _releasedOutputPath = path;
+            _releasedOutputRadioStation = station;
+            _releasedOutputPodcastPlayback = podcast;
+            _releasedOutputPosition = position;
+            _releasedOutputWasPaused = wasPaused;
             _audioDeviceExplicitlyReleased = true;
             UpdateOutputDeviceLockButton();
-            StatusTextBlock.Text = ex.Message;
+            StatusTextBlock.Text = ex is OperationCanceledException
+                ? LocalizationManager.Current.PlaybackStopped : ex.Message;
         }
     }
 

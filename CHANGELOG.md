@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Switching outputs or reacquiring a released output restores the saved position
+  and paused state as soon as the player is prepared. These actions no longer
+  wait for the track to finish. Superseded output selections and fade ramps
+  cannot change newer playback; failed reacquisition drains the player before
+  reporting a released device.
+
 - Complete output release waits for pending playback lookup, creation and
   initial seek cleanup, then drains players returned after cancellation. Normal
   window close keeps the dispatcher alive until this drain finishes. Update

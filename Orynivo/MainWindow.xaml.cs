@@ -116,6 +116,8 @@ public partial class MainWindow : Window
 
     private IAudioPlayer?  _player;
     private readonly PlaybackStartOwnership _playbackStarts = new();
+    private readonly PlaybackPlayerFactory _playbackPlayerFactory;
+    private long _outputProfileSelectionVersion;
     private readonly PlaybackPreparationTracker _playbackPreparations = new();
     private bool _playbackShuttingDown;
     private bool _playbackCloseReady;
@@ -356,8 +358,10 @@ public partial class MainWindow : Window
     // Initialisierung
     // ------------------------------------------------------------------
 
+    /// <summary>Initializes the desktop window and its production playback creation adapter.</summary>
     public MainWindow()
     {
+        _playbackPlayerFactory = CreatePlaybackPlayerAsync;
         using var timing = StartupTimingLog.Time("MainWindow constructor");
         using (StartupTimingLog.Time("MainWindow.InitializeComponent"))
             InitializeComponent();

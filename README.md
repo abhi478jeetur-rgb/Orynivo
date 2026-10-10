@@ -653,6 +653,9 @@ byte-range streaming without FFmpeg.
   pending preparation and output cleanup finish; Update installation and library
   import await the same drain before application shutdown. Transport stop
   registers cleanup in the background.
+- Output switching and output-lock reacquisition restore the saved position and
+  paused state when preparation finishes, without waiting for the track to end.
+  Superseded output selections and fade ramps cannot modify newer playback.
 - Overlapping playback requests keep the latest start: obsolete remote lookups
   cannot register playback metadata, late-created players are cleaned up, and
   failures from older starts cannot stop the current player.
