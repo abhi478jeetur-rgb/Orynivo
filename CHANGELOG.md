@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- MCP queue replacement and mobile playlist Play claim playback ownership before
+  asynchronous source resolution. A newer start or Stop rejects obsolete queue
+  changes and remote metadata registration; full output release includes pending
+  resolution. Replacement preserves duplicate entries and reports the actual
+  playable count; an entirely unresolved request retains the existing queue.
+
 - MCP single-track Play passes opaque remote references directly to the owning
   playback preparation. Mobile single-track Play claims its start before local
   or remote identity lookup. Newer starts and Stop cancel pending lookup;

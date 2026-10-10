@@ -90,6 +90,19 @@ var run = Task.Run(async () =>
         Check(!toolPlay.IsCompleted && legacyLookups == 0, "MCP lookup bypassed owning playback preparation");
         playbackReady.SetResult();
         Check((await toolPlay).Contains(opaqueReference), "MCP confirmation retains opaque identity");
+        var replacementEntered = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replacementReady = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await bridge.OnUiAsync(() =>
+        {
+            bridge.ReplaceQueueFunc = async paths => { replacementEntered.SetResult(paths); return await replacementReady.Task; };
+        });
+        var queuePaths = new[] { opaqueReference, "synthetic-local.flac", "orynivo://missing/track/1" };
+        var replacementTool = new McpTools(bridge).ReplaceQueueAsync(queuePaths);
+        Check((await replacementEntered.Task.WaitAsync(TimeSpan.FromSeconds(10))).SequenceEqual(queuePaths),
+            "MCP queue resolver receives original ordered references");
+        Check(!replacementTool.IsCompleted && legacyLookups == 0, "MCP replacement resolves outside command owner");
+        replacementReady.SetResult(2);
+        Check((await replacementTool).Contains("2 track(s); 1 could not be resolved"), "queue counts use owning resolution result");
         var snapshot = await client.GetStringAsync("/remote/api/state");
         Check(!snapshot.Contains("private-path") && !snapshot.Contains("secret-path") && !snapshot.Contains(token), "safe state DTO");
         Check(snapshot.Contains("\"title\":\"Fixture track\""), "camelCase state");

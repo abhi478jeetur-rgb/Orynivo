@@ -448,8 +448,17 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   work; dispatcher registration and returned paths check the owning intent. End
   that lease before handing off to the existing readiness start. Stop,
   replacement and normal full output release include this pending lookup. Queue
-  append/next and playlist/replacement resolution are separate contracts and
-  still require their own command-intent audit.
+  append/next remain independent queue actions.
+- `MainWindow.ReplacePlaybackQueueAsync` owns an intent/preparation before
+  ordered local/remote resolution, then updates the existing queue and awaits
+  readiness. `McpPlayerBridge.ReplaceQueueFunc` accepts original references and
+  returns the prepared playable count; MCP must not resolve them before
+  dispatch. Preserve duplicate occurrences and retain the old queue if no
+  reference resolves. Mobile playlist Play captures ownership and catalog
+  generation before loading, guards registration/mutation, and ends its lease
+  before replacement handoff. Superseded results cannot replace the queue; full
+  release drains pending lookup. Playlist append keeps its existing independent
+  semantics.
 - Mobile/MCP play and queue replacement use readiness; mobile track and
   queue-index callbacks return false without their current prepared player, and
   MCP play/replace commands cancel abandoned or unavailable starts. Skip and

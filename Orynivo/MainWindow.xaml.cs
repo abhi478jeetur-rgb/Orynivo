@@ -665,19 +665,7 @@ public partial class MainWindow : Window
             await RefreshActiveGaplessQueueAsync();
         };
         _mcpBridge.ClearQueueFunc = () => ClearPlaybackQueue();
-        _mcpBridge.ReplaceQueueFunc = async paths =>
-        {
-            _queue.Clear();
-            foreach (var p in paths)
-                _queue.Add(CreatePlaylistItem(p));
-            _queueIndex = paths.Count > 0 ? 0 : -1;
-            ResetQueuePlaybackState();
-            PersistPlaybackQueue();
-            RefreshQueueRowsIfVisible();
-            RefreshQueueNavigationButtons();
-            if (paths.Count > 0)
-                await StartCommandPlaybackAsync(paths[0]);
-        };
+        _mcpBridge.ReplaceQueueFunc = ReplacePlaybackQueueAsync;
         _mcpBridge.RefreshPlaylistsFunc = LoadNavPlaylists;
         _mcpBridge.GetOrynivoServersFunc = () => _settings.OrynivoServers ?? [];
         _mcpBridge.ResolveRemoteTrackFunc = ResolveRemoteMcpTrackAsync;

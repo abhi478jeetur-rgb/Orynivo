@@ -288,8 +288,8 @@ public sealed class McpTools(McpPlayerBridge bridge)
         return "Playback queue cleared.";
     }
 
-    /// <summary>Replaces the entire playback queue with the given file paths and starts playback from the first track.</summary>
-    /// <param name="paths">Ordered list of absolute audio file paths for the new queue.</param>
+    /// <summary>Resolves and replaces the queue through its owning playback command.</summary>
+    /// <param name="paths">Ordered local paths or opaque remote references for the new queue.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Confirmation message.</returns>
     [McpServerTool(Name = "replace_queue")]
@@ -299,21 +299,14 @@ public sealed class McpTools(McpPlayerBridge bridge)
         CancellationToken ct = default)
     {
         if (!bridge.IsToolEnabled("replace_queue")) return "Tool is disabled.";
-        var resolved = new List<string>(paths.Length);
-        foreach (var p in paths)
-        {
-            var r = await ResolvePlayablePathAsync(p);
-            if (r is not null)
-                resolved.Add(r);
-        }
-        if (resolved.Count == 0)
+        var count = bridge.ReplaceQueueFunc is null ? 0
+            : await bridge.OnUiAsync(() => bridge.ReplaceQueueFunc(paths), ct);
+        if (count == 0)
             return "No playable tracks: could not resolve any of the supplied paths.";
-        if (bridge.ReplaceQueueFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.ReplaceQueueFunc(resolved), ct);
-        var skipped = paths.Length - resolved.Count;
+        var skipped = paths.Length - count;
         return skipped > 0
-            ? $"Queue replaced with {resolved.Count} track(s); {skipped} could not be resolved."
-            : $"Queue replaced with {resolved.Count} track(s).";
+            ? $"Queue replaced with {count} track(s); {skipped} could not be resolved."
+            : $"Queue replaced with {count} track(s).";
     }
 
     // ------------------------------------------------------------------

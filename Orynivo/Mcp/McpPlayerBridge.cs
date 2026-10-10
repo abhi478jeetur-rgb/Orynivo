@@ -132,8 +132,8 @@ public sealed class McpPlayerBridge
     /// <summary>Gets or sets an action that clears all items from the playback queue without stopping the current track.</summary>
     public Action? ClearQueueFunc { get; set; }
 
-    /// <summary>Gets or sets a function that replaces the entire playback queue with the given paths and starts playing the first one.</summary>
-    public Func<IReadOnlyList<string>, Task>? ReplaceQueueFunc { get; set; }
+    /// <summary>Gets or sets an owning resolver that replaces the queue and returns its prepared playable track count.</summary>
+    public Func<IReadOnlyList<string>, Task<int>>? ReplaceQueueFunc { get; set; }
 
     /// <summary>Gets or sets an action that triggers a sidebar playlist refresh after a playlist is created via MCP.</summary>
     public Action? RefreshPlaylistsFunc { get; set; }

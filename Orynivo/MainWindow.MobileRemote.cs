@@ -30,13 +30,23 @@ public partial class MainWindow
             r.OrynivoServer?.Name ?? Localization.LocalizationManager.Current.LocalSource)).ToArray();
     }
 
-    /// <summary>Registers resolved playlist metadata on the UI thread and uses the shared queue lifecycle.</summary>
+    /// <summary>Owns playlist-play resolution before registering metadata or replacing the queue.</summary>
+    /// <param name="id">The stored playlist identifier.</param>
+    /// <param name="action">Play replaces the queue; append preserves independent queue semantics.</param>
+    /// <returns>Whether current playable rows were accepted.</returns>
     private async Task<bool> QueueMobileRemotePlaylistAsync(long id, string action)
     {
         if (id <= 0 || action is not ("play" or "append")) return false;
+        if (_playbackShuttingDown) return false;
         var generation = _unifiedLibraryViewCache.Generation;
-        var result = await LoadStoredPlaylistAsync(id, CancellationToken.None);
-        if (generation != _unifiedLibraryViewCache.Generation) return false;
+        var intent = action == "play" ? _playbackStarts.Begin() : _playbackStarts.Current;
+        if (action == "play") _playbackPreparations.CancelAll();
+        using var preparation = action == "play" ? _playbackPreparations.Begin() : null;
+        LibraryLoadResult<ContentRow> result;
+        try { result = await LoadStoredPlaylistAsync(id, preparation?.Token ?? CancellationToken.None); }
+        catch (Exception) when (action == "play" && !_playbackStarts.IsCurrent(intent)) { return false; }
+        if (generation != _unifiedLibraryViewCache.Generation ||
+            (action == "play" && !_playbackStarts.IsCurrent(intent))) return false;
         var rows = result.Rows;
         var playable = rows.Where(r => r.Id.HasValue && !string.IsNullOrEmpty(r.FilePath)).ToList();
         if (playable.Count == 0) return false;
@@ -45,7 +55,11 @@ public partial class MainWindow
         if (action == "play")
         {
             if (_mcpBridge.ReplaceQueueFunc is null) return false;
-            await _mcpBridge.ReplaceQueueFunc(playable.Select(r => r.FilePath!).ToArray());
+            preparation!.Dispose();
+            var replacing = _mcpBridge.ReplaceQueueFunc(playable.Select(r => r.FilePath!).ToArray());
+            var replacementIntent = _playbackStarts.Current;
+            try { return await replacing > 0; }
+            catch (Exception) when (!_playbackStarts.IsCurrent(replacementIntent)) { return false; }
         }
         else
         {

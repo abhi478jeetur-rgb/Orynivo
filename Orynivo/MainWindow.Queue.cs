@@ -43,6 +43,48 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>Owns source resolution before replacing the authoritative queue and preparing playback.</summary>
+    /// <param name="paths">Ordered local paths or opaque remote references.</param>
+    /// <returns>The prepared queue size, or zero if no supplied track resolves.</returns>
+    private async Task<int> ReplacePlaybackQueueAsync(IReadOnlyList<string> paths)
+    {
+        if (_playbackShuttingDown)
+            throw new OperationCanceledException();
+        var intent = _playbackStarts.Begin();
+        _playbackPreparations.CancelAll();
+        using var preparation = _playbackPreparations.Begin();
+        var requested = paths.ToArray();
+        var resolved = new List<string>(requested.Length);
+        try
+        {
+            foreach (var path in requested)
+            {
+                var playable = await ResolveRemoteMcpTrackForPlaybackAsync(path,
+                    () => _playbackStarts.IsCurrent(intent), preparation.Token);
+                if (!_playbackStarts.IsCurrent(intent))
+                    throw new OperationCanceledException();
+                if (playable is not null) resolved.Add(playable);
+            }
+        }
+        catch (Exception) when (!_playbackStarts.IsCurrent(intent))
+        {
+            throw new OperationCanceledException();
+        }
+        if (!_playbackStarts.IsCurrent(intent))
+            throw new OperationCanceledException();
+        if (resolved.Count == 0) return 0;
+        preparation.Dispose();
+        _queue.Clear();
+        foreach (var path in resolved) _queue.Add(CreatePlaylistItem(path));
+        _queueIndex = 0;
+        ResetQueuePlaybackState();
+        PersistPlaybackQueue();
+        RefreshQueueRowsIfVisible();
+        RefreshQueueNavigationButtons();
+        await StartCommandPlaybackAsync(resolved[0]);
+        return resolved.Count;
+    }
+
     private void RestorePlaybackQueueState()
     {
         _queue.Clear();

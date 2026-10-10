@@ -270,8 +270,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   lookup; pass captured cancellation and a dispatcher-owned registration guard.
   Reject stale results and errors, dispose the lookup lease before readiness
   handoff, and include pending lookup in full output-release drain. Queue
-  append/next retains its independent resolution semantics; playlist/replacement
-  lookup requires a separate intent audit.
+  append/next retains its independent resolution semantics. Playlist Play and
+  queue replacement own an intent/preparation before lookup; reject obsolete
+  results before registration and queue mutation. Dispose the lookup lease
+  before readiness handoff. ReplacePlaybackQueueAsync owns ordered resolution
+  and the one authoritative queue; ReplaceQueueFunc returns the prepared
+  playable count. Preserve duplicates and keep the existing queue for entirely
+  unresolved input.
 - Mobile/MCP play and queue-start commands await prepared-player readiness, not
   the audible lifetime. Abandoned/unavailable MCP starts are cancelled; mobile
   track and queue-index starts return false without a current ready player. Skip
