@@ -106,75 +106,14 @@ public partial class MainWindow : Window
     /// <summary>Queries local rows, optionally propagating database failures to the unified loader.</summary>
     /// <param name="view">Requested local view.</param>
     /// <param name="searchQuery">Optional free-text search.</param>
-    /// <param name="registerRemoteMetadata">Whether resolved playlist metadata is registered for playback.</param>
     /// <param name="requireComplete">Whether database failures must propagate rather than resemble an empty catalog.</param>
     /// <returns>Resolved local rows.</returns>
-    private List<ContentRow> QueryRows(string view, string? searchQuery = null, bool registerRemoteMetadata = true,
+    private List<ContentRow> QueryRows(string view, string? searchQuery = null,
         bool requireComplete = false)
     {
         try
         {
             using var db = AudioDatabase.OpenDefault();
-
-            if (view.StartsWith("Playlist:") && long.TryParse(view.AsSpan("Playlist:".Length), out long pid))
-            {
-                var playlist = db.GetPlaylistById(pid);
-                if (playlist is null) return [];
-
-                if (playlist.IsSmartPlaylist && playlist.FilterCriteria is not null)
-                {
-                    SmartPlaylistCriteria criteria;
-                    try { criteria = JsonSerializer.Deserialize<SmartPlaylistCriteria>(playlist.FilterCriteria)!; }
-                    catch { return []; }
-
-                    return ResolveUnifiedSmartPlaylistRows(criteria, registerRemoteMetadata);
-                }
-
-                var ptracks = db.GetPlaylistTracks(pid).ToList();
-                return ptracks.Select((pt, i) =>
-                {
-                    var t = db.GetByPath(pt.Path);
-                    if (t is null)
-                    {
-                        if (TryResolveOrynivoPlaylistReference(pt.Path, out var server, out var trackId))
-                        {
-                            try
-                            {
-                                var provider = CreateOrynivoCatalogProvider(server);
-                                var remoteTrack = provider.GetTracksByIdsAsync([trackId])
-                                    .GetAwaiter()
-                                    .GetResult()
-                                    .FirstOrDefault();
-                                if (remoteTrack is not null)
-                                {
-                                    var remoteRow = ToCatalogTrackContentRow(remoteTrack, server, registerRemoteMetadata);
-                                    remoteRow.Nr = (i + 1).ToString();
-                                    remoteRow.PlaylistEntryId = pt.Id;
-                                    return remoteRow;
-                                }
-                            }
-                            catch
-                            {
-                                // Fall through to a plain placeholder row.
-                            }
-                        }
-
-                        return new ContentRow
-                        {
-                            Nr = (i + 1).ToString(),
-                            PlaylistEntryId = pt.Id,
-                            Title = Path.GetFileName(pt.Path),
-                            FileName = Path.GetFileName(pt.Path),
-                            FilePath = pt.Path
-                        };
-                    }
-
-                    var row = ToTrackContentRow(ToTrackListInfo(t));
-                    row.Nr = (i + 1).ToString();
-                    row.PlaylistEntryId = pt.Id;
-                    return row;
-                }).ToList();
-            }
 
             return view switch
             {

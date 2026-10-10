@@ -67,10 +67,11 @@ public partial class MainWindow : Window
     /// <returns>A task completing after publication or abandonment.</returns>
     private Task ShowSearchResultsAsync(string query) => ShowLibrarySearchResultsAsync(query);
 
-    /// <summary>Cancels pending searches and debounce work before changing navigation or source context.</summary>
+    /// <summary>Cancels pending searches, stored-playlist publication, and debounce work before changing navigation or source context.</summary>
     /// <param name="clearResult">Whether navigation also clears the published result and retry context.</param>
     private void CancelLibrarySearch(bool clearResult = true)
     {
+        CancelPlaylistLoad();
         if (clearResult)
             _searchTimer?.Stop();
         CancelAndDispose(ref _librarySearchCts);

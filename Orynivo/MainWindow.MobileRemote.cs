@@ -16,10 +16,11 @@ public partial class MainWindow
                 p.Id, p.Name, p.IsSmartPlaylist ? null : p.TrackCount, p.IsSmartPlaylist)).ToArray();
         }, ct);
 
-    /// <summary>Resolves the desktop playlist on a worker without mutating UI-owned metadata dictionaries.</summary>
+    /// <summary>Resolves the desktop playlist asynchronously without mutating UI-owned metadata dictionaries.</summary>
     private async Task<IReadOnlyList<MobileRemoteTrack>> BrowseMobileRemotePlaylistTracksAsync(long id, CancellationToken ct)
     {
-        var rows = await Task.Run(() => QueryRows($"Playlist:{id.ToString(CultureInfo.InvariantCulture)}", registerRemoteMetadata: false), ct);
+        var result = await LoadStoredPlaylistAsync(id, ct);
+        var rows = result.Rows;
         return rows.Where(r => r.Id.HasValue).Select(r => new MobileRemoteTrack(
             r.OrynivoServer is { } server
                 ? $"server:{Uri.EscapeDataString(server.Id)}:{r.Id}"
@@ -33,7 +34,10 @@ public partial class MainWindow
     private async Task<bool> QueueMobileRemotePlaylistAsync(long id, string action)
     {
         if (id <= 0 || action is not ("play" or "append")) return false;
-        var rows = await Task.Run(() => QueryRows($"Playlist:{id.ToString(CultureInfo.InvariantCulture)}", registerRemoteMetadata: false));
+        var generation = _unifiedLibraryViewCache.Generation;
+        var result = await LoadStoredPlaylistAsync(id, CancellationToken.None);
+        if (generation != _unifiedLibraryViewCache.Generation) return false;
+        var rows = result.Rows;
         var playable = rows.Where(r => r.Id.HasValue && !string.IsNullOrEmpty(r.FilePath)).ToList();
         if (playable.Count == 0) return false;
         foreach (var row in playable)

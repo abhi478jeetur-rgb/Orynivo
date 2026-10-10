@@ -8,7 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Regular mixed playlists resolve local metadata in batches and remote IDs in
+  bounded asynchronous requests. Navigation cancels pending loads and rejects
+  stale rows and playback metadata.
+
 ### Fixed
+
+- Unresolved playlist entries remain visible with localized non-playable
+  placeholders and a removal action. Failed sources offer **Try again** while
+  usable rows, selected entry, and scroll position remain available. Playing a
+  duplicate track starts its selected playlist occurrence.
 
 ## [0.46.1] - 2026-10-10
 

@@ -866,6 +866,8 @@ public sealed record LocalizedStrings(
     public string ThemeDark { get; init; } = "";
     public string StatusAvailable { get; init; } = "";
     public string StatusUnavailable { get; init; } = "";
+    /// <summary>Gets the safe display title of an unresolved stored playlist entry.</summary>
+    public string PlaylistTrackUnavailable { get; init; } = "";
     public string StatusEnabled { get; init; } = "";
     public string StatusDisabled { get; init; } = "";
     public string StatusReady { get; init; } = "";

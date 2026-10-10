@@ -35,8 +35,19 @@ internal sealed class ContentRow : INotifyPropertyChanged
     /// <summary>Gets or sets the provider-local records of a coalesced album.</summary>
     public IReadOnlyList<LogicalAlbumPart>? LogicalAlbumParts { get; set; }
 
-    /// <summary>Gets the display title.</summary>
-    public string? Title { get; init; }
+    private string? _title;
+
+    /// <summary>Gets or sets the display title, notifying bound playlist placeholders on language changes.</summary>
+    public string? Title
+    {
+        get => _title;
+        set
+        {
+            if (string.Equals(_title, value, StringComparison.Ordinal)) return;
+            _title = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Title)));
+        }
+    }
 
     /// <summary>Gets the text used for A-Z indexing, when it differs from the title.</summary>
     public string? AlphabetIndexText { get; init; }
@@ -312,8 +323,12 @@ internal sealed class ContentRow : INotifyPropertyChanged
     /// <summary>Gets or sets the remote Orynivo Server owning the row, or <see langword="null"/> for a local row.</summary>
     public OrynivoServerSettings? OrynivoServer { get; set; }
 
+    /// <summary>Gets or sets the opaque server identity retained by an unresolved playlist entry.</summary>
+    public string? UnresolvedPlaylistServerId { get; set; }
+
     /// <summary>Gets the stable source key (<c>local</c> or <c>server:&lt;id&gt;</c>) used by facets and smart playlists.</summary>
-    public string SourceKey => OrynivoServer is null ? MainWindow.LocalSourceKey : MainWindow.GetServerSourceKey(OrynivoServer.Id);
+    public string SourceKey => (OrynivoServer?.Id ?? UnresolvedPlaylistServerId) is string serverId
+        ? MainWindow.GetServerSourceKey(serverId) : MainWindow.LocalSourceKey;
 
     /// <summary>Gets the short source badge shown in the source column.</summary>
     public string SourceBadge => EntityType == "UnifiedArtist"
@@ -322,7 +337,7 @@ internal sealed class ContentRow : INotifyPropertyChanged
             ? LogicalAlbumParts?.Any(part => part.Server is null) == true
                 ? $"{LocalizationManager.Current.LocalSourceShort}+OS"
                 : "OS"
-        : OrynivoServer is null ? LocalizationManager.Current.LocalSourceShort : "OS";
+        : OrynivoServer is null && UnresolvedPlaylistServerId is null ? LocalizationManager.Current.LocalSourceShort : "OS";
 
     /// <summary>Gets the readable source name used by tooltips and detail views.</summary>
     public string? SourceName => EntityType == "UnifiedArtist"
@@ -334,7 +349,8 @@ internal sealed class ContentRow : INotifyPropertyChanged
                     .Select(part => part.Server?.Name)
                     .OfType<string>()
                     .Distinct(StringComparer.CurrentCultureIgnoreCase) ?? [])
-        : OrynivoServer?.Name ?? LocalizationManager.Current.LocalSource;
+        : OrynivoServer?.Name ?? (UnresolvedPlaylistServerId is null
+            ? LocalizationManager.Current.LocalSource : LocalizationManager.Current.OrynivoServers);
 
     private IImage? _artwork;
     private IImage? _thumbnail;

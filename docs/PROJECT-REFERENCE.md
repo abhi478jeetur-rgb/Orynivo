@@ -2523,6 +2523,23 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 - **Playlists**: display position, title, artist, album, and duration; sidebar
   entries open their live track list. Playlist tables include a first-column
   favorite heart and a source column immediately beside it.
+  `MainWindow.Playlists.Loading.cs` snapshots regular mixed-playlist entries and
+  batches local metadata off the dispatcher, closing SQLite before network work.
+  `PlaylistTrackBatchLoader` deduplicates IDs per server and sends at most 200
+  per request, with three concurrent requests and separate 20-second budgets
+  after admission. Successful batches survive other failures. Recompose rows in
+  stored order with distinct row objects and original entry IDs for duplicate
+  occurrences. Missing/deleted/unavailable entries carry a localized title and
+  opaque source context, without a playable path or track ID. They offer removal
+  only. Failed sources offer **Try again**, preserving usable rows, selection by
+  entry ID, and guarded deferred scroll restoration. Navigation and catalog
+  changes cancel/reject pending publication and playback registration. Mobile
+  browsing uses the same resolver without registration; mobile queue actions
+  register on the dispatcher and reject changed catalog generations. Imported
+  safe HTTP streams remain playable on desktop and omitted from mobile results.
+  Smart criteria still use the separate worker-based catalog resolution path;
+  its asynchronous conversion and explicit failure handling remain follow-up
+  work.
 - **Smart playlists**: store JSON criteria instead of track rows, show an orange
   vector lightning icon using the same 13-px footprint and spacing as other
   sidebar icons, resolve live when opened, and do not permit manual entry

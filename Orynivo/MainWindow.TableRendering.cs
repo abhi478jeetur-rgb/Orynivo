@@ -289,6 +289,13 @@ public partial class MainWindow : Window
         }
 
         var isTrack = !string.IsNullOrEmpty(contentRow.FilePath);
+        if (contentRow.EntityType == "MissingPlaylistTrack" && contentRow.PlaylistEntryId is long missingEntryId)
+        {
+            row.ContextFlyout = BuildRemoveFromPlaylistContextFlyout(missingEntryId, null);
+            row.AddHandler(PointerPressedEvent, PlaylistContextItem_OnPreviewMouseRightButtonDown,
+                RoutingStrategies.Tunnel, handledEventsToo: true);
+            return;
+        }
         var isAlbum = contentRow.EntityType == "Album";
         var isRemoteArtworkEntity = contentRow.EntityType is "OrynivoArtist" or "OrynivoAlbum";
         if (isRemoteArtworkEntity)

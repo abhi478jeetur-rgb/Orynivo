@@ -293,6 +293,20 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   local mixed-playlist list. Remote selections retain playable URLs only for
   queue actions and persist stable `orynivo://serverId/track/trackId`
   references; hidden legacy server playlists must not be offered by these menus.
+- Regular mixed playlists load through `MainWindow.Playlists.Loading.cs`;
+  `QueryRows` must never resolve stored remote entries synchronously. Snapshot
+  entries and batch local metadata, then close SQLite before remote requests.
+  Deduplicate IDs per server and request at most 200 per batch, with at most
+  three requests in flight and a budget after admission. Preserve order,
+  duplicate occurrences, and entry IDs. Unresolved rows have no playable path or
+  track ID; retain only opaque source identity and offer removal, never queue or
+  drag actions. Retry preserves current selection and scroll; navigation,
+  context changes, and deferred restoration guard the owning version and catalog
+  generation. Register remote playback rows only on the dispatcher after that
+  guard. Mobile browsing reuses resolution without registration and omits
+  unresolved rows and imported streams. Smart criteria currently retain their
+  separate worker-based catalog pipeline; do not claim its requests are batched
+  or its failures have regular-playlist outcome semantics.
 - Shared local/remote Artists, Albums, and Tracks views use the common column
   masks and catalog abstractions. Do not create parallel remote-only UI
   surfaces.

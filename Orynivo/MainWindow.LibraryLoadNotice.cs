@@ -27,7 +27,7 @@ public partial class MainWindow
             text = GetLibrarySearchNoticeText();
         LibraryLoadNotice.IsVisible = text.Length > 0;
         LibraryLoadNoticeMessage.Text = text;
-        var busy = _unifiedLibraryRetryVersion.HasValue || _librarySearchRetryVersion.HasValue;
+        var busy = _unifiedLibraryRetryVersion.HasValue || _librarySearchRetryVersion.HasValue || _playlistRetrying;
         LibraryLoadRetryButton.IsEnabled = !busy;
         LibraryLoadRetryButton.Content = busy
             ? LocalizationManager.Current.LibraryLoadRetrying
@@ -39,6 +39,12 @@ public partial class MainWindow
     /// <param name="e">Button activation event.</param>
     private async void LibraryLoadRetryButton_OnClick(object? sender, RoutedEventArgs e)
     {
+        if (_activePlaylistId is long playlistId &&
+            _unifiedLibraryLoadResult?.Status is LibraryLoadStatus.Partial or LibraryLoadStatus.Failed)
+        {
+            if (!_playlistRetrying) await ShowStoredPlaylistAsync(playlistId, isRetry: true);
+            return;
+        }
         if (SearchResultsScrollViewer.IsVisible && _librarySearchLoadResult?.Status is LibraryLoadStatus.Partial or LibraryLoadStatus.Failed)
         {
             if (_librarySearchRetryVersion.HasValue || _librarySearchQuery is null)

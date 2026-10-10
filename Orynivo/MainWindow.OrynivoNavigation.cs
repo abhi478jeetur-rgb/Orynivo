@@ -223,17 +223,24 @@ public partial class MainWindow : Window
         RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset);
     }
 
+    /// <summary>Queues playable rows and starts the selected occurrence, preserving playlist duplicates.</summary>
+    /// <param name="row">Selected row occurrence.</param>
+    /// <param name="allRows">Ordered context rows, including any non-playable placeholders.</param>
+    /// <returns>A task completing after playback starts or reports its failure.</returns>
     private async Task PlayTrackFromRowsAsync(ContentRow row, List<ContentRow> allRows)
     {
         if (string.IsNullOrEmpty(row.FilePath))
             return;
 
+        var playableRows = allRows.Where(r => !string.IsNullOrEmpty(r.FilePath)).ToList();
+        var selectedIndex = PlaylistRowPlaybackIndex.Find(row, playableRows);
+        if (selectedIndex < 0) return;
         StopInfiniteMix();
         _queue.Clear();
-        foreach (var r in allRows.Where(r => !string.IsNullOrEmpty(r.FilePath)))
+        foreach (var r in playableRows)
             _queue.Add(ToPlaylistItem(r));
 
-        _queueIndex = _queue.IndexOf(_queue.FirstOrDefault(p => p.FilePath == row.FilePath) ?? _queue[0]);
+        _queueIndex = selectedIndex;
         ResetQueuePlaybackState();
         PersistPlaybackQueue();
         RefreshQueueNavigationButtons();

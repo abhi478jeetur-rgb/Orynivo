@@ -712,7 +712,11 @@ byte-range streaming without FFmpeg.
   Orynivo Server tracks. Server tracks are stored in local playlists as stable
   `orynivo://` references and resolved to authenticated stream URLs only when
   they are opened or queued, so `?key=` stream URLs are not persisted. Playlist
-  tables show the favorite heart first and the source column next to it. Smart
+  tables show the favorite heart first and the source column next to it. Regular
+  mixed playlists batch local metadata and remote ID lookups, preserve order and
+  duplicate entries, and cancel abandoned loads. Unavailable entries stay
+  visible as non-playable placeholders that can be removed. Failed sources offer
+  **Try again**, retaining usable rows and the selected entry/position. Smart
   playlists resolve against the combined local and configured Orynivo Server
   track set. Server catalogs are loaded across all pages; outdated incomplete
   track caches are rebuilt automatically without changing favorites.

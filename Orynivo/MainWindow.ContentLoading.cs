@@ -298,11 +298,16 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    var rows = await Task.Run(() => QueryRows(tag));
-                    ApplyColumns(tag);
-                    ContentDataGrid.ItemsSource = rows;
-                    UpdateAlphabetIndex(rows, false);
-                    ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(rows.Count);
+                    if (_activePlaylistId is long storedPlaylistId)
+                        await ShowStoredPlaylistAsync(storedPlaylistId);
+                    else
+                    {
+                        var rows = await Task.Run(() => QueryRows(tag));
+                        ApplyColumns(tag);
+                        ContentDataGrid.ItemsSource = rows;
+                        UpdateAlphabetIndex(rows, false);
+                        ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(rows.Count);
+                    }
                 }
             }
         }
