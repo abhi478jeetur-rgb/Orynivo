@@ -731,6 +731,8 @@ public sealed record LocalizedStrings(
     public string SmartPlaylistPreviewCount { get; init; } = "";
     /// <summary>Gets the smart-playlist editor preview status while the count is being computed.</summary>
     public string SmartPlaylistPreviewComputing { get; init; } = "";
+    /// <summary>Gets the unavailable smart-playlist match-count preview message.</summary>
+    public string SmartPlaylistPreviewUnavailable { get; init; } = "";
     /// <summary>Gets the smart-playlist editor preview status when the criteria are invalid.</summary>
     public string SmartPlaylistPreviewInvalid { get; init; } = "";
     /// <summary>Gets the Up Next "restore last queue" button label.</summary>

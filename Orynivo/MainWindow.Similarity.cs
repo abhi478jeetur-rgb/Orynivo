@@ -440,61 +440,6 @@ public partial class MainWindow
         }).ConfigureAwait(true);
     }
 
-    /// <summary>
-    /// Loads the similarity vectors used to resolve a similarity smart playlist.
-    /// Remote vectors are re-keyed onto the smart-playlist candidate provider key
-    /// and pseudo-IDs so the shared Core resolver can match them; unavailable
-    /// servers are skipped. Blocks on the cached feature load, so it must run off
-    /// the UI thread.
-    /// </summary>
-    /// <param name="criteria">Criteria being resolved; vectors load only for a configured reference.</param>
-    /// <param name="remoteTracks">Pseudo-ID to (server, track) map produced by the candidate build.</param>
-    /// <returns>The translated vectors, or <see langword="null"/> when none are available.</returns>
-    private IReadOnlyList<SimilarityFeatureVector>? BuildSmartPlaylistSimilarityFeatures(
-        SmartPlaylistCriteria criteria,
-        Dictionary<long, (Orynivo.Streaming.OrynivoServerSettings Server, LibraryCatalogTrack Track)> remoteTracks)
-    {
-        if (string.IsNullOrWhiteSpace(criteria.SimilaritySourceKey) || criteria.SimilarityTrackId is null)
-            return null;
-
-        try
-        {
-            var vectors = LoadAvailableSimilarityFeaturesAsync().GetAwaiter().GetResult();
-            if (vectors.Count == 0)
-                return null;
-
-            var pseudoIdByRealTrack = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (pseudoId, entry) in remoteTracks)
-                pseudoIdByRealTrack[$"{entry.Server.Id}\u001f{entry.Track.Id}"] = pseudoId;
-
-            var translated = new List<SimilarityFeatureVector>(vectors.Count);
-            foreach (var vector in vectors)
-            {
-                if (!vector.SourceKey.StartsWith("orynivo:", StringComparison.Ordinal))
-                {
-                    translated.Add(vector);
-                    continue;
-                }
-
-                var serverId = vector.SourceKey["orynivo:".Length..];
-                if (!pseudoIdByRealTrack.TryGetValue($"{serverId}\u001f{vector.TrackId}", out var pseudoId))
-                    continue;
-                translated.Add(vector with
-                {
-                    SourceKey = GetServerSourceKey(serverId),
-                    TrackId = pseudoId
-                });
-            }
-
-            return translated.Count > 0 ? translated : null;
-        }
-        catch (Exception exception)
-        {
-            Debug.WriteLine($"Smart playlist similarity features failed: {exception.GetType().Name}");
-            return null;
-        }
-    }
-
     private async Task<List<SimilarityFeatureVector>> LoadAllSimilarityFeaturesAsync(Orynivo.Streaming.OrynivoServerSettings server)
     {
         var result = new List<SimilarityFeatureVector>();

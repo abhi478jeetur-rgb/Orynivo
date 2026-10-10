@@ -8,12 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Shared smart playlists load selected catalogs and similarity features with
+  bounded asynchronous requests and cancellation. Partial results offer retry;
+  incomplete counts show an unavailable preview in all seven interface
+  languages.
 - Regular mixed playlists resolve local metadata in batches and remote IDs in
   bounded asynchronous requests. Navigation cancels pending loads and rejects
   stale rows and playback metadata.
 
 ### Fixed
 
+- Remote similarity smart-playlist references now resolve correctly when server
+  track IDs overlap with local or other server IDs. Runtime identity projection
+  preserves stored criteria, source filters, and personal favorites.
 - Unresolved playlist entries remain visible with localized non-playable
   placeholders and a removal action. Failed sources offer **Try again** while
   usable rows, selected entry, and scroll position remain available. Playing a

@@ -1883,23 +1883,28 @@ public sealed class OrynivoServerClient : IDisposable
     /// <param name="page">Zero-based page index.</param>
     /// <param name="pageSize">Requested page size, bounded by the server.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>Provider-rebased vectors, or an empty list for older or unavailable servers.</returns>
+    /// <param name="requireComplete">Whether HTTP, payload and cancellation failures must propagate.</param>
+    /// <returns>Provider-rebased vectors; tolerant callers receive an empty list on failure.</returns>
     public async Task<List<SimilarityFeatureVector>> GetSimilarityFeaturesAsync(
         OrynivoServerSettings server,
         int page = 0,
         int pageSize = 500,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        bool requireComplete = false)
     {
+        if (requireComplete) cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var vectors = await GetJsonAsync<List<SimilarityFeatureVector>>(
                 server,
                 $"/api/tracks/similarity-features?page={Math.Max(0, page)}&pageSize={Math.Clamp(pageSize, 1, 2000)}",
-                cancellationToken) ?? [];
+                cancellationToken);
+            if (vectors is null && requireComplete)
+                throw new JsonException("Missing similarity feature array.");
             var sourceKey = $"orynivo:{server.Id}";
-            return vectors.Select(vector => vector with { SourceKey = sourceKey }).ToList();
+            return (vectors ?? []).Select(vector => vector with { SourceKey = sourceKey }).ToList();
         }
-        catch
+        catch when (!requireComplete)
         {
             return [];
         }

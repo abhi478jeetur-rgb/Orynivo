@@ -417,13 +417,17 @@ public partial class MainWindow : Window
     /// <summary>Loads a complete remote track catalog, reusing only a current validated disk snapshot.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
+    /// <param name="favorites">Optional captured personal favorites for an isolated operation.</param>
     /// <returns>All tracks after every page succeeds, with current client favorites.</returns>
     private async Task<List<LibraryCatalogTrack>> LoadAllOrynivoTracksAsync(
         OrynivoServerSettings server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? favorites = null)
     {
         // Every writer of the shared disk cache must use strict requests.
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = favorites is null ? CreateCompleteOrynivoCatalogProvider(server)
+            : new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+                (entity, id) => favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         // The server reports when its library index last changed; reuse the
         // locally cached track list while that timestamp is unchanged so the
         // full list does not have to be downloaded on every visit.
@@ -462,7 +466,9 @@ public partial class MainWindow : Window
         // library timestamp changing, so re-apply them after loading (including
         // from the cache) instead of trusting the cached favourite flags.
         return tracks
-            .Select(track => track with { IsFavorite = IsOrynivoFavorite(server, "Track", track.Id) })
+            .Select(track => track with { IsFavorite = favorites is null
+                ? IsOrynivoFavorite(server, "Track", track.Id)
+                : favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Track", track.Id)) })
             .ToList();
     }
 

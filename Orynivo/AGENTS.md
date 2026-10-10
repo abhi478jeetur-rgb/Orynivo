@@ -304,9 +304,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   context changes, and deferred restoration guard the owning version and catalog
   generation. Register remote playback rows only on the dispatcher after that
   guard. Mobile browsing reuses resolution without registration and omits
-  unresolved rows and imported streams. Smart criteria currently retain their
-  separate worker-based catalog pipeline; do not claim its requests are batched
-  or its failures have regular-playlist outcome semantics.
+  unresolved rows and imported streams. Shared smart playlists use
+  `MainWindow.SmartPlaylists.Loading.cs`: capture source/profile/favorites, load
+  selected catalogs plus any excluded similarity seed source, and fetch strict
+  feature pages with at most three concurrent server loads and budgets after
+  admission. Keep local SQLite work and composition off the dispatcher. Never
+  reuse incomplete feature data as a complete catalog or trigger feature
+  analysis from a count preview. `SmartPlaylistSimilarityProjection` translates
+  both vectors and the seed onto transient IDs without changing saved criteria.
+  Counts are available only for complete current-generation results. Cancel
+  preview work before debounce and on dialog close; obsolete results and errors
+  must not overwrite current preview text. Smart retries restore source and
+  track identity because smart rows have no stored occurrence ID.
 - Shared local/remote Artists, Albums, and Tracks views use the common column
   masks and catalog abstractions. Do not create parallel remote-only UI
   surfaces.

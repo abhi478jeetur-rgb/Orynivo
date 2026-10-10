@@ -51,13 +51,11 @@ public partial class MainWindow
             return (Playlist: playlist, Entries: entries, Tracks: tracks);
         }, cancellationToken);
         cancellationToken.ThrowIfCancellationRequested();
-        if (snapshot.Playlist is { IsSmartPlaylist: true, FilterCriteria: not null } smart)
+        if (snapshot.Playlist is { IsSmartPlaylist: true } smart)
         {
-            var criteria = JsonSerializer.Deserialize<SmartPlaylistCriteria>(smart.FilterCriteria);
-            var smartRows = criteria is null ? [] : await Task.Run(
-                () => ResolveUnifiedSmartPlaylistRows(criteria, registerRemoteMetadata: false), cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            return new(smartRows, [new("smart", LibrarySourceLoadStatus.Success)]);
+            var criteria = JsonSerializer.Deserialize<SmartPlaylistCriteria>(smart.FilterCriteria ?? "null")
+                ?? throw new JsonException("Missing smart playlist criteria.");
+            return await ResolveUnifiedSmartPlaylistRowsAsync(criteria, cancellationToken);
         }
         var requests = new Dictionary<string, List<long>>(StringComparer.Ordinal);
         foreach (var entry in snapshot.Entries)
@@ -143,7 +141,7 @@ public partial class MainWindow
             if (token.IsCancellationRequested || version != _playlistLoadVersion ||
                 generation != _unifiedLibraryViewCache.Generation || _activePlaylistId != id)
                 return;
-            var selection = isRetry ? (ContentDataGrid.SelectedItem as ContentRow)?.PlaylistEntryId : null;
+            var selection = isRetry ? ContentDataGrid.SelectedItem as ContentRow : null;
             var offset = isRetry ? CaptureCurrentVerticalOffset() : null;
             foreach (var row in result.Rows)
                 if (row.OrynivoServer is not null && !string.IsNullOrEmpty(row.FilePath))
@@ -151,8 +149,10 @@ public partial class MainWindow
             _unifiedLibraryLoadResult = result;
             ApplyColumns($"Playlist:{id}");
             ContentDataGrid.ItemsSource = result.Rows;
-            if (selection.HasValue)
-                ContentDataGrid.SelectedItem = result.Rows.FirstOrDefault(row => row.PlaylistEntryId == selection);
+            if (selection is not null)
+                ContentDataGrid.SelectedItem = result.Rows.FirstOrDefault(row => selection.PlaylistEntryId.HasValue
+                    ? row.PlaylistEntryId == selection.PlaylistEntryId
+                    : row.Id == selection.Id && row.SourceKey == selection.SourceKey);
             if (offset.HasValue)
                 RestoreDataGridPositionAfterLayout(ContentDataGrid.SelectedItem as ContentRow, offset,
                     () => version == _playlistLoadVersion && generation == _unifiedLibraryViewCache.Generation && _activePlaylistId == id);
@@ -163,7 +163,8 @@ public partial class MainWindow
         catch (OperationCanceledException) when (token.IsCancellationRequested) { }
         catch
         {
-            if (version == _playlistLoadVersion && _activePlaylistId == id)
+            if (!token.IsCancellationRequested && version == _playlistLoadVersion &&
+                generation == _unifiedLibraryViewCache.Generation && _activePlaylistId == id)
             {
                 _unifiedLibraryLoadResult = new([], [new("local", LibrarySourceLoadStatus.Failed)]);
                 UpdateUnifiedLibraryLoadNotice();

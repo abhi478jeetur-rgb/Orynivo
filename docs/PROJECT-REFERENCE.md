@@ -2537,16 +2537,33 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   browsing uses the same resolver without registration; mobile queue actions
   register on the dispatcher and reject changed catalog generations. Imported
   safe HTTP streams remain playable on desktop and omitted from mobile results.
-  Smart criteria still use the separate worker-based catalog resolution path;
-  its asynchronous conversion and explicit failure handling remain follow-up
-  work.
+  Smart criteria use the asynchronous resolver described below.
 - **Smart playlists**: store JSON criteria instead of track rows, show an orange
   vector lightning icon using the same 13-px footprint and spacing as other
   sidebar icons, resolve live when opened, and do not permit manual entry
   removal. Criteria can include favourites, genre, format, bitrate, year,
   artist, album, duration, recently added/played windows, never played,
   playback-count ranges, alphabetical/random/recent/least-recent ordering, and a
-  result limit.
+  result limit. `MainWindow.SmartPlaylists.Loading.cs` captures criteria and
+  source/profile/favorite context, loads local candidates off the dispatcher,
+  and loads remote catalogs and strict similarity feature pages with at most
+  three simultaneous source loads and 60-second budgets starting after
+  admission. Sources excluded by criteria are skipped, except the similarity
+  reference's source, which must still provide its seed. SQLite is closed before
+  network awaits; matched local IDs are hydrated together after evaluation.
+  Source failures retain available rows and the existing retry notice. A missing
+  configured source is a failure, while a successful empty catalog is valid.
+  `SmartPlaylistSimilarityProjection` maps both remote feature vectors and the
+  persisted seed identity onto negative candidate IDs, retaining local IDs and
+  every stored filter without modifying saved JSON. Provider-local ID collisions
+  remain isolated. Only current version/generation results register playback
+  metadata; mobile browsing shares resolution without registration. Retry
+  preserves source/track selection and guarded scroll. Count previews use the
+  same resolver without row hydration, report only complete current-generation
+  counts, and display a seven-language unavailable message otherwise. Criteria
+  changes cancel before debounce; dialog close cancels pending work. Obsolete
+  completions and errors cannot replace current text. This path does not reuse
+  tolerant feature caches or schedule opportunistic audio-feature analysis.
 - **Save smart playlist**: available in the local and remote Orynivo Server
   Tracks views when facet filters are active **or** the search box holds a
   query; opens the compact `NewPlaylistDialog` and serializes the active

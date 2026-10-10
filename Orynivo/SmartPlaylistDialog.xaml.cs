@@ -32,6 +32,7 @@ public partial class SmartPlaylistDialog : Window
     /// used for the live preview. When <see langword="null"/> the preview line stays hidden
     /// (e.g. for remote smart playlists that cannot be resolved ad hoc). Set by the caller
     /// before the dialog is shown.
+    /// A null result denotes unavailable source data and shows an unavailable-count message.
     /// </summary>
     public Func<SmartPlaylistCriteria, CancellationToken, Task<int?>>? CountResolver { get; set; }
 
@@ -80,6 +81,13 @@ public partial class SmartPlaylistDialog : Window
         {
             if (e.Key == Key.Escape)
                 Close(false);
+        };
+        Closed += (_, _) =>
+        {
+            _previewTimer?.Stop();
+            _previewCts?.Cancel();
+            _previewCts?.Dispose();
+            _previewCts = null;
         };
     }
 
@@ -274,11 +282,13 @@ public partial class SmartPlaylistDialog : Window
         SortOrderComboBox.SelectionChanged += (_, _) => SchedulePreview();
     }
 
-    /// <summary>Restarts the debounce timer so the preview updates shortly after typing stops.</summary>
+    /// <summary>Cancels obsolete work immediately and restarts the preview debounce timer.</summary>
     private void SchedulePreview()
     {
         if (CountResolver is null)
             return;
+        _previewCts?.Cancel();
+        PreviewTextBlock.Text = LocalizationManager.Current.SmartPlaylistPreviewComputing;
         _previewTimer ??= CreatePreviewTimer();
         _previewTimer.Stop();
         _previewTimer.Start();
@@ -306,6 +316,7 @@ public partial class SmartPlaylistDialog : Window
         }
 
         PreviewTextBlock.IsVisible = true;
+        _previewCts?.Cancel();
         if (!TryBuildCriteriaCore(out var criteria))
         {
             PreviewTextBlock.Text = LocalizationManager.Current.SmartPlaylistPreviewInvalid;
@@ -325,12 +336,13 @@ public partial class SmartPlaylistDialog : Window
                 return;
             PreviewTextBlock.Text = count.HasValue
                 ? string.Format(LocalizationManager.Current.SmartPlaylistPreviewCount, count.Value)
-                : string.Empty;
+                : LocalizationManager.Current.SmartPlaylistPreviewUnavailable;
         }
         catch (OperationCanceledException) { }
         catch
         {
-            PreviewTextBlock.Text = string.Empty;
+            if (!ct.IsCancellationRequested)
+                PreviewTextBlock.Text = LocalizationManager.Current.SmartPlaylistPreviewUnavailable;
         }
     }
 
