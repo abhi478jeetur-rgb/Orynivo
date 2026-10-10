@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Mobile Remote and MCP playback, queue replacement and skip commands complete
+  after player preparation instead of waiting for track completion. Abandoned
+  MCP starts are cancelled; unavailable mobile track starts return failure. The
+  UI bridge now awaits asynchronous actions and propagates their errors. The
+  remote smoke test uses the matching Avalonia headless runtime and covers HTTP
+  acknowledgement and asynchronous failure propagation.
+
 - Switching outputs or reacquiring a released output restores the saved position
   and paused state as soon as the player is prepared. These actions no longer
   wait for the track to finish. Superseded output selections and fade ramps

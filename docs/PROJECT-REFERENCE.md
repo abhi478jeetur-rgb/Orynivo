@@ -441,6 +441,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   preserves retry context. `Orynivo/Audio/PlaybackPlayerFactory.cs` is the
   creation adapter used by production routing and isolated fake-factory window
   checks; it does not introduce another active player or queue.
+- Mobile/MCP play and queue replacement use readiness; mobile track and
+  queue-index callbacks return false without their current prepared player, and
+  MCP play/replace commands cancel abandoned or unavailable starts. Skip and
+  initial play-toggle complete after preparation; automatic queue advancement
+  still awaits its normal lifecycle. Later errors remain observed by readiness.
+  `McpPlayerBridge.OnUiAsync(Func<Task>, CancellationToken)` unwraps
+  asynchronous actions and propagates their failures, checking cancellation
+  before dispatch. This does not add request-token cancellation of an accepted
+  playback session.
 - `Orynivo/Audio/PlaybackPreparationTracker.cs`: dispatcher-owned cancellation
   and completion leases for lookup, creation and initial/resume seek. They end
   before waiting for track completion. Cancellation never removes an unresolved

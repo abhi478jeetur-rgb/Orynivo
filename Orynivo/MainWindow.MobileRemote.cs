@@ -271,8 +271,8 @@ public partial class MainWindow
         switch (action.Trim().ToLowerInvariant())
         {
             case "play":
-                await StartPlaybackAsync(path);
-                return true;
+                var player = await StartReadyPlaybackAsync(path);
+                return player is not null && ReferenceEquals(_player, player);
             case "next":
                 if (_mcpBridge.PlayNextFunc is null)
                     return false;

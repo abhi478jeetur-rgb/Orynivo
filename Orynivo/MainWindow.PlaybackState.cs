@@ -205,6 +205,8 @@ public partial class MainWindow : Window
     private async void PreviousButton_OnClick(object? sender, RoutedEventArgs e) =>
         await PlayPreviousAsync();
 
+    /// <summary>Prepares the preceding queue track without awaiting its audible lifetime.</summary>
+    /// <returns>The preparation and guarded UI error handling.</returns>
     private async Task PlayPreviousAsync()
     {
         if (!TryMoveToPreviousQueueIndex())
@@ -214,7 +216,10 @@ public partial class MainWindow : Window
         RefreshQueueRowsIfVisible();
         RefreshQueueNavigationButtons();
 
-        try { await StartPlaybackAsync(_queue[_queueIndex].FilePath); }
+        var ready = StartReadyPlaybackAsync(_queue[_queueIndex].FilePath);
+        var intent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
@@ -222,6 +227,8 @@ public partial class MainWindow : Window
     private async void NextButton_OnClick(object? sender, RoutedEventArgs e) =>
         await PlayNextAsync();
 
+    /// <summary>Prepares the next queue track without awaiting its audible lifetime.</summary>
+    /// <returns>The preparation and guarded UI error handling.</returns>
     private async Task PlayNextAsync()
     {
         if (!TryMoveToNextQueueIndex())
@@ -231,7 +238,10 @@ public partial class MainWindow : Window
         RefreshQueueRowsIfVisible();
         RefreshQueueNavigationButtons();
 
-        try { await StartPlaybackAsync(_queue[_queueIndex].FilePath); }
+        var ready = StartReadyPlaybackAsync(_queue[_queueIndex].FilePath);
+        var intent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }

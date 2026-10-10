@@ -618,8 +618,8 @@ public partial class MainWindow : Window
             if (index < 0 || index >= _queue.Count)
                 return false;
             _queueIndex = index;
-            await StartPlaybackAsync(_queue[index].FilePath);
-            return true;
+            var player = await StartReadyPlaybackAsync(_queue[index].FilePath);
+            return player is not null && ReferenceEquals(_player, player);
         };
         _mcpBridge.SearchMobileTracksFunc = SearchMobileRemoteTracksAsync;
         _mcpBridge.BrowseMobileArtistsFunc = BrowseMobileRemoteArtistsAsync;
@@ -634,7 +634,7 @@ public partial class MainWindow : Window
                 ? _currentTrackIsFavorite
                 : null;
         _mcpBridge.EditMobileQueueFunc = EditMobileRemoteQueueAsync;
-        _mcpBridge.PlayFileFunc    = path => StartPlaybackAsync(path);
+        _mcpBridge.PlayFileFunc    = path => StartCommandPlaybackAsync(path);
         _mcpBridge.TogglePauseFunc = TogglePlaybackAsync;
         _mcpBridge.SkipNextFunc    = PlayNextAsync;
         _mcpBridge.SkipPreviousFunc = PlayPreviousAsync;
@@ -676,7 +676,7 @@ public partial class MainWindow : Window
             RefreshQueueRowsIfVisible();
             RefreshQueueNavigationButtons();
             if (paths.Count > 0)
-                await StartPlaybackAsync(paths[0]);
+                await StartCommandPlaybackAsync(paths[0]);
         };
         _mcpBridge.RefreshPlaylistsFunc = LoadNavPlaylists;
         _mcpBridge.GetOrynivoServersFunc = () => _settings.OrynivoServers ?? [];

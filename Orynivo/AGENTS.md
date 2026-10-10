@@ -264,6 +264,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   registers disposal in the background. Normal window closure is deferred until
   pending preparation and all retirements finish; reject new starts while
   closing. Do not describe retirement alone as a complete session coordinator.
+- Mobile/MCP play and queue-start commands await prepared-player readiness, not
+  the audible lifetime. Abandoned/unavailable MCP starts are cancelled; mobile
+  track and queue-index starts return false without a current ready player. Skip
+  and initial play-toggle return after preparation while automatic queue
+  advancement retains its lifetime handling. Guard UI error handlers against
+  superseded starts. `McpPlayerBridge.OnUiAsync(Func<Task>, CancellationToken)`
+  must unwrap asynchronous actions and propagate failures; reject cancellation
+  before dispatch. Request cancellation does not implicitly stop active
+  playback.
 - `Audio.PlaybackReadiness` separates prepared-player publication from track
   completion. Apply initial seek and paused state before publication. Output
   switching and lock reacquisition await readiness; retain observation of later

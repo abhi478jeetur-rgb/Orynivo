@@ -76,6 +76,8 @@ public partial class MainWindow : Window
     private async void PlayButton_OnClick(object? sender, RoutedEventArgs e) =>
         await TogglePlaybackAsync();
 
+    /// <summary>Toggles the active player or prepares the selected source.</summary>
+    /// <returns>The pause/resume action or initial preparation.</returns>
     private async Task TogglePlaybackAsync()
     {
         if (_player is not null)
@@ -98,6 +100,8 @@ public partial class MainWindow : Window
         await ResumeOrStartPlaybackAsync();
     }
 
+    /// <summary>Resumes the active player or returns when source preparation finishes.</summary>
+    /// <returns>The resume action or guarded preparation.</returns>
     private async Task ResumeOrStartPlaybackAsync()
     {
         if (_player is not null)
@@ -116,7 +120,10 @@ public partial class MainWindow : Window
             StatusTextBlock.Text = LocalizationManager.Current.SelectTrackFirst;
             return;
         }
-        try { await StartPlaybackAsync(_currentFilePath, _currentRadioStation, _currentPodcastPlayback); }
+        var ready = StartReadyPlaybackAsync(_currentFilePath, _currentRadioStation, _currentPodcastPlayback);
+        var intent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
@@ -185,6 +192,16 @@ public partial class MainWindow : Window
             StatusTextBlock.Text = error is OperationCanceledException
                 ? LocalizationManager.Current.PlaybackStopped : error.Message;
         });
+    }
+
+    /// <summary>Completes a remote command only after its own player is prepared.</summary>
+    /// <param name="filePath">The source to play.</param>
+    /// <returns>Preparation completion; abandoned or unavailable starts are cancelled.</returns>
+    private async Task StartCommandPlaybackAsync(string filePath)
+    {
+        var player = await StartReadyPlaybackAsync(filePath);
+        if (player is null || !ReferenceEquals(_player, player))
+            throw new OperationCanceledException(LocalizationManager.Current.PlaybackStopped);
     }
 
     /// <summary>Starts the requested source and ignores results superseded by another start or stop.</summary>

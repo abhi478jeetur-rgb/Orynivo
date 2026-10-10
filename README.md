@@ -394,6 +394,11 @@ resolved inside the desktop for playback. Do not forward this unencrypted HTTP
 port to the internet; use a trusted VPN or an HTTPS reverse proxy for access
 outside the home network.
 
+Playback commands from Mobile Remote and MCP wait for player preparation,
+including initial seek, rather than the end of the track. Later playback errors
+remain observed by the desktop. An abandoned MCP start is cancelled; an
+unavailable mobile track or queue-index start is not reported as successful.
+
 Remote verification:
 `dotnet run --project scripts/RemoteSmoke/RemoteSmoke.csproj` checks the
 production host with synthetic data. With Node.js and Playwright available,

@@ -16,6 +16,7 @@ using Orynivo;
 using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(45));
 var fixtureDirectory = Path.Combine(Path.GetTempPath(), "orynivo-remote-smoke-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(fixtureDirectory);
+File.WriteAllText(Path.Combine(fixtureDirectory, ".legacy-data-migrated"), "isolated fixture");
 Environment.SetEnvironmentVariable("ORYNIVO_DATA_DIR", fixtureDirectory);
 AppBuilder.Configure<Application>().UseHeadless(new AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
 var dispatcher = Dispatcher.UIThread;
@@ -26,8 +27,11 @@ var run = Task.Run(async () =>
     reserve.Start(); var port = ((IPEndPoint)reserve.LocalEndpoint).Port; reserve.Stop();
     var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
     var lastAction = "";
+    var commandEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var commandReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var bridge = new McpPlayerBridge
     {
+        TogglePauseFunc = async () => { commandEntered.SetResult(); await commandReady.Task; },
         GetStateFunc = () => new PlayerState("playing", "Fixture track", "Fixture artist", "Fixture album",
             "private-path-must-not-escape", 1, 120, .25, 0, 1),
         GetQueueFunc = () => [new QueueEntry(0, true, "secret-path", "Fixture track")],
@@ -51,6 +55,22 @@ var run = Task.Run(async () =>
             Check(denied.StatusCode == HttpStatusCode.Unauthorized, "unauthenticated request");
         }
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var command = client.PostAsJsonAsync("/remote/api/command", new { command = "pause-resume" });
+        await commandEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(!command.IsCompleted, "command waits for asynchronous preparation");
+        commandReady.SetResult();
+        using var commandResult = await command;
+        Check(commandResult.StatusCode == HttpStatusCode.NoContent, "prepared command acknowledgement");
+        await bridge.OnUiAsync(() =>
+        {
+            bridge.TogglePauseFunc = async () =>
+            {
+                await Task.Yield();
+                throw new InvalidOperationException("Synthetic command failure");
+            };
+        });
+        using var failedCommand = await client.PostAsJsonAsync("/remote/api/command", new { command = "pause-resume" });
+        Check(failedCommand.StatusCode == HttpStatusCode.InternalServerError, "async command failure is not acknowledged as success");
         var snapshot = await client.GetStringAsync("/remote/api/state");
         Check(!snapshot.Contains("private-path") && !snapshot.Contains("secret-path") && !snapshot.Contains(token), "safe state DTO");
         Check(snapshot.Contains("\"title\":\"Fixture track\""), "camelCase state");
@@ -81,7 +101,7 @@ var run = Task.Run(async () =>
         settings.MobileRemoteAccessToken = "synthetic-rotated-token";
         store.Save(settings);
         Check(store.Load().MobileRemoteAccessToken == "synthetic-rotated-token", "encrypted token round trip");
-        Console.WriteLine("PASS: production host authentication, embedded resources, safe DTOs, playlist routes/actions, body limit, PNG QR generation, encrypted token migration and rotation.");
+        Console.WriteLine("PASS: production host authentication, embedded resources, safe DTOs, playlist routes/actions, asynchronous command completion/failure, body limit, PNG QR generation, encrypted token migration and rotation.");
     }
     finally { await host.StopAsync(); stop.Cancel(); }
 });

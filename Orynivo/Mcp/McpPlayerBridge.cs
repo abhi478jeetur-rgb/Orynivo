@@ -232,6 +232,16 @@ public sealed class McpPlayerBridge
         return await Dispatcher.UIThread.InvokeAsync(func, DispatcherPriority.Normal);
     }
 
+    /// <summary>Dispatches an asynchronous action and awaits its complete result.</summary>
+    /// <param name="action">Asynchronous action to start on the UI thread.</param>
+    /// <param name="ct">Optional cancellation checked before dispatch.</param>
+    /// <returns>Completion of the dispatched action, including asynchronous failures.</returns>
+    public async Task OnUiAsync(Func<Task> action, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        await Dispatcher.UIThread.InvokeAsync(action, DispatcherPriority.Normal);
+    }
+
     /// <summary>
     /// Dispatches <paramref name="action"/> to the Avalonia UI thread and awaits completion.
     /// </summary>
