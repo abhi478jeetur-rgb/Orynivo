@@ -875,6 +875,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   time, never library metadata. After a similarity or mood mix is queued,
   navigation must switch to the Up Next view so the generated queue is
   immediately visible.
+- Infinite Mix refills own a mix version, captured playback intent and
+  preparation lease. Stop, mix pause and replacement cancel publication; guard
+  queue mutation, provider metadata registration and similarity cursor changes
+  after awaits. Only the owning version clears loading/progress state. Full
+  release drains pending refills; idle initial start awaits readiness. Keep
+  metadata conversion on the dispatcher and suppress threshold refill without an
+  active player or during shutdown.
+
 - Infinite Mix (`MainWindow.InfiniteMix.cs`) uses the persisted
   `AppSettings.InfiniteMix` profile: calm/balanced/energetic mood,
   familiar-to-adventurous discovery, 3/7/30/90-day history, local and selected

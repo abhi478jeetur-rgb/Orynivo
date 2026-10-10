@@ -312,7 +312,10 @@ public partial class MainWindow : Window
     private IAudioPlayer? StopPlaybackCore(bool invalidateStart = true)
     {
         if (invalidateStart)
+        {
             _playbackStarts.Invalidate();
+            CancelInfiniteMixRefill();
+        }
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
         if (invalidateStart)

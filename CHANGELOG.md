@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Infinite Mix rejects obsolete refill results after Stop, pause, replacement or
+  a newer mix. Late results cannot append tracks, register remote metadata or
+  clear a newer refill indicator. Full output release drains pending refills; an
+  initial mix start completes after player preparation.
+
 - MCP queue replacement and mobile playlist Play claim playback ownership before
   asynchronous source resolution. A newer start or Stop rejects obsolete queue
   changes and remote metadata registration; full output release includes pending

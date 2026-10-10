@@ -459,6 +459,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   before replacement handoff. Superseded results cannot replace the queue; full
   release drains pending lookup. Playlist append keeps its existing independent
   semantics.
+- Infinite Mix refill captures its mix version and playback intent, with a
+  preparation lease and linked cancellation. Stop, mix pause and replacement
+  reject late queue and metadata publication. Genre and similarity resolvers
+  guard registration on the dispatcher; stale similarity results cannot advance
+  a reset cursor. Only the owning version clears loading/progress state. Full
+  release drains admitted refills. Threshold checks require an active player;
+  idle initial mix start awaits readiness rather than track completion.
+
 - Mobile/MCP play and queue replacement use readiness; mobile track and
   queue-index callbacks return false without their current prepared player, and
   MCP play/replace commands cancel abandoned or unavailable starts. Skip and

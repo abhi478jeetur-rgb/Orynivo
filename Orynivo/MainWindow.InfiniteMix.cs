@@ -13,6 +13,8 @@ public partial class MainWindow
     private bool _infiniteMixEnabled;
     private bool _infiniteMixPaused;
     private bool _infiniteMixLoading;
+    private long _infiniteMixVersion;
+    private CancellationTokenSource? _infiniteMixRefillCts;
     private int _infiniteMixCandidateOffset;
     private DateTimeOffset _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
     private readonly Dictionary<string, InfiniteMixCandidateIdentity> _infiniteMixIdentitiesByPath =
@@ -26,6 +28,7 @@ public partial class MainWindow
         e.Handled = true;
         if (_infiniteMixEnabled)
         {
+            CancelInfiniteMixRefill();
             _infiniteMixPaused = !_infiniteMixPaused;
             UpdateInfiniteMixUi();
             if (!_infiniteMixPaused)
@@ -38,11 +41,17 @@ public partial class MainWindow
 
     /// <summary>Starts a newly configured Infinite Mix and preserves an already audible item.</summary>
     /// <param name="editSettings">Whether the profile editor must be confirmed before generation.</param>
+    /// <returns>Initial refill and player preparation without awaiting track completion.</returns>
     private async Task StartInfiniteMixAsync(bool editSettings)
     {
+        if (_playbackShuttingDown) return;
+        CancelInfiniteMixRefill();
+        var startVersion = _infiniteMixVersion;
+        var startIntent = _playbackStarts.Current;
         if (editSettings && !await EditInfiniteMixSettingsAsync())
             return;
 
+        if (_playbackShuttingDown || startVersion != _infiniteMixVersion || !_playbackStarts.IsCurrent(startIntent)) return;
         ClearSimilarityMix();
         _infiniteMixEnabled = true;
         _infiniteMixPaused = false;
@@ -61,6 +70,7 @@ public partial class MainWindow
             _queue.Add(activeItem);
         _queueIndex = activeItem is null ? -1 : 0;
         await RefillInfiniteMixAsync(force: true, refreshActivePlayback: false);
+        if (_playbackShuttingDown || startVersion != _infiniteMixVersion || !_playbackStarts.IsCurrent(startIntent)) return;
         var recommendationCount = _queue.Count - (activeItem is null ? 0 : 1);
         if (recommendationCount == 0)
         {
@@ -79,14 +89,26 @@ public partial class MainWindow
             if (hasActivePlayback)
                 await RefreshActiveGaplessQueueAsync();
             else
-                await StartPlaybackAsync(_queue[0].FilePath);
+                await StartReadyPlaybackAsync(_queue[0].FilePath);
         }
         catch (Exception exception) { CrashLogger.Log(exception, "Infinite Mix playback"); }
+    }
+
+    /// <summary>Invalidates pending mix publication without removing queued tracks.</summary>
+    private void CancelInfiniteMixRefill()
+    {
+        ++_infiniteMixVersion;
+        _infiniteMixRefillCts?.Cancel();
+        _infiniteMixRefillCts = null;
+        _infiniteMixLoading = false;
+        _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
+        HideInfiniteMixProgress();
     }
 
     /// <summary>Stops automatic replenishment without clearing the tracks already queued.</summary>
     private void StopInfiniteMix()
     {
+        CancelInfiniteMixRefill();
         _infiniteMixEnabled = false;
         _infiniteMixPaused = false;
         ClearSimilarityMix();
@@ -104,6 +126,7 @@ public partial class MainWindow
                 await StartInfiniteMixAsync(editSettings: false);
                 break;
             case "pause" when _infiniteMixEnabled:
+                CancelInfiniteMixRefill();
                 _infiniteMixPaused = true;
                 UpdateInfiniteMixUi();
                 break;
@@ -144,7 +167,7 @@ public partial class MainWindow
     /// <summary>Schedules a refill when the active mix is approaching the end of its queue.</summary>
     private void EnsureInfiniteMixQueue()
     {
-        if (!_infiniteMixEnabled || _infiniteMixPaused || _infiniteMixLoading)
+        if (_playbackShuttingDown || _player is null || !_infiniteMixEnabled || _infiniteMixPaused || _infiniteMixLoading)
             return;
         var remaining = _queueIndex < 0 ? _queue.Count : _queue.Count - _queueIndex - 1;
         if (remaining <= InfiniteMixRefillThreshold &&
@@ -156,12 +179,13 @@ public partial class MainWindow
     /// <param name="force">Whether to refill regardless of the current remaining count.</param>
     /// <param name="batchSize">Maximum number of recommendations to append.</param>
     /// <param name="refreshActivePlayback">Whether an active immutable gapless session must adopt the revised queue immediately.</param>
+    /// <returns>The guarded refill and optional gapless refresh.</returns>
     private async Task RefillInfiniteMixAsync(
         bool force,
         int batchSize = InfiniteMixBatchSize,
         bool refreshActivePlayback = true)
     {
-        if (_infiniteMixLoading || !_infiniteMixEnabled || _infiniteMixPaused)
+        if (_playbackShuttingDown || _infiniteMixLoading || !_infiniteMixEnabled || _infiniteMixPaused)
             return;
         var remaining = _queueIndex < 0 ? _queue.Count : _queue.Count - _queueIndex - 1;
         if (!force && remaining > InfiniteMixRefillThreshold)
@@ -169,19 +193,28 @@ public partial class MainWindow
 
         _lastInfiniteMixRefillAttempt = DateTimeOffset.UtcNow;
         _infiniteMixLoading = true;
+        var version = _infiniteMixVersion;
+        var playbackIntent = _playbackStarts.Current;
+        using var preparation = _playbackPreparations.Begin();
+        using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token);
+        _infiniteMixRefillCts = cancellation;
+        var token = cancellation.Token;
+        bool IsCurrent() => !token.IsCancellationRequested && version == _infiniteMixVersion &&
+            _playbackStarts.IsCurrent(playbackIntent) && !_playbackShuttingDown && _infiniteMixEnabled && !_infiniteMixPaused;
         if (HasActiveSimilarityMix)
         {
             try
             {
-                await RefillSimilarityMixAsync(batchSize, refreshActivePlayback);
+                await RefillSimilarityMixAsync(batchSize, refreshActivePlayback, IsCurrent, token);
             }
+            catch (OperationCanceledException) when (!IsCurrent()) { }
             catch (Exception exception)
             {
                 CrashLogger.Log(exception, "Similarity mix refill");
             }
             finally
             {
-                _infiniteMixLoading = false;
+                if (version == _infiniteMixVersion) { _infiniteMixLoading = false; _infiniteMixRefillCts = null; }
             }
             return;
         }
@@ -215,6 +248,7 @@ public partial class MainWindow
                             _infiniteMixCandidateOffset))).ToList();
                 }));
             }
+            if (!IsCurrent()) return;
             if (showProgress)
                 ShowInfiniteMixProgress(25);
             var enabledServers = _settings.OrynivoServers.Where(server =>
@@ -223,9 +257,10 @@ public partial class MainWindow
                 (requestedGenreKeys.Count == 0
                     ? (IEnumerable<string?>)new string?[] { null }
                     : requestedGenreKeys.Cast<string?>())
-                .Select(key => LoadInfiniteMixSourceAsync(server, key, _infiniteMixCandidateOffset)));
+                .Select(key => LoadInfiniteMixSourceAsync(server, key, _infiniteMixCandidateOffset, token)));
             var remote = await Task.WhenAll(remoteTasks);
             sources.AddRange(remote.Where(source => source is not null).Cast<GenreCloudSource>());
+            if (!IsCurrent()) return;
             if (showProgress)
                 ShowInfiniteMixProgress(45);
             var listeningWeights = await Task.Run(() =>
@@ -238,6 +273,7 @@ public partial class MainWindow
                         weights[key] = weights.GetValueOrDefault(key) + seconds;
                 return (IReadOnlyDictionary<string, double>)weights;
             });
+            if (!IsCurrent()) return;
             if (showProgress)
                 ShowInfiniteMixProgress(60);
             var playCounts = await Task.Run(BuildInfiniteMixPlayCounts);
@@ -250,7 +286,8 @@ public partial class MainWindow
                 .Select(group => group.OrderByDescending(candidate => candidate.Score).First())
                 .OrderByDescending(candidate => candidate.Score)
                 .ToList();
-            var rows = await ResolveGenreCandidateRowsAsync(ranked, CancellationToken.None);
+            var rows = await ResolveGenreCandidateRowsAsync(ranked, token, IsCurrent);
+            if (!IsCurrent()) return;
             if (showProgress)
                 ShowInfiniteMixProgress(82);
             var queued = _queue.Select(item => item.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -315,6 +352,7 @@ public partial class MainWindow
                     .ToList();
             }
 
+            if (!IsCurrent()) return;
             foreach (var row in selected)
             {
                 _queue.Add(ToPlaylistItem(row));
@@ -326,6 +364,7 @@ public partial class MainWindow
             }
             _infiniteMixCandidateOffset =
                 (_infiniteMixCandidateOffset + InfiniteMixCandidateWindowSize) % 2_000_000_000;
+            if (!IsCurrent()) return;
             if (showProgress)
                 ShowInfiniteMixProgress(100);
             PersistPlaybackQueue();
@@ -334,15 +373,19 @@ public partial class MainWindow
             if (refreshActivePlayback)
                 await RefreshActiveGaplessQueueAsync();
         }
+        catch (OperationCanceledException) when (!IsCurrent()) { }
         catch (Exception exception)
         {
             CrashLogger.Log(exception, "Infinite Mix refill");
         }
         finally
         {
-            _infiniteMixLoading = false;
-            if (showProgress)
-                HideInfiniteMixProgress();
+            if (version == _infiniteMixVersion)
+            {
+                _infiniteMixLoading = false;
+                _infiniteMixRefillCts = null;
+                if (showProgress) HideInfiniteMixProgress();
+            }
         }
     }
 
@@ -367,11 +410,12 @@ public partial class MainWindow
     /// <param name="server">Configured remote library.</param>
     /// <param name="genreKey">Selected taxonomy branch, or <see langword="null"/> for all genres.</param>
     /// <param name="candidateOffset">Offset into the provider's stable candidate order.</param>
+    /// <param name="cancellationToken">The owning refill cancellation.</param>
     /// <returns>The source snapshot, or <see langword="null"/> when the server is unavailable.</returns>
     private async Task<GenreCloudSource?> LoadInfiniteMixSourceAsync(
         OrynivoServerSettings server,
         string? genreKey,
-        int candidateOffset)
+        int candidateOffset, CancellationToken cancellationToken)
     {
         try
         {
@@ -380,11 +424,11 @@ public partial class MainWindow
                 genreKey,
                 InfiniteMixCandidateWindowSize,
                 candidateOffset,
-                CancellationToken.None);
+                cancellationToken);
             var returnedWrongLevel = !string.Equals(snapshot.ParentKey, genreKey, StringComparison.Ordinal);
             if (returnedWrongLevel || snapshot.Nodes.Count == 0 && snapshot.Candidates.Count == 0)
             {
-                var facets = await _orynivoClient.GetTrackFacetsAsync(server, CancellationToken.None);
+                var facets = await _orynivoClient.GetTrackFacetsAsync(server, cancellationToken);
                 snapshot = GenreCloudService.BuildSnapshot(
                     facets,
                     genreKey,

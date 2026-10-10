@@ -776,11 +776,16 @@ public partial class MainWindow
             listeningWeights);
     }
 
-    /// <summary>Resolves compact candidate identifiers to shared playable table rows.</summary>
+    /// <summary>Resolves candidates while guarding metadata publication.</summary>
+    /// <param name="candidates">Ordered source-aware candidates.</param>
+    /// <param name="cancellationToken">Owning cancellation.</param>
+    /// <param name="isCurrent">Optional dispatcher-owned publication guard.</param>
+    /// <returns>Current playable rows.</returns>
     private async Task<List<ContentRow>> ResolveGenreCandidateRowsAsync(
         IReadOnlyList<GenreCloudCandidate> candidates,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, Func<bool>? isCurrent = null)
     {
+        isCurrent ??= () => true;
         var resolved = new Dictionary<(string Source, long Id), ContentRow>();
         var localIds = candidates.Where(candidate => candidate.Server is null)
             .Select(candidate => candidate.Track.TrackId).Distinct().ToList();
@@ -791,6 +796,7 @@ public partial class MainWindow
                 using var db = AudioDatabase.OpenDefault();
                 return db.GetTrackListByIds(localIds);
             }, cancellationToken);
+            if (!isCurrent()) return [];
             foreach (var track in localTracks)
                 resolved[("local", track.Id)] = ToTrackContentRow(track);
         }
@@ -803,6 +809,7 @@ public partial class MainWindow
             var server = group.First().Server!;
             var ids = group.Select(candidate => candidate.Track.TrackId).Distinct().ToList();
             var tracks = await _orynivoClient.GetTracksByIdsAsync(server, ids, cancellationToken);
+            if (!isCurrent()) return [];
             foreach (var track in tracks)
                 resolved[($"server:{server.Id}", track.Id)] = ToOrynivoTrackContentRow(server, track);
         }

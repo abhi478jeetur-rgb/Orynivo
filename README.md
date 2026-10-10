@@ -403,6 +403,11 @@ resolution against newer starts and Stop. Queue replacement preserves order and
 duplicate entries, reports its playable count, and keeps the existing queue when
 none of the requested references resolves.
 
+Infinite Mix cancels pending recommendations on Stop, mix pause or replacement.
+Late results cannot change the queue or overwrite a newer refill indicator.
+Complete output release waits for pending refills, and starting an idle mix
+returns after player preparation.
+
 Playback commands from Mobile Remote and MCP wait for player preparation,
 including initial seek, rather than the end of the track. Later playback errors
 remain observed by the desktop. An abandoned MCP start is cancelled; an
