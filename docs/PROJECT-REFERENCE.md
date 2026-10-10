@@ -419,10 +419,9 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Disposal and existing error-sink failures are isolated; completed work and
   unused budget timers are removed. The injected TimeProvider makes deadline
   tests deterministic. Active player, cancellation, queue, history, source
-  context and UI cleanup remain window-owned; synchronous stop/shutdown and
-  complete pending-start drains are further lifecycle work, not covered by this
-  helper. No backend selection, PCM/DSD processing or native output changes are
-  introduced here.
+  context and UI cleanup remain window-owned; pending-start tracking is separate
+  from this retirement helper. No backend selection, PCM/DSD processing or
+  native output changes are introduced here.
 - `Orynivo/Audio/PlaybackStartOwnership.cs`: dispatcher-affine intent generation
   and late-factory cleanup. Start captures ownership before remote lookup; stop
   invalidates it. Backend creation receives a fixed token, including native DSD
@@ -430,8 +429,19 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   publishing UI state. Late-created players transfer to the shared retirement
   helper; obsolete lifetime errors do not reach caller stop handlers. Guard
   remote lookup registration on the dispatcher. Active player and queue remain
-  window-owned. Pending lookup/factory drains and caller post-await actions are
-  not yet coordinated with complete device release or shutdown.
+  window-owned. Caller post-await actions remain further lifecycle work.
+- `Orynivo/Audio/PlaybackPreparationTracker.cs`: dispatcher-owned cancellation
+  and completion leases for lookup, creation and initial/resume seek. They end
+  before waiting for track completion. Cancellation never removes an unresolved
+  factory; late player cleanup must be registered before ending preparation.
+  Complete output release cancels pending preparation, waits for its snapshot,
+  then drains retirement again. Transport stop detaches immediately and
+  registers background disposal. Normal window close keeps the dispatcher alive
+  and blocks new starts until preparation and disposal finish, then closes once.
+  Release completion checks its generation before changing lock/status state.
+  Update installation and library import await the shared
+  `MainWindow.PreparePlaybackShutdownAsync` drain before direct lifetime
+  shutdown.
 - `Orynivo/Audio/AirPlayDeviceDiscovery.cs` and `AirPlayAudioPlayer.cs`:
   cross-platform classic AirPlay/RAOP output. Profiles retain the stable DNS-SD
   service name and last resolved endpoint, discovery refreshes it before

@@ -21,6 +21,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Complete output release waits for pending playback lookup, creation and
+  initial seek cleanup, then drains players returned after cancellation. Normal
+  window close keeps the dispatcher alive until this drain finishes. Update
+  installation and library import await the same drain before exiting. Transport
+  stop disposes players in the background. Obsolete release completion cannot
+  overwrite a newer playback request.
 - Overlapping playback starts reject obsolete lookup, creation and seek results.
   Late players are retired, backend fallbacks retain the original cancellation
   token, and obsolete failures cannot stop a newer player.

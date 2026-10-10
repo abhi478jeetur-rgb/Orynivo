@@ -116,6 +116,11 @@ public partial class MainWindow : Window
 
     private IAudioPlayer?  _player;
     private readonly PlaybackStartOwnership _playbackStarts = new();
+    private readonly PlaybackPreparationTracker _playbackPreparations = new();
+    private bool _playbackShuttingDown;
+    private bool _playbackCloseReady;
+    private bool _playbackCloseRequested;
+    private Task? _playbackShutdownTask;
     private readonly AudioPlayerRetirement _audioPlayerRetirement = new(
         exception => CrashLogger.Log(exception, "Background audio-player disposal"));
     private bool _audioDeviceExplicitlyReleased;
@@ -711,8 +716,9 @@ public partial class MainWindow : Window
     /// <summary>Resolves a remote reference without registering metadata for an abandoned start.</summary>
     /// <param name="path">The stable remote reference.</param>
     /// <param name="isCurrent">The dispatcher-affine ownership guard.</param>
+    /// <param name="cancellationToken">Cancellation of the owning playback preparation.</param>
     /// <returns>The resolved path, or null when unavailable or obsolete.</returns>
-    private async Task<string?> ResolveRemoteMcpTrackForPlaybackAsync(string path, Func<bool> isCurrent)
+    private async Task<string?> ResolveRemoteMcpTrackForPlaybackAsync(string path, Func<bool> isCurrent, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(path))
             return path;
@@ -723,7 +729,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var tracks = await _orynivoClient.GetTracksByIdsAsync(server, [trackId], CancellationToken.None);
+            var tracks = await _orynivoClient.GetTracksByIdsAsync(server, [trackId], cancellationToken);
             var track = tracks.FirstOrDefault(t => t.Id == trackId);
             if (track is null)
                 return null;
@@ -849,7 +855,6 @@ public partial class MainWindow : Window
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         _musicBrainzBackgroundCts.Cancel();
         CancelAudioFeatureWarmup();
-        StopPlayback();
         _windowsMediaTransport?.Dispose();
         _windowsMediaTransport = null;
         base.OnClosed(e);

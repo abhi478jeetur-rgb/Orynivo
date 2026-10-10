@@ -624,7 +624,11 @@ public partial class MainWindow : Window
             _releasedOutputPodcastPlayback = _currentPodcastPlayback;
             _releasedOutputPosition = player.Position;
             _releasedOutputWasPaused = player.IsPaused;
-            await StopPlaybackAsync(waitForCompleteDisposal: true);
+            var release = StopPlaybackAsync(waitForCompleteDisposal: true);
+            var releaseIntent = _playbackStarts.Current;
+            await release;
+            if (_playbackShuttingDown || !_playbackStarts.IsCurrent(releaseIntent))
+                return;
             _audioDeviceExplicitlyReleased = true;
             UpdateOutputDeviceLockButton();
             StatusTextBlock.Text = LocalizationManager.Current.OutputDeviceReleased;

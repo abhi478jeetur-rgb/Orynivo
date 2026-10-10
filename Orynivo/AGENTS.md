@@ -260,9 +260,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   isolate disposal/reporting failures, remove completed work, and cancel unused
   budget timers. Detach gapless event subscriptions with active ownership.
   Regression tests use fake players and a controllable TimeProvider, never real
-  devices or single-sample wall-clock speed comparisons. The synchronous stop
-  and shutdown path still require lifecycle work; do not describe this helper as
-  a complete playback-session coordinator.
+  devices or single-sample wall-clock speed comparisons. Transport stop
+  registers disposal in the background. Normal window closure is deferred until
+  pending preparation and all retirements finish; reject new starts while
+  closing. Do not describe retirement alone as a complete session coordinator.
 - `Audio.PlaybackStartOwnership` assigns dispatcher-owned start identifiers
   before remote lookup. Stop invalidates pending publication; a start detaches
   current playback without invalidating itself. Check ownership after disposal,
@@ -270,8 +271,19 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Factories and native-format fallbacks use the captured playback token. Reject
   stale remote metadata registration and suppress obsolete errors before caller
   handlers can stop current playback. Active player and queue remain
-  window-owned. Pending lookup/factory drain, synchronous shutdown, and caller
-  actions after awaiting a playback lifetime remain further lifecycle work.
+  window-owned. Caller actions after awaiting the whole playback lifetime still
+  require ownership guards.
+- `Audio.PlaybackPreparationTracker` tracks lookup, creation, resume seek and
+  late-result handoff separately from track completion. Capture cancellation
+  before remote lookup; a new start or stop cancels pending preparation without
+  removing it. Dispose its lease on preparation success or failure, before
+  awaiting the audible lifetime. Complete release waits for preparations
+  admitted before stop, then drains retirements again to include late factory
+  returns. Guard release follow-up with its captured generation. Closing
+  disables new starts and defers the actual Close until the complete drain;
+  repeated close requests reuse one task. Update installation and library import
+  await `PreparePlaybackShutdownAsync` before direct application shutdown. Keep
+  history/progress capture before cancellation.
 - AirPlay output is a cross-platform `OutputBackend.AirPlay` profile. Discover
   `_raop._tcp.local.` receivers away from the UI thread, persist only their
   stable service ID/display name/last endpoint and refresh the endpoint before

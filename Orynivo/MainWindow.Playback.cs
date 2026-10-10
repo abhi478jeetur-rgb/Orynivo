@@ -161,8 +161,13 @@ public partial class MainWindow : Window
         PodcastPlayback? podcastPlayback = null,
         TimeSpan initialPosition = default)
     {
+        if (_playbackShuttingDown)
+            return;
         await _playbackStarts.RunAsync(intent =>
-            StartPlaybackIntentAsync(intent, filePath, radioStation, podcastPlayback, initialPosition));
+        {
+            _playbackPreparations.CancelAll();
+            return StartPlaybackIntentAsync(intent, filePath, radioStation, podcastPlayback, initialPosition);
+        });
     }
 
     /// <summary>Publishes playback state only while its captured start intent remains current.</summary>
@@ -176,9 +181,10 @@ public partial class MainWindow : Window
         long intent, string filePath, RadioStationRecord? radioStation,
         PodcastPlayback? podcastPlayback, TimeSpan initialPosition)
     {
+        using var preparation = _playbackPreparations.Begin();
         if (filePath.StartsWith("orynivo://", StringComparison.OrdinalIgnoreCase))
         {
-            var resolvedPath = await ResolveRemoteMcpTrackForPlaybackAsync(filePath, () => _playbackStarts.IsCurrent(intent));
+            var resolvedPath = await ResolveRemoteMcpTrackForPlaybackAsync(filePath, () => _playbackStarts.IsCurrent(intent), preparation.Token);
             if (!_playbackStarts.IsCurrent(intent))
                 return;
             if (string.IsNullOrWhiteSpace(resolvedPath))
@@ -195,7 +201,7 @@ public partial class MainWindow : Window
         if (radioStation is null && podcastPlayback is null)
             _playedQueuePaths.Add(filePath);
 
-        var playbackCancellation = new CancellationTokenSource();
+        var playbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token);
         _playbackCts = playbackCancellation;
         var playbackToken = playbackCancellation.Token;
         var created = await _playbackStarts.CreateAsync(
@@ -508,6 +514,7 @@ public partial class MainWindow : Window
             _currentPlayHistoryId = null;
         }
 
+        preparation.Dispose();
         try
         {
             await player.WaitForCompletionAsync();

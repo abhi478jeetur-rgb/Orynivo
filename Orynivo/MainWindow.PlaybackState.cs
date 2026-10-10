@@ -236,21 +236,64 @@ public partial class MainWindow : Window
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
 
+    /// <summary>Defers window closure until pending playback preparation and output disposal finish.</summary>
+    /// <param name="e">The cancellable window close event.</param>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (e.Cancel || _playbackCloseReady)
+            return;
+        e.Cancel = true;
+        if (_playbackCloseRequested)
+            return;
+        _playbackCloseRequested = true;
+        _ = PreparePlaybackShutdownAsync();
+        _ = CompletePlaybackCloseAsync();
+    }
+
+    /// <summary>Blocks new starts and drains playback before either window close or explicit application shutdown.</summary>
+    /// <returns>The shared complete preparation and output-disposal task.</returns>
+    internal Task PreparePlaybackShutdownAsync()
+    {
+        if (_playbackShutdownTask is not null)
+            return _playbackShutdownTask;
+        _playbackShuttingDown = true;
+        IsEnabled = false;
+        return _playbackShutdownTask = StopPlaybackAsync(waitForCompleteDisposal: true);
+    }
+
+    /// <summary>Keeps the dispatcher alive until every pending player can release its output.</summary>
+    /// <returns>The complete playback drain followed by the accepted window close.</returns>
+    private async Task CompletePlaybackCloseAsync()
+    {
+        // Avoid recursively closing inside the initial Closing event.
+        await Task.Yield();
+        await PreparePlaybackShutdownAsync();
+        _playbackCloseReady = true;
+        Close();
+    }
+
+    /// <summary>Detaches playback immediately and registers background output disposal.</summary>
     private void StopPlayback()
     {
         _audioDeviceExplicitlyReleased = false;
         ClearReleasedOutputResumeState();
         var player = StopPlaybackCore();
-        player?.Dispose();
+        _ = _audioPlayerRetirement.RetireAsync(player);
     }
 
     /// <summary>Detaches playback immediately and retires its player without blocking the dispatcher.</summary>
-    /// <param name="waitForCompleteDisposal">Whether all tracked retirements must finish before returning.</param>
+    /// <param name="waitForCompleteDisposal">Whether pending preparations and all player retirements must finish.</param>
     /// <returns>A bounded transition wait, or a complete output-release wait.</returns>
     private async Task StopPlaybackAsync(bool waitForCompleteDisposal = false)
     {
         var player = StopPlaybackCore();
-        await _audioPlayerRetirement.RetireAsync(player, waitForCompleteDisposal);
+        var retirement = _audioPlayerRetirement.RetireAsync(player, waitForCompleteDisposal);
+        if (waitForCompleteDisposal)
+            await _playbackPreparations.DrainAsync();
+        await retirement;
+        if (waitForCompleteDisposal)
+            await _audioPlayerRetirement.RetireAsync(null, waitForCompleteDisposal: true);
     }
 
     /// <summary>Clears the window's active playback state and hands its unique player to disposal.</summary>
@@ -262,6 +305,8 @@ public partial class MainWindow : Window
             _playbackStarts.Invalidate();
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
+        if (invalidateStart)
+            _playbackPreparations.CancelAll();
         CancelAndDispose(ref _radioMetadataCts);
         _playbackCts?.Cancel();
         _playbackCts?.Dispose();

@@ -647,7 +647,12 @@ byte-range streaming without FFmpeg.
   application. Orynivo preserves the source and playback position; selecting the
   open lock reacquires the device and resumes playback without restarting the
   application. Explicit release waits for both the active player and any earlier
-  player cleanup still running after a track transition's wait limit.
+  player cleanup still running after a track transition's wait limit. It also
+  cancels and drains pending playback preparation, including players returned
+  late by a factory. Normal window close keeps the UI dispatcher alive until
+  pending preparation and output cleanup finish; Update installation and library
+  import await the same drain before application shutdown. Transport stop
+  registers cleanup in the background.
 - Overlapping playback requests keep the latest start: obsolete remote lookups
   cannot register playback metadata, late-created players are cleaned up, and
   failures from older starts cannot stop the current player.

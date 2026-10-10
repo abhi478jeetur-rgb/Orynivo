@@ -3469,7 +3469,12 @@ internal partial class SettingsView : UserControl
                 LocalizationManager.Current.LibraryImported,
                 LocalizationManager.Current.ImportLibrary,
                 GetHostWindow());
-            (AvaloniaApp.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
+            if (AvaloniaApp.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                if (desktop.MainWindow is MainWindow playbackWindow)
+                    await playbackWindow.PreparePlaybackShutdownAsync();
+                desktop.Shutdown();
+            }
         }
         catch (Exception ex)
         {
