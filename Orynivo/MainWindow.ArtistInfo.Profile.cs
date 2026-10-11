@@ -66,7 +66,12 @@ public partial class MainWindow : Window
             _currentTopLevelTag == tag && detailVersion == _artistDetailLoadVersion &&
             _artistInfoUnifiedArtistName == unifiedName &&
             (restore is null || _navigationRestores.IsCurrent(restore));
-        if (!CanPublish()) { cts.Dispose(); return; }
+        if (!CanPublish())
+        {
+            if (ReferenceEquals(_artistProfileCts, cts)) _artistProfileCts = null;
+            cts.Dispose();
+            return;
+        }
         _artistInfoDisplayedRemoteRow = null;
         _nowPlayingRemoteArtistInfo = false;
         _artistInfoDisplayedId = artistId;
@@ -193,7 +198,7 @@ public partial class MainWindow : Window
             await RefreshVisibleArtistRowAsync(artist, CanPublish);
             if (!CanPublish()) return;
             if (string.IsNullOrWhiteSpace(unifiedName))
-                await LoadArtistInfoAlbumsAsync(_localCatalogProvider, artistId, null, request.Token);
+                await LoadArtistInfoAlbumsAsync(_localCatalogProvider, artistId, null, request.Token, CanPublish);
         }
         catch (OperationCanceledException)
         {
@@ -214,11 +219,18 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Loads a remote artist profile while retaining view, source and request ownership.</summary>
+    /// <param name="row">The source-owned artist row.</param>
+    /// <param name="forceRefresh">Whether to download a fresh profile.</param>
+    /// <param name="profileLookupName">Optional external lookup name.</param>
+    /// <returns>A task completing the admitted profile load.</returns>
     private async Task ShowOrynivoArtistInfoAsync(
         ContentRow row,
         bool forceRefresh,
         string? profileLookupName = null)
     {
+        var restore = _navigationRestores.Context;
+        if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         if (ResolveRowOrynivoServer(row) is not { } server ||
             row.Id is not long artistId ||
             row.EntityType != "OrynivoArtist")
@@ -226,14 +238,33 @@ public partial class MainWindow : Window
             return;
         }
 
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var sourceIsCurrent = CreateArtistProfileSourceGuard(server);
+        if (!sourceIsCurrent()) return;
+        var cts = BeginArtistProfileLoad(out var request);
+        bool CanPublish() =>
+            _artistProfileLoads.IsCurrent(request) &&
+            ReferenceEquals(_artistProfileCts, cts) &&
+            ArtistInfoView.IsVisible && _currentTopLevelTag == tag &&
+            _artistDetailLoadVersion == detailVersion &&
+            _artistInfoUnifiedArtistName == unifiedName && sourceIsCurrent() &&
+            row.Id is long currentArtistId && currentArtistId == artistId &&
+            ReferenceEquals(row.OrynivoServer ?? _activeOrynivoServer, server) &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
+        if (!CanPublish())
+        {
+            if (ReferenceEquals(_artistProfileCts, cts)) _artistProfileCts = null;
+            cts.Dispose();
+            return;
+        }
+
         _artistInfoDisplayedRemoteRow = row;
         _nowPlayingRemoteArtistInfo = false;
         _artistInfoDisplayedId = null;
-        if (string.IsNullOrWhiteSpace(_artistInfoUnifiedArtistName))
+        if (string.IsNullOrWhiteSpace(unifiedName))
             ResetArtistInfoAlbums();
-        CancelArtistProfileLoad();
-        var cts = new CancellationTokenSource();
-        _artistProfileCts = cts;
         EditArtistNameButton.IsVisible = true;
         SetArtistImageActionsVisible(true);
         RefreshArtistInfoButton.IsEnabled = false;
@@ -257,7 +288,7 @@ public partial class MainWindow : Window
                  row.ProfileFetchedAt is null))
             {
                 var cached = await _orynivoClient.GetArtistAsync(server, artistId, cts.Token);
-                cts.Token.ThrowIfCancellationRequested();
+                if (!CanPublish()) return;
                 if (cached is not null)
                 {
                     ApplyOrynivoArtistProfile(server, row, cached);
@@ -283,13 +314,14 @@ public partial class MainWindow : Window
                     language,
                     downloadImage: !row.ImageIsManual,
                     cancellationToken: cts.Token);
-                cts.Token.ThrowIfCancellationRequested();
+                if (!CanPublish()) return;
 
                 byte[]? imageData = null;
                 string? imageMimeType = null;
                 if (!string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
                 {
                     imageData = await File.ReadAllBytesAsync(profile.ImagePath, cts.Token);
+                    if (!CanPublish()) return;
                     imageMimeType = GuessImageMimeType(profile.ImagePath);
                 }
 
@@ -302,7 +334,7 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cts.Token);
-                cts.Token.ThrowIfCancellationRequested();
+                if (!CanPublish()) return;
                 if (refreshed is null)
                 {
                     ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
@@ -332,11 +364,16 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cts.Token);
+                if (!CanPublish()) return;
             }
 
             ArtistInfoBiographyTextBlock.Text = row.Biography ?? string.Empty;
             if (!string.IsNullOrWhiteSpace(row.ArtworkPath))
-                ArtistInfoImage.Source = await LoadRemoteArtworkImageAsync(row.ArtworkPath, 1000, cts.Token);
+            {
+                var image = await LoadRemoteArtworkImageAsync(row.ArtworkPath, 1000, request.Token);
+                if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
+                ArtistInfoImage.Source = image;
+            }
 
             if (ArtistInfoImage.Source is null)
             {
@@ -357,13 +394,14 @@ public partial class MainWindow : Window
             ArtistInfoSourceButton.IsVisible = !string.IsNullOrWhiteSpace(_artistInfoSourceUrl);
             ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoNotFound;
             ArtistInfoStatusTextBlock.IsVisible = string.IsNullOrWhiteSpace(row.Biography);
-            if (string.IsNullOrWhiteSpace(_artistInfoUnifiedArtistName))
+            if (string.IsNullOrWhiteSpace(unifiedName))
             {
                 await LoadArtistInfoAlbumsAsync(
                     CreateOrynivoCatalogProvider(server),
                     artistId,
                     server,
-                    cts.Token);
+                    request.Token,
+                    CanPublish);
             }
         }
         catch (OperationCanceledException)
@@ -371,14 +409,16 @@ public partial class MainWindow : Window
         }
         catch
         {
-            ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloadFailed;
+            if (CanPublish())
+                ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloadFailed;
         }
         finally
         {
             if (_artistProfileCts == cts)
             {
+                var canFinish = CanPublish();
                 _artistProfileCts = null;
-                RefreshArtistInfoButton.IsEnabled = true;
+                if (canFinish) RefreshArtistInfoButton.IsEnabled = true;
             }
             cts.Dispose();
         }
@@ -391,6 +431,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="forceRefresh">Whether to force a fresh download of the artist profile.</param>
     /// <param name="profileLookupName">Optional external lookup name that leaves the library name unchanged.</param>
+    /// <returns>A task completing the admitted now-playing profile load.</returns>
     private async Task ShowNowPlayingRemoteArtistInfoAsync(
         bool forceRefresh,
         string? profileLookupName = null)
@@ -401,13 +442,36 @@ public partial class MainWindow : Window
             return;
         }
 
+        var restore = _navigationRestores.Context;
+        if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var sourceIsCurrent = CreateArtistProfileSourceGuard(row.OrynivoServer);
+        var playbackServer = row.OrynivoServer;
+        if (!sourceIsCurrent()) return;
+        var cts = BeginArtistProfileLoad(out var request);
+        bool CanPublish() =>
+            _artistProfileLoads.IsCurrent(request) &&
+            ReferenceEquals(_artistProfileCts, cts) &&
+            ArtistInfoView.IsVisible && _currentTopLevelTag == tag &&
+            _artistDetailLoadVersion == detailVersion &&
+            _artistInfoUnifiedArtistName == unifiedName && sourceIsCurrent() &&
+            ReferenceEquals(_currentOrynivoTrackRow, row) &&
+            ReferenceEquals(_currentNowPlayingProvider, provider) &&
+            row.ArtistId == artistId && ReferenceEquals(row.OrynivoServer, playbackServer) &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
+        if (!CanPublish())
+        {
+            if (ReferenceEquals(_artistProfileCts, cts)) _artistProfileCts = null;
+            cts.Dispose();
+            return;
+        }
+
         _nowPlayingRemoteArtistInfo = true;
         _artistInfoDisplayedRemoteRow = null;
         _artistInfoDisplayedId = null;
         ResetArtistInfoAlbums();
-        CancelArtistProfileLoad();
-        var cts = new CancellationTokenSource();
-        _artistProfileCts = cts;
         EditArtistNameButton.IsVisible = false;
         SetArtistImageActionsVisible(row.OrynivoServer is not null);
         RefreshArtistInfoButton.IsEnabled = false;
@@ -435,13 +499,14 @@ public partial class MainWindow : Window
                 language,
                 forceRefresh,
                 cts.Token);
-            cts.Token.ThrowIfCancellationRequested();
+            if (!CanPublish()) return;
 
             byte[]? imageData = null;
             string? imageMimeType = null;
             if (!string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
             {
                 imageData = await File.ReadAllBytesAsync(profile.ImagePath, cts.Token);
+                if (!CanPublish()) return;
                 imageMimeType = GuessImageMimeType(profile.ImagePath);
             }
             if (profile is not null)
@@ -454,12 +519,15 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cts.Token);
+                if (!CanPublish()) return;
             }
 
             ArtistInfoBiographyTextBlock.Text = profile?.Biography ?? string.Empty;
-            ArtistInfoImage.Source = await Task.Run(
+            var image = await Task.Run(
                 () => CreateArtworkImage(profile?.ImagePath, 1000, ignoreCache: true),
-                cts.Token);
+                request.Token);
+            if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
+            ArtistInfoImage.Source = image;
             if (ArtistInfoImage.Source is null)
             {
                 ArtistInfoImagePlaceholder.IsVisible = true;
@@ -484,24 +552,44 @@ public partial class MainWindow : Window
                     CreateOrynivoCatalogProvider(npServer),
                     artistId,
                     npServer,
-                    cts.Token);
+                    request.Token,
+                    CanPublish);
         }
         catch (OperationCanceledException)
         {
         }
         catch
         {
-            ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloadFailed;
+            if (CanPublish())
+                ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloadFailed;
         }
         finally
         {
             if (_artistProfileCts == cts)
             {
+                var canFinish = CanPublish();
                 _artistProfileCts = null;
-                RefreshArtistInfoButton.IsEnabled = true;
+                if (canFinish) RefreshArtistInfoButton.IsEnabled = true;
             }
             cts.Dispose();
         }
+    }
+
+    /// <summary>Captures transient server identity for profile publication without persisting connection data.</summary>
+    /// <param name="server">The owning server, or null for an unavailable source.</param>
+    /// <returns>A predicate requiring the original and configured source to retain its identity.</returns>
+    private Func<bool> CreateArtistProfileSourceGuard(OrynivoServerSettings? server)
+    {
+        if (server is null) return () => false;
+        var id = server.Id;
+        var name = server.Name;
+        var url = server.BaseUrl;
+        var key = server.ApiKey;
+        var profile = server.ProfileId;
+        bool Matches(OrynivoServerSettings candidate) =>
+            candidate.Id == id && candidate.Name == name && candidate.BaseUrl == url &&
+            candidate.ApiKey == key && candidate.ProfileId == profile;
+        return () => Matches(server) && (_settings.OrynivoServers ?? []).Any(Matches);
     }
 
     private async Task EnsureArtistProfileAsync(ContentRow row)

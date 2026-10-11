@@ -701,6 +701,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Stage retained-row images before guarded metadata assignment and dispose
   rejected decodes. Top-level cancellation detaches artist-profile ownership
   alongside top/cloud/Plex before invoking callbacks, preserving replacements.
+  Remote-library and now-playing profiles use the same admission ownership;
+  retain configured source identity and reject changed/removed connections,
+  credentials or server profiles. Now-playing publication also retains the exact
+  track row, artist ID and metadata provider. Nested artist album/track loads
+  check the enclosing guard before cards, playback metadata, tracks and failure
+  cleanup. Rejected decoded profile images are disposed.
 - NavigationCaptureDecision selects typed capture routes from scalar inputs
   without owning rows, providers, credentials or history. Preserve search/cloud,
   logical-album, provider-bound album and artist precedence. Server albums

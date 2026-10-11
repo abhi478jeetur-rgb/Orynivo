@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Remote-library and Now Playing artist profiles reject delayed results after
+  navigation, source changes or a newer playback identity. Obsolete images,
+  errors and refresh completion cannot overwrite the current profile. Nested
+  album and track loading retains the enclosing profile publication guard.
+
 - Local artist profiles reject obsolete database, image and row-refresh results
   after navigation, hidden views, newer artist details or Back replacement.
   Decoded images are discarded when publication is abandoned; old errors and

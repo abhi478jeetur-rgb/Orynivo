@@ -1849,7 +1849,13 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   stages image decodes before guarded metadata assignment and disposes rejected
   images. Profile admission installs new profile/background ownership before
   cancellation; top-level cancellation detaches these alongside top/cloud/Plex
-  before callbacks so replacements remain admitted.
+  before callbacks so replacements remain admitted. Remote-library and
+  now-playing profiles use the same admission ownership; retain configured
+  source identity and reject changed/removed connections, credentials or server
+  profiles. Now-playing publication also retains the exact track row, artist ID
+  and metadata provider. Nested artist album/track loads check the enclosing
+  guard before cards, playback metadata, tracks and failure cleanup. Rejected
+  decoded profile images are disposed.
 - Artwork A-Z navigation indexes the complete lightweight artist/album result,
   but binds rows to the virtualized wrap panels in pages. A jump must append
   through the target row and defer `ScrollIntoView` until layout has processed

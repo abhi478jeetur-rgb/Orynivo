@@ -193,23 +193,27 @@ public partial class MainWindow : Window
     /// <param name="artistId">Provider-local artist identifier.</param>
     /// <param name="server">Owning remote server, or <see langword="null"/> for the local library.</param>
     /// <param name="cancellationToken">Token cancelling a superseded load.</param>
+    /// <param name="canPublish">Optional enclosing profile publication guard.</param>
     /// <returns>A task representing the asynchronous load.</returns>
     private async Task LoadArtistInfoAlbumsAsync(
         ILibraryCatalogProvider provider,
         long artistId,
         OrynivoServerSettings? server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool>? canPublish = null)
     {
+        bool IsCurrent() => !cancellationToken.IsCancellationRequested && (canPublish?.Invoke() ?? true);
+        if (!IsCurrent()) return;
         try
         {
             var albums = await provider.GetAlbumsByArtistAsync(artistId, includeArtwork: true, cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
+            if (!IsCurrent()) return;
             PopulateArtistInfoAlbums(albums, server);
             try
             {
                 var trackLists = await Task.WhenAll(albums.Select(album =>
                     provider.GetTracksByAlbumAsync(album.Id, artistId, cancellationToken)));
-                cancellationToken.ThrowIfCancellationRequested();
+                if (!IsCurrent()) return;
                 PopulateArtistInfoTracks(trackLists
                     .SelectMany(tracks => tracks)
                     .Select(track => (track, server))
@@ -230,7 +234,7 @@ public partial class MainWindow : Window
         }
         catch
         {
-            ResetArtistInfoAlbums();
+            if (IsCurrent()) ResetArtistInfoAlbums();
         }
     }
 
