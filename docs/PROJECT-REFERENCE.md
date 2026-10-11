@@ -431,7 +431,18 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   clears ownership before cancellation callbacks and returns output once for
   retirement. Callback/reporting failures cannot strand output. Window
   source/history/UI adapters and the authoritative queue remain separate. Tests
-  exercise handoff with fake players without a window or audio hardware.
+  exercise handoff with fake players without a window or audio hardware. Owns
+  combines intent, live cancellation and identity. SeekAsync checks before and
+  after best-effort initial/resume seek; PrepareReadiness and TrySetPaused guard
+  backend pause/resume callbacks before transport publication.
+  PlaybackSessionLifecycleTests compose held factory/seek, readiness and full
+  release with real helpers, including cancelled late output and unique
+  retirement. Window stop adapters retain their captured intent across every
+  cancellation boundary and abandon obsolete cleanup. Advisory/mix/waveform
+  state and artist background ownership are cleared/replaced before callbacks.
+  System, slider and MCP/mobile seek adapters hold preparation leases, capture
+  output identity and guard completion. Full release drains pending seeks;
+  superseded remote acknowledgement cancels while current errors propagate.
 - `Orynivo/Audio/PlaybackOutputDrain.cs`: composes preparation completion and
   detached-player retirement after the window's synchronous stop cleanup.
   Register retirement before awaiting preparation, then await initial disposal

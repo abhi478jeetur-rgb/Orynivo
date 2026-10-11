@@ -302,27 +302,38 @@ public partial class MainWindow : Window
             _audioPlayerRetirement, _playbackPreparations);
     }
 
-    /// <summary>Clears the window's active playback state and hands its unique player to disposal.</summary>
+    /// <summary>Clears owned playback state and hands its unique player to disposal, abandoning cleanup after reentrant supersession.</summary>
     /// <param name="invalidateStart">Whether pending starts are abandoned by this stop.</param>
     /// <returns>The detached player, or null when playback was already detached.</returns>
     private IAudioPlayer? StopPlaybackCore(bool invalidateStart = true)
     {
         if (invalidateStart)
-        {
             _playbackStarts.Invalidate();
+        var stopIntent = _playbackStarts.Current;
+        Interlocked.Increment(ref _transportSeekVersion);
+        _pendingTransportSeekPosition = null;
+        if (invalidateStart)
+        {
             CancelInfiniteMixRefill();
+            if (!_playbackStarts.IsCurrent(stopIntent)) return null;
         }
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
         _podcastResumePrepared = false;
         ClearRemoteResumePrompt();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return null;
         _currentOrynivoTrackRow = null;
         if (invalidateStart)
+        {
             _playbackPreparations.CancelAll();
+            if (!_playbackStarts.IsCurrent(stopIntent)) return null;
+        }
         CancelAndDispose(ref _radioMetadataCts);
+        if (!_playbackStarts.IsCurrent(stopIntent)) return null;
         var player = _playbackSession.Detach();
         if (player is IGaplessAudioPlayer gaplessPlayer)
             gaplessPlayer.TrackChanged -= GaplessPlayer_OnTrackChanged;
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         _currentPlaybackDuration = TimeSpan.Zero;
         UpdateNowPlayingRowHighlights();
 
@@ -332,10 +343,14 @@ public partial class MainWindow : Window
         _isSeekingWithSlider = false;
         PositionSlider.IsEnabled = false;
         ClearTransportWaveform();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         _transportTimer.Stop();
         CancelLyricsLoad();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         CancelArtistProfileLoad();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         ClearLyrics();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
 
         NowPlayingTitleBlock.Text  = "";
         NowPlayingArtistBlock.Text = "";

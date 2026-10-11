@@ -711,10 +711,11 @@ byte-range streaming without FFmpeg.
   application. Explicit release waits for both the active player and any earlier
   player cleanup still running after a track transition's wait limit. It also
   cancels and drains pending playback preparation, including players returned
-  late by a factory. Normal window close keeps the UI dispatcher alive until
-  pending preparation and output cleanup finish; Update installation and library
-  import await the same drain before application shutdown. Transport stop
-  registers cleanup in the background.
+  late by a factory and outstanding system, slider or remote seeks. Normal
+  window close keeps the UI dispatcher alive until pending preparation and
+  output cleanup finish; Update installation and library import await the same
+  drain before application shutdown. Transport stop registers cleanup in the
+  background.
 - Output switching and output-lock reacquisition restore the saved position and
   paused state when preparation finishes, without waiting for the track to end.
   Superseded output selections and fade ramps cannot modify newer playback.
@@ -722,7 +723,9 @@ byte-range streaming without FFmpeg.
   cannot register playback metadata, late-created players are cleaned up, and
   failures from older starts cannot stop the current player. Active output and
   cancellation share one session owner; failing cancellation callbacks do not
-  prevent output cleanup.
+  prevent output cleanup. Starts triggered during cancellation or backend
+  pause/resume callbacks retain their new transport state. Obsolete seek
+  completion cannot overwrite the current status.
 - Seeking, volume control, pause, and an editable persistent **Up next** queue
   with play-next/append actions, drag-and-drop from track, album, and folder
   views, removal, reordering, complete clearing, restore-last-queue, playlist

@@ -95,15 +95,16 @@ public partial class MainWindow
         catch (Exception exception) { CrashLogger.Log(exception, "Infinite Mix playback"); }
     }
 
-    /// <summary>Invalidates pending mix publication without removing queued tracks.</summary>
+    /// <summary>Clears pending mix ownership before cancellation callbacks without removing queued tracks.</summary>
     private void CancelInfiniteMixRefill()
     {
         ++_infiniteMixVersion;
-        _infiniteMixRefillCts?.Cancel();
+        var cancellation = _infiniteMixRefillCts;
         _infiniteMixRefillCts = null;
         _infiniteMixLoading = false;
         _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
         HideInfiniteMixProgress();
+        cancellation?.Cancel();
     }
 
     /// <summary>Stops automatic replenishment without clearing the tracks already queued.</summary>

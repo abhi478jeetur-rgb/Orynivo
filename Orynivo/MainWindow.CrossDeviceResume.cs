@@ -110,16 +110,17 @@ public partial class MainWindow
                 FormatTime(TimeSpan.FromSeconds(_pendingRemoteResumeSeconds.Value))));
     }
 
-    /// <summary>Cancels advisory lookup and clears the offered position and ownership.</summary>
+    /// <summary>Clears advisory ownership before cancellation callbacks can install a replacement prompt.</summary>
     private void ClearRemoteResumePrompt()
     {
         ++_remoteResumeVersion;
-        _remoteResumeCts?.Cancel();
+        var cancellation = _remoteResumeCts;
         _remoteResumeCts = null;
         _pendingRemoteResumePlayer = null;
         _pendingRemoteResumeRow = null;
         _pendingRemoteResumeSeconds = null;
         ResumePositionButton.IsVisible = false;
+        cancellation?.Cancel();
     }
 
     /// <summary>Applies the offered position to its owning player.</summary>

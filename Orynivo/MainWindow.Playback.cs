@@ -83,20 +83,9 @@ public partial class MainWindow : Window
     /// <returns>The pause/resume action or initial preparation.</returns>
     private async Task TogglePlaybackAsync()
     {
-        if (_player is not null)
+        if (_player is { } player)
         {
-            if (_player.IsPaused)
-            {
-                _player.Resume();
-                SetPlayPauseIcon(isPlaying: true);
-                _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Playing);
-            }
-            else
-            {
-                _player.Pause();
-                SetPlayPauseIcon(isPlaying: false);
-                _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Paused);
-            }
+            SetPlaybackPaused(!player.IsPaused);
             return;
         }
 
@@ -109,12 +98,7 @@ public partial class MainWindow : Window
     {
         if (_player is not null)
         {
-            if (_player.IsPaused)
-            {
-                _player.Resume();
-                SetPlayPauseIcon(isPlaying: true);
-                _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Playing);
-            }
+            SetPlaybackPaused(false);
             return;
         }
 
@@ -131,26 +115,56 @@ public partial class MainWindow : Window
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
 
-    private void PausePlayback()
+    /// <summary>Pauses current output without publishing state from a reentrant obsolete player.</summary>
+    private void PausePlayback() => SetPlaybackPaused(true);
+
+    /// <summary>Adapts an owned backend pause/resume transition to the transport controls.</summary>
+    /// <param name="paused">Requested pause state.</param>
+    private void SetPlaybackPaused(bool paused)
     {
-        if (_player is null || _player.IsPaused)
-            return;
-        _player.Pause();
-        SetPlayPauseIcon(isPlaying: false);
-        _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Paused);
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player is null || !_playbackSession.TrySetPaused(intent, player, paused)) return;
+        SetPlayPauseIcon(isPlaying: !paused);
+        _windowsMediaTransport?.SetPlaybackStatus(paused ? MediaPlaybackStatus.Paused : MediaPlaybackStatus.Playing);
     }
 
+    /// <summary>Tracks a remote transport seek and cancels acknowledgement when output is superseded.</summary>
+    /// <param name="seconds">Requested absolute playback position.</param>
+    /// <returns>The owned seek completion; current failures propagate to the remote command.</returns>
+    private async Task SeekFromRemoteAsync(double seconds)
+    {
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player?.CanSeek != true || !_playbackSession.Owns(intent, player)) return;
+        using var preparation = _playbackPreparations.Begin();
+        try { await player.SeekAsync(TimeSpan.FromSeconds(seconds)); }
+        catch (Exception) when (!_playbackSession.Owns(intent, player))
+        {
+            throw new OperationCanceledException(LocalizationManager.Current.PlaybackStopped);
+        }
+        if (!_playbackSession.Owns(intent, player))
+            throw new OperationCanceledException(LocalizationManager.Current.PlaybackStopped);
+    }
+
+    /// <summary>Tracks a system transport seek and rejects obsolete completion before updating playback UI.</summary>
+    /// <param name="position">Requested seek position, including the start of the track.</param>
+    /// <returns>The seek lifetime included in complete output release.</returns>
     private async Task SeekFromSystemAsync(TimeSpan position)
     {
-        if (_player?.CanSeek != true)
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player?.CanSeek != true || !_playbackSession.Owns(intent, player))
             return;
+        using var preparation = _playbackPreparations.Begin();
         try
         {
-            await _player.SeekAsync(position);
+            await player.SeekAsync(position);
+            if (!_playbackSession.Owns(intent, player)) return;
             RefreshTransport();
             _windowsMediaTransport?.UpdateTimeline(
-                _player.Position,
-                _player.Duration,
+                player.Position,
+                player.Duration,
                 force: true);
         }
         catch
@@ -551,10 +565,13 @@ public partial class MainWindow : Window
             _currentPlayHistoryId = null;
         }
 
-        if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
+        if (!_playbackSession.PrepareReadiness(intent, player, initiallyPaused))
             return;
         if (initiallyPaused)
-            PausePlayback();
+        {
+            SetPlayPauseIcon(isPlaying: false);
+            _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Paused);
+        }
         onPrepared?.Invoke(player);
         preparation.Dispose();
         try
@@ -622,11 +639,8 @@ public partial class MainWindow : Window
             UpdateOutputDeviceLockButton();
             if (player is IGaplessAudioPlayer gaplessPlayer)
                 gaplessPlayer.TrackChanged += GaplessPlayer_OnTrackChanged;
-            if (initialPosition > TimeSpan.Zero && player.CanSeek)
-            {
-                try { await player.SeekAsync(initialPosition); }
-                catch { /* seek failure must not prevent playback */ }
-            }
+            if (!await _playbackSession.SeekAsync(intent, player, initialPosition))
+                return null;
             if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
                 return null;
             UpdateNowPlayingRowHighlights();
@@ -650,7 +664,8 @@ public partial class MainWindow : Window
                     if (progress is { IsCompleted: false, PositionSeconds: > 5 } &&
                         progress.PositionSeconds < Math.Max(0, player.Duration.TotalSeconds - 10))
                     {
-                        await player.SeekAsync(TimeSpan.FromSeconds(progress.PositionSeconds));
+                        if (!await _playbackSession.SeekAsync(intent, player, TimeSpan.FromSeconds(progress.PositionSeconds)))
+                            return null;
                     }
                 }
                 catch

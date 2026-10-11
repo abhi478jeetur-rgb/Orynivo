@@ -399,7 +399,17 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   retry detaches only the expected player and preserves the session token. Stop
   clears ownership before cancellation callbacks; callback/reporting failures
   must not lose the detached player. Source/history/UI cleanup and the queue
-  remain in the window. Test handoff with fake players without a window/device.
+  remain in the window. Owns validates intent, live cancellation and identity;
+  guarded resume seek and pause/resume recheck after backend callbacks. Tests
+  compose factory, preparation, readiness and drain without a window/device.
+  StopPlaybackCore captures its intent and abandons further cleanup after a
+  cancellation callback starts newer playback. Cancellation helpers clear or
+  replace old state before invoking callbacks; never clear replacement state
+  afterward. System/slider/remote seeks capture player and intent and hold a
+  preparation lease until seek completion. Full release drains these leases.
+  Reject obsolete slider error/UI publication and remote acknowledgement;
+  preserve current remote failures. Stop invalidates pending slider preview
+  before cancellation can admit another seek.
 - Audio.PlaybackOutputDrain composes the existing preparation tracker and player
   retirement owner. Register current retirement before waiting for preparation;
   full release then awaits the initial retirement pass and another pass for late

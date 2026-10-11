@@ -601,10 +601,13 @@ public partial class MainWindow : Window
         _ => "en"
     };
 
+    /// <summary>Replaces background load ownership before invoking cancellation callbacks.</summary>
     private void CancelArtistProfileLoad()
     {
-        _artistProfileCts?.Cancel();
-        _backgroundArtistLoadCts.Cancel();
+        var profile = _artistProfileCts;
+        var background = _backgroundArtistLoadCts;
         _backgroundArtistLoadCts = new CancellationTokenSource();
+        profile?.Cancel();
+        background.Cancel();
     }
 }

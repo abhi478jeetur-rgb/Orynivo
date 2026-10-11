@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Playback session ownership now also guards initial/resume seeks and
+  pause/resume readiness. System, slider and remote seeks participate in
+  complete output release. Window-free composition tests cover held factories,
+  seeks, readiness, reentrant backend callbacks and unique late retirement.
+
 - Active playback output and cancellation now share one standalone session
   owner. Stale factory/seek handoffs cannot replace newer output; gapless
   retries retain their token. Failing cancellation callbacks cannot strand
@@ -38,6 +43,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stale rows and playback metadata.
 
 ### Fixed
+
+- A new playback start triggered synchronously by a cancellation or backend
+  pause/resume callback can no longer lose its transport/source state to the
+  older action. Obsolete slider seek failures no longer overwrite current
+  status, and superseded remote seeks cancel their acknowledgement.
 
 - The composite previous-feedback regression test no longer depends on shader
   time budgets under host load. Keep its exact pixel assertions while testing

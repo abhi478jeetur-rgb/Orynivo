@@ -643,11 +643,7 @@ public partial class MainWindow : Window
         _mcpBridge.SkipNextFunc    = PlayNextAsync;
         _mcpBridge.SkipPreviousFunc = PlayPreviousAsync;
         _mcpBridge.StopFunc        = StopPlayback;
-        _mcpBridge.SeekFunc        = async seconds =>
-        {
-            if (_player?.CanSeek == true)
-                await _player.SeekAsync(TimeSpan.FromSeconds(seconds));
-        };
+        _mcpBridge.SeekFunc        = SeekFromRemoteAsync;
         _mcpBridge.SetVolumeFunc   = v => VolumeSlider.Value = Math.Clamp(v, 0, 1);
         _mcpBridge.AppendToQueueFunc = path => InsertPlaybackQueueAsync(path, playNext: false);
         _mcpBridge.PlayNextFunc = path => InsertPlaybackQueueAsync(path, playNext: true);

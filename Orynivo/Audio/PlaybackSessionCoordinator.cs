@@ -44,6 +44,52 @@ internal sealed class PlaybackSessionCoordinator(PlaybackStartOwnership starts, 
         return true;
     }
 
+    /// <summary>Checks both session intent and active identity before publishing or changing prepared output.</summary>
+    /// <param name="intent">Owning playback start.</param>
+    /// <param name="player">Expected active output.</param>
+    /// <returns>Whether this live session still owns the supplied player.</returns>
+    internal bool Owns(long intent, IAudioPlayer player) => IsCurrent(intent) && ReferenceEquals(Player, player);
+
+    /// <summary>Applies a best-effort resume seek and rejects completion after stop or replacement.</summary>
+    /// <param name="intent">Owning preparation start.</param>
+    /// <param name="player">Expected active output.</param>
+    /// <param name="position">Requested initial or saved position.</param>
+    /// <returns>Whether output ownership remains current after the attempted seek.</returns>
+    internal async Task<bool> SeekAsync(long intent, IAudioPlayer player, TimeSpan position)
+    {
+        if (!Owns(intent, player)) return false;
+        if (position > TimeSpan.Zero && player.CanSeek)
+        {
+            try { await player.SeekAsync(position); }
+            catch { /* Resume failure must not prevent current playback. */ }
+        }
+        return Owns(intent, player);
+    }
+
+    /// <summary>Applies initial pause only to current output and checks ownership again after backend callbacks.</summary>
+    /// <param name="intent">Owning preparation start.</param>
+    /// <param name="player">Expected fully sought output.</param>
+    /// <param name="initiallyPaused">Whether to pause before readiness publication.</param>
+    /// <returns>Whether the caller may publish readiness for this output.</returns>
+    internal bool PrepareReadiness(long intent, IAudioPlayer player, bool initiallyPaused)
+    {
+        if (!Owns(intent, player)) return false;
+        return !initiallyPaused || TrySetPaused(intent, player, true);
+    }
+
+    /// <summary>Changes pause state on the expected output and rejects reentrant backend ownership changes.</summary>
+    /// <param name="intent">Owning playback start.</param>
+    /// <param name="player">Expected active output.</param>
+    /// <param name="paused">Requested pause state.</param>
+    /// <returns>Whether the caller may publish the resulting transport state.</returns>
+    internal bool TrySetPaused(long intent, IAudioPlayer player, bool paused)
+    {
+        if (!Owns(intent, player)) return false;
+        if (paused && !player.IsPaused) player.Pause();
+        else if (!paused && player.IsPaused) player.Resume();
+        return Owns(intent, player);
+    }
+
     /// <summary>Detaches a stale gapless snapshot while preserving cancellation for another preparation attempt.</summary>
     /// <param name="intent">Owning preparation intent.</param>
     /// <param name="player">Expected active player, never a replacement player.</param>

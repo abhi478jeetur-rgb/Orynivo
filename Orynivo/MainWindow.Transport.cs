@@ -155,10 +155,15 @@ public partial class MainWindow : Window
 
     /// <summary>Commits the pending waveform-progress seek and leaves preview mode.</summary>
     /// <param name="pointer">Pointer that owns capture, or <see langword="null"/>.</param>
+    /// <returns>The tracked seek lifetime; obsolete completion cannot publish transport state.</returns>
     private async Task CommitPositionSliderSeekAsync(IPointer? pointer)
     {
         if (!_isSeekingWithSlider)
             return;
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player is null || !_playbackSession.Owns(intent, player)) return;
+        using var preparation = _playbackPreparations.Begin();
 
         var target = TimeSpan.FromSeconds(PositionSlider.Value);
         var seekVersion = Interlocked.Increment(ref _transportSeekVersion);
@@ -181,12 +186,13 @@ public partial class MainWindow : Window
                     $"seek-skipped-stale version={seekVersion} elapsedMs={stopwatch.ElapsedMilliseconds}");
                 return;
             }
-            if (_player is not null && _player.CanSeek)
+            if (player.CanSeek)
             {
-                await _player.SeekAsync(target);
+                await player.SeekAsync(target);
+                if (!_playbackSession.Owns(intent, player)) return;
                 SeekDiagnostics.Log(
                     "transport-ui",
-                    $"seek-complete version={seekVersion} elapsedMs={stopwatch.ElapsedMilliseconds} playerPosition={_player.Position.TotalSeconds:F3}s");
+                    $"seek-complete version={seekVersion} elapsedMs={stopwatch.ElapsedMilliseconds} playerPosition={player.Position.TotalSeconds:F3}s");
             }
             else
             {
@@ -202,6 +208,11 @@ public partial class MainWindow : Window
                 "transport-ui",
                 $"seek-canceled version={seekVersion} elapsedMs={stopwatch.ElapsedMilliseconds}");
         }
+        catch (Exception) when (!_playbackSession.Owns(intent, player) ||
+                                seekVersion != Volatile.Read(ref _transportSeekVersion))
+        {
+            // An obsolete seek must not report an error over a newer source.
+        }
         catch (Exception ex)
         {
             SeekDiagnostics.Log(
@@ -213,14 +224,13 @@ public partial class MainWindow : Window
         }
         finally
         {
-            if (seekVersion == Volatile.Read(ref _transportSeekVersion))
-                _pendingTransportSeekPosition = null;
-            RefreshTransport();
-            if (_player is not null)
+            if (_playbackSession.Owns(intent, player) && seekVersion == Volatile.Read(ref _transportSeekVersion))
             {
+                _pendingTransportSeekPosition = null;
+                RefreshTransport();
                 _windowsMediaTransport?.UpdateTimeline(
-                    _player.Position,
-                    _player.Duration,
+                    player.Position,
+                    player.Duration,
                     force: true);
             }
         }
@@ -328,11 +338,11 @@ public partial class MainWindow : Window
         return data?.Peaks ?? [];
     }
 
-    /// <summary>Cancels pending waveform analysis and clears the transport waveform.</summary>
+    /// <summary>Clears the old waveform before cancellation callbacks can start replacement analysis.</summary>
     private void ClearTransportWaveform()
     {
-        CancelAndDispose(ref _waveformCts);
         PositionSlider.SetWaveform(null);
+        CancelAndDispose(ref _waveformCts);
     }
 
     private void LyricsButton_OnClick(object? sender, RoutedEventArgs e)
