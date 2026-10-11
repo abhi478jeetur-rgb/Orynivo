@@ -69,8 +69,8 @@ internal static class NavigationCaptureDecision
         {
             if (context.HasLogicalAlbumParts) return new(NavigationCaptureKind.LogicalAlbum);
             if (context.IsServerAlbum && context.ServerId is not null)
-                return new(NavigationCaptureKind.ServerAlbum, serverTag ? context.TopLevelTag
-                    : $"OrynivoServer:{context.ServerId}:Albums");
+                return new(NavigationCaptureKind.ServerAlbum,
+                    ServerNavigationTarget.ForAlbum(context.ServerId, context.TopLevelTag));
             return new(NavigationCaptureKind.LocalAlbum);
         }
         if (context.ArtistId.HasValue)

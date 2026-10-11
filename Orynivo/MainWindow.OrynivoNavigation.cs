@@ -156,6 +156,15 @@ public partial class MainWindow : Window
             : (_activeArtistFilterId, _activeArtistFilterName);
     }
 
+    /// <summary>Restores an album only through its parsed, still-configured owning server.</summary>
+    /// <param name="navigationTag">Source-bound remote navigation tag.</param>
+    /// <param name="albumId">Owning server's album identifier.</param>
+    /// <param name="albumTitle">Saved album title.</param>
+    /// <param name="artistFilterId">Optional provider-local artist scope.</param>
+    /// <param name="artistFilterName">Optional scoped artist display name.</param>
+    /// <param name="verticalOffset">Saved scroll offset.</param>
+    /// <param name="logicalAlbumIds">Optional album identifiers from the same provider.</param>
+    /// <returns>A task completing after restoration or rejection of an unavailable source.</returns>
     private async Task RestoreOrynivoAlbumTracksAsync(
         string? navigationTag,
         long albumId,
@@ -165,15 +174,20 @@ public partial class MainWindow : Window
         double? verticalOffset,
         IReadOnlyList<long>? logicalAlbumIds = null)
     {
-        if (string.IsNullOrWhiteSpace(navigationTag))
+        if (!ServerNavigationTarget.TryParse(navigationTag, out var target))
             return;
+        var server = (_settings.OrynivoServers ?? [])
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, target.ServerId, StringComparison.Ordinal));
+        if (server is null) return;
+        bool CanRestore() => ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
+            (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
 
-        SelectNavigationItem(navigationTag);
-        await ShowTopLevelViewAsync(navigationTag);
-        if (_activeOrynivoServer is null)
-            return;
+        SelectNavigationItem(navigationTag!);
+        await ShowTopLevelViewAsync(navigationTag!);
+        if (!CanRestore()) return;
 
-        var provider = CreateOrynivoCatalogProvider(_activeOrynivoServer);
+        var provider = CreateOrynivoCatalogProvider(server);
         var album = await provider.GetAlbumAsync(albumId, includeArtwork: true)
                     ?? new LibraryCatalogAlbum(
                         LibraryCatalogSource.OrynivoServer,
@@ -183,14 +197,15 @@ public partial class MainWindow : Window
                         null,
                         null,
                         null,
-                        IsOrynivoFavorite(_activeOrynivoServer, "Album", albumId));
+                        IsOrynivoFavorite(server, "Album", albumId));
+        if (!CanRestore()) return;
         await ShowProviderAlbumTracksAsync(
             provider,
             album,
             artistFilterId,
             artistFilterName,
             logicalAlbumIds);
-        RestoreSelectionFromCurrentItems(null, verticalOffset);
+        RestoreSelectionFromCurrentItems(null, verticalOffset, canRestore: CanRestore);
     }
 
     /// <summary>Restores the filtered album list for a remote server artist.</summary>
@@ -199,6 +214,7 @@ public partial class MainWindow : Window
     /// <param name="artistName">Artist display name for the header.</param>
     /// <param name="selectedAlbumId">Album identifier to reselect.</param>
     /// <param name="verticalOffset">Optional vertical scroll offset to restore.</param>
+    /// <returns>A task completing after restoration or rejection of an unavailable source.</returns>
     private async Task RestoreOrynivoArtistAlbumsAsync(
         string? navigationTag,
         long artistId,
@@ -206,21 +222,26 @@ public partial class MainWindow : Window
         long? selectedAlbumId,
         double? verticalOffset)
     {
-        if (string.IsNullOrWhiteSpace(navigationTag))
+        if (!ServerNavigationTarget.TryParse(navigationTag, out var target))
             return;
+        var server = (_settings.OrynivoServers ?? [])
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, target.ServerId, StringComparison.Ordinal));
+        if (server is null) return;
+        bool CanRestore() => ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
+            (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
 
-        SelectNavigationItem(navigationTag);
-        await ShowTopLevelViewAsync(navigationTag);
-        if (_activeOrynivoServer is null)
-            return;
+        SelectNavigationItem(navigationTag!);
+        await ShowTopLevelViewAsync(navigationTag!);
+        if (!CanRestore()) return;
 
-        _currentTopLevelTag = navigationTag;
+        _currentTopLevelTag = navigationTag!;
         _activeOrynivoView = "Albums";
         _activeArtistFilterId = artistId;
         _activeArtistFilterName = artistName;
-        ContentTitleTextBlock.Text = $"{_activeOrynivoServer.Name} · {artistName}";
+        ContentTitleTextBlock.Text = $"{server.Name} · {artistName}";
         await LoadOrynivoViewAsync(filterArtistId: artistId);
-        RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset);
+        RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset, canRestore: CanRestore);
     }
 
     /// <summary>Queues playable rows and starts the selected occurrence, preserving playlist duplicates.</summary>

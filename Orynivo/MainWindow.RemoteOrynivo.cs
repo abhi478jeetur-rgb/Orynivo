@@ -166,18 +166,17 @@ public partial class MainWindow : Window
         await LoadOrynivoViewAsync();
     }
 
+    /// <summary>Adapts the typed server target parser to existing sidebar callers.</summary>
+    /// <param name="tag">Potential remote sidebar tag.</param>
+    /// <param name="serverId">Parsed server identity or empty when invalid.</param>
+    /// <param name="view">Parsed view identity or empty when invalid.</param>
+    /// <returns>Whether the tag identifies a server destination.</returns>
     private static bool TryParseOrynivoServerTag(string tag, out string serverId, out string view)
     {
-        serverId = string.Empty;
-        view = string.Empty;
-        if (!tag.StartsWith("OrynivoServer:", StringComparison.Ordinal))
-            return false;
-        var parts = tag.Split(':', 3);
-        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
-            return false;
-        serverId = parts[1];
-        view = parts.Length == 3 && !string.IsNullOrWhiteSpace(parts[2]) ? parts[2] : "Root";
-        return true;
+        var parsed = ServerNavigationTarget.TryParse(tag, out var target);
+        serverId = target?.ServerId ?? string.Empty;
+        view = target?.View ?? string.Empty;
+        return parsed;
     }
 
     private static string GetOrynivoFavoriteKey(string serverId, string entityType, long id)

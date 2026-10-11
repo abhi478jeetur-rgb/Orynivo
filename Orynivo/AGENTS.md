@@ -703,6 +703,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   state payloads, selection/scroll and restore adapters. Test decisions without
   a window and exercise the capture adapter with synthetic data before changing
   restore paths.
+- ServerNavigationTarget owns the existing server tag grammar and album-origin
+  source matching without connection settings. Album capture retains an origin
+  only for the owning server; otherwise use its Albums target. Remote restores
+  reject malformed or unconfigured sources before UI/network work, capture the
+  configured server and recheck its identity, current tag and configuration
+  membership after awaits and in deferred selection/scroll callbacks. Never
+  resolve a rejected source against ambient active-server state. Preserve legacy
+  Root defaults and the one window-owned Back stack.
 - Navigation state must distinguish local, remote, Plex, and unified
   drill-downs; numeric IDs from different sources can collide. Back restoration
   of the top-level Artists and Albums views must use the normal unified loader

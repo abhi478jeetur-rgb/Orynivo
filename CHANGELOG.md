@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Remote Back navigation uses typed server targets. Invalid or removed source
+  tags cannot borrow the currently active server; album capture repairs sidebar
+  tags belonging to a different server. Restoration rechecks the owning source
+  after lookups and before deferred selection/scroll updates.
+
 - Back navigation capture now uses a window-independent typed decision helper.
   It preserves search/cloud precedence, logical album parts, and local/server
   identity even when album or artist IDs collide. The window still owns history,

@@ -1166,17 +1166,24 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   logical album parts and provider-bound album/artist routes. The decision owns
   no rows, provider or history; the window adapts its target into the existing
   Back state and retains selection, scroll and restore work. Window-free tests
-  cover source collisions and capture precedence. Never restore a remote album
-  detail through the local `ShowAlbumTracksAsync` path because server and local
-  album IDs can collide. Remote artist-info views must use the bound remote
-  row/server profile data, not local `AudioDatabase.GetArtistById`, because
-  server IDs can collide with local artist IDs. The remote artist-info
-  rename/merge and Wikimedia image actions must call the Orynivo Server API
-  (`RenameArtistAsync`, `UploadArtistImageAsync`) and update the remote
-  row/detail view rather than writing to the local database. Remote Tracks
-  offers the same Genre/Audio-Type/Bitrate facet filters as local, reusing the
-  client's `MatchesTrackFilters`/facet-popup logic fed by the server aggregation
-  endpoint `/api/tracks/facets` (favorite state overridden with the client-side
+  cover source collisions and capture precedence. `ServerNavigationTarget`
+  parses the existing server tag grammar (including Root defaults) and binds
+  album origins to their owning server. Malformed or removed sources are
+  rejected before remote restore changes the view or requests data. Restore
+  adapters capture the configured server and check active identity, current tag
+  and configuration membership after awaits and before deferred scroll/selection
+  work; ambient server state cannot substitute for a rejected target. Never
+  restore a remote album detail through the local `ShowAlbumTracksAsync` path
+  because server and local album IDs can collide. Remote artist-info views must
+  use the bound remote row/server profile data, not local
+  `AudioDatabase.GetArtistById`, because server IDs can collide with local
+  artist IDs. The remote artist-info rename/merge and Wikimedia image actions
+  must call the Orynivo Server API (`RenameArtistAsync`,
+  `UploadArtistImageAsync`) and update the remote row/detail view rather than
+  writing to the local database. Remote Tracks offers the same
+  Genre/Audio-Type/Bitrate facet filters as local, reusing the client's
+  `MatchesTrackFilters`/facet-popup logic fed by the server aggregation endpoint
+  `/api/tracks/facets` (favorite state overridden with the client-side
   favorites); filtered results load via `/api/tracks/by-ids`
   (`ResolveOrynivoTrackRowsAsync`). Typing in the header search box while a
   remote Tracks view is active shows the shared three-section search result
