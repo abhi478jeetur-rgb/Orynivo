@@ -1931,10 +1931,17 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Scanner and watcher upserts must resolve this alias and keep the canonical
   database display name in denormalized track fields; unchanged audio tags must
   never recreate or restore the pre-rename artist name.
-- After the rename transaction, update `ArtistInfoTitleButton` and related
-  current/filter artist state immediately. The potentially expensive complete
-  Lucene rebuild runs afterward in the background and must not delay visible
-  confirmation of the new name.
+- Local rename flows capture displayed identity/title, sidebar/detail/name,
+  profile observation and outer Back before background artist lookup. Recheck
+  before opening a merge dialog and after its choice before admitting the
+  transaction. Accepted changes still synchronize and schedule Lucene updates
+  independently of view navigation. Background indexing must not delay visible
+  confirmation. Only the retained detail may update title, status, filter, list
+  selection or profile refresh; obsolete failures cannot replace current status.
+  Empty filter/playback IDs never match an absent merge target. Local playback
+  publication retains track/provider identity and rejects remote numeric ID
+  collisions. Final synchronization failure retains exactly the edit's next
+  profile admission, including cancellation callback replacements.
 - On large libraries, do not open `AudioDatabase` for collision lookup on the UI
   thread after the rename dialog. Collision lookup and a collision-free rename
   share one background connection; only an actual collision returns to the UI

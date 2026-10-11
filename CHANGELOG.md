@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Local artist rename and merge flows retain their original detail across
+  database reads, dialogs, synchronization and profile refresh. Obsolete merge
+  choices cannot start a transaction, and delayed results cannot replace a newer
+  title, status, filter or playback artist. Empty filter/playback IDs no longer
+  count as matching merge targets. Accepted changes still synchronize and update
+  the search index after navigation; initial artist lookup runs off the UI
+  thread.
+
 - Artist rename synchronization retains the original configured server set and
   copied connections. Changed or removed sources cannot receive subsequent
   renames or merge requests after delayed responses, and newly added servers do

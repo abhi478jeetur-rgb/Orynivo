@@ -43,6 +43,9 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>Opens the rename flow for the displayed local or remote artist.</summary>
+    /// <param name="sender">The rename button.</param>
+    /// <param name="e">The routed click event.</param>
     private async void EditArtistNameButton_OnClick(object? sender, RoutedEventArgs e)
     {
         if (_artistInfoDisplayedRemoteRow is { } remoteRow)
@@ -50,84 +53,111 @@ public partial class MainWindow : Window
             await EditOrynivoArtistNameAsync(remoteRow);
             return;
         }
+        if (_artistInfoDisplayedId is long artistId)
+            await EditLocalArtistNameAsync(artistId,
+                dialog => dialog.ShowDialog<bool>(this),
+                dialog => dialog.ShowDialog<bool>(this));
+    }
 
-        if (_artistInfoDisplayedId is not long artistId)
-            return;
-
-        ArtistInfo? artist;
-        using (var db = AudioDatabase.OpenDefault())
-            artist = db.GetArtistById(artistId);
-        if (artist is null)
-            return;
+    /// <summary>Completes accepted local edits while retaining the original detail for UI publication and merge admission.</summary>
+    /// <param name="artistId">The original local artist identity.</param>
+    /// <param name="showEdit">Shows the rename confirmation and returns whether it was accepted.</param>
+    /// <param name="showMerge">Shows an explicit merge survivor choice.</param>
+    /// <returns>A task completing the accepted data work and still-current detail refresh.</returns>
+    private async Task EditLocalArtistNameAsync(long artistId,
+        Func<EditArtistNameDialog, Task<bool>> showEdit,
+        Func<ArtistMergeDialog, Task<bool>> showMerge)
+    {
+        var displayedId = _artistInfoDisplayedId;
+        var displayedTitle = ArtistInfoTitleButton.Content as string;
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var observation = _artistProfileLoads.CaptureCurrent();
+        var restore = _navigationRestores.Context;
+        var trackId = _currentTrackId;
+        var trackPath = _currentFilePath;
+        var provider = _currentNowPlayingProvider;
+        bool CanPublish() => ArtistInfoView.IsVisible &&
+            _artistInfoDisplayedRemoteRow is null && !_nowPlayingRemoteArtistInfo &&
+            _artistInfoDisplayedId == displayedId && ArtistInfoTitleButton.Content as string == displayedTitle &&
+            _currentTopLevelTag == tag && _artistDetailLoadVersion == detailVersion &&
+            _artistInfoUnifiedArtistName == unifiedName && _artistProfileLoads.IsCurrent(observation) &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
+        if (displayedId != artistId || !CanPublish()) return;
+        var artist = await Task.Run(() =>
+        {
+            using var db = AudioDatabase.OpenDefault();
+            return db.GetArtistById(artistId);
+        });
+        if (artist is null || !CanPublish()) return;
 
         var editDialog = new EditArtistNameDialog(artist.Id, artist.Artist);
-        if (await editDialog.ShowDialog<bool>(this) == false)
-            return;
-
+        if (!await showEdit(editDialog)) return;
         var result = editDialog.Result;
         long? matchingArtistId = null;
         bool? preferCurrentArtistOnMerge = null;
         if (result is null && editDialog.MatchingArtist is { } matchingArtist)
         {
+            if (!CanPublish()) return;
             matchingArtistId = matchingArtist.Id;
             var mergeDialog = new ArtistMergeDialog(
-                artist.Id,
-                artist.Artist,
-                matchingArtist.Id,
-                matchingArtist.Artist);
-            if (await mergeDialog.ShowDialog<bool>(this) == false)
-                return;
-
-            preferCurrentArtistOnMerge = mergeDialog.PreferredArtistId == artist.Id;
-
+                artist.Id, artist.Artist, matchingArtist.Id, matchingArtist.Artist);
+            if (!await showMerge(mergeDialog) || !CanPublish()) return;
+            var preferredId = mergeDialog.PreferredArtistId;
+            var newName = editDialog.ArtistName;
+            preferCurrentArtistOnMerge = preferredId == artist.Id;
             try
             {
                 result = await Task.Run(() =>
                 {
                     using var db = AudioDatabase.OpenDefault();
-                    return db.MergeArtists(
-                        artist.Id,
-                        matchingArtist.Id,
-                        mergeDialog.PreferredArtistId,
-                        editDialog.ArtistName);
+                    return db.MergeArtists(artist.Id, matchingArtist.Id, preferredId, newName);
                 });
             }
             catch (Exception ex)
             {
                 CrashLogger.Log(ex, "Artist merge");
-                ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistRenameFailed;
-                ArtistInfoStatusTextBlock.IsVisible = true;
+                if (CanPublish())
+                {
+                    ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistRenameFailed;
+                    ArtistInfoStatusTextBlock.IsVisible = true;
+                }
                 return;
             }
         }
+        if (result is null) return;
 
-        if (result is null)
-            return;
-
+        // Index admitted data changes even when the originating detail was abandoned.
+        _ = UpdateSearchIndexAfterArtistRenameAsync(result.ArtistId);
         var remoteRenameSucceeded = await RenameMatchingOrynivoArtistsAsync(
-            artist.Artist,
-            result.ArtistName,
-            preferCurrentArtistOnMerge);
-
-        if (_currentArtistId == artistId || _currentArtistId == matchingArtistId)
+            artist.Artist, result.ArtistName, preferCurrentArtistOnMerge);
+        if (!CanPublish()) return;
+        bool Matches(long? id) => id == artistId || (matchingArtistId is long match && id == match);
+        if (_currentOrynivoTrackRow is null && _currentTrackId == trackId &&
+            _currentFilePath == trackPath && ReferenceEquals(_currentNowPlayingProvider, provider) &&
+            Matches(_currentArtistId))
         {
             _currentArtistId = result.ArtistId;
             _currentArtistName = result.ArtistName;
             NowPlayingArtistBlock.Text = result.ArtistName;
         }
-        if (_activeArtistFilterId == artistId || _activeArtistFilterId == matchingArtistId)
+        if (Matches(_activeArtistFilterId))
         {
             _activeArtistFilterId = result.ArtistId;
             _activeArtistFilterName = result.ArtistName;
         }
-
-        _artistInfoDisplayedId = result.ArtistId;
-        ArtistInfoTitleButton.Content = result.ArtistName;
+        displayedId = result.ArtistId;
+        displayedTitle = result.ArtistName;
+        _artistInfoDisplayedId = displayedId;
+        ArtistInfoTitleButton.Content = displayedTitle;
         ArtistInfoStatusTextBlock.IsVisible = false;
-        await ReloadVisibleArtistListAsync(result.ArtistId);
+        await ReloadVisibleArtistListAsync(result.ArtistId, CanPublish);
+        if (!CanPublish()) return;
+        // Retain only the next profile admission; cancellation callbacks may replace it.
+        observation = observation with { Version = unchecked(observation.Version + 1) };
         await ShowArtistInfoAsync(result.ArtistId, forceRefresh: false);
-        _ = UpdateSearchIndexAfterArtistRenameAsync(result.ArtistId);
-        if (!remoteRenameSucceeded)
+        if (CanPublish() && !remoteRenameSucceeded)
         {
             ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
             ArtistInfoStatusTextBlock.IsVisible = true;

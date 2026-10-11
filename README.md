@@ -1113,6 +1113,9 @@ byte-range streaming without FFmpeg.
   merge flow with an explicit choice of which artist profile to retain
 - Cross-server artist renames retain their original connections and skip changed
   or removed sources before further rename or merge requests.
+- Local rename/merge dialogs retain their original artist view. Accepted changes
+  update the search index after navigation without reopening old details or
+  changing a newer playback artist or filter.
 - ZIP export and import for the managed library, playlists, personal radio
   stations, pinned podcasts, history, artwork, and configured library
   directories

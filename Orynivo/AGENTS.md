@@ -647,6 +647,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   changed source's artist-list cache. Album and artist detail upload/delete
   actions route through the owning local or remote artwork provider and use
   localized labels/tooltips. Plex identities remain separate.
+- Local artist edits capture displayed identity/title, sidebar/detail/name,
+  profile observation and outer Back before background artist lookup. Recheck
+  before opening a merge dialog and after its choice before transaction
+  admission. Accepted transactions still synchronize and schedule search-index
+  updates after navigation; guard UI, errors and list selection separately. Null
+  filter/playback IDs are never matching merge targets. Playback updates retain
+  track/provider context and reject remote ID collisions. Final failure status
+  retains exactly the edit's next profile admission, never a replacement
+  admitted by cancellation callbacks.
 - Unified artist and logical-album details reconcile artwork for equivalent
   local/server identities with a bounded best-effort request. Copy only into
   missing destinations, preserve manual artist images, invalidate unified and
