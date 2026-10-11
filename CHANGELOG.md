@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Genre Cloud deferred layout and staggered button animations now reject
+  replaced bindings, abandoned Back restores, navigation and catalog changes.
+
 - Back restores now retain their own execution and deferred selection/scroll
   ownership. An older completion cannot end a newer restore or change its Back
   button. Independent navigation resumes history capture immediately; nested

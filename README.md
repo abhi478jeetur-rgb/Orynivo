@@ -1195,6 +1195,9 @@ history when available, but the cloud remains usable with a new or empty play
 history. Remote results retain their owning server for playback, favorites,
 artwork, and album/artist navigation.
 
+Genre button layout and entrance animations follow the current cloud binding;
+changing mode or leaving the view abandons pending callbacks.
+
 Resolved cloud levels are retained in a bounded in-memory session cache. After
 the first load, reopening the root or one of the recently visited branches
 reuses its merged taxonomy and source-aware recommendations instead of querying

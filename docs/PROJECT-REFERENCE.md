@@ -1073,7 +1073,11 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   shared Genre Cloud view merges compact snapshots from the local library and
   every configured Orynivo Server; remote recommendations retain their server
   context and client-side favorite state. Older servers fall back to
-  `/api/tracks/facets` when `/api/genres/cloud` is unavailable. Genre nodes
+  `/api/tracks/facets` when `/api/genres/cloud` is unavailable. Cloud callbacks
+  retain binding identity, foreground cancellation, catalog/source identity,
+  taxonomy key, navigation tag and outer Back ownership for deferred Loaded
+  layout and staggered animations. Removed buttons do not animate after a mode
+  rebuild, and abandoned callbacks do not arrange a replacement. Genre nodes
   carry both matching-track and distinct matching-album counts; the desktop
   chooses the count matching its current recommendation mode. Local media live
   under a collapsible **Local** child node followed by local Artists, Albums,

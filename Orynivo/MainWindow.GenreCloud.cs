@@ -60,6 +60,7 @@ public partial class MainWindow
     private readonly Dictionary<string, GenreCloudViewCacheEntry> _genreCloudViewCache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<GenreCloudViewSnapshot>> _genreCloudViewLoads = new(StringComparer.Ordinal);
     private int _genreCloudCatalogGeneration;
+    private int _genreCloudNodeBindingVersion;
 
     /// <summary>Starts Infinite Mix with every complete genre branch represented by the current cloud level.</summary>
     private async void GenreCloudInfiniteMixButton_OnClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
@@ -960,9 +961,24 @@ public partial class MainWindow
         GenreCloudBreadcrumbPanel.Children.Add(button);
     }
 
-    /// <summary>Builds count-scaled buttons for the visible genre nodes.</summary>
+    /// <summary>Builds count-scaled buttons whose deferred layout belongs to this binding.</summary>
+    /// <param name="nodes">Taxonomy nodes to render.</param>
+    /// <param name="useAlbumCounts">Whether to display album counts instead of track counts.</param>
     private void BuildGenreCloudNodes(IReadOnlyList<GenreCloudNode> nodes, bool useAlbumCounts)
     {
+        var bindingVersion = ++_genreCloudNodeBindingVersion;
+        var token = _genreCloudCts?.Token ?? CancellationToken.None;
+        var parentKey = _genreCloudSelectedKey;
+        var cacheKey = CreateGenreCloudViewCacheKey(parentKey);
+        var navigationTag = _currentTopLevelTag;
+        var restoreContext = _navigationRestores.Context;
+        bool CanArrange() => bindingVersion == _genreCloudNodeBindingVersion &&
+            !token.IsCancellationRequested && GenreCloudPanel.IsVisible &&
+            string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
+            string.Equals(_genreCloudSelectedKey, parentKey, StringComparison.Ordinal) &&
+            string.Equals(CreateGenreCloudViewCacheKey(parentKey), cacheKey, StringComparison.Ordinal) &&
+            (restoreContext is null || _navigationRestores.IsCurrent(restoreContext));
+
         GenreCloudNodesCanvas.Children.Clear();
         var maximum = Math.Max(1, nodes.Select(node => useAlbumCounts ? node.AlbumCount : node.TrackCount)
             .DefaultIfEmpty(1).Max());
@@ -1003,12 +1019,15 @@ public partial class MainWindow
             GenreCloudNodesCanvas.Children.Add(button);
         }
 
-        Dispatcher.UIThread.Post(ArrangeGenreCloudNodes, DispatcherPriority.Loaded);
+        Dispatcher.UIThread.Post(() => ArrangeGenreCloudNodes(CanArrange), DispatcherPriority.Loaded);
     }
 
     /// <summary>Places genre buttons in centered, collision-free cloud rows and starts their staggered transition.</summary>
-    private void ArrangeGenreCloudNodes()
+    /// <param name="isCurrent">Checks the binding, catalog, navigation and restore ownership.</param>
+    private void ArrangeGenreCloudNodes(Func<bool> isCurrent)
     {
+        if (!isCurrent())
+            return;
         const double horizontalGap = 14;
         const double verticalGap = 12;
         var width = Math.Max(320, GenreCloudSurface.Bounds.Width - 40);
@@ -1055,6 +1074,8 @@ public partial class MainWindow
                 var delay = TimeSpan.FromMilliseconds(Math.Min(entry.Index, 14) * 28);
                 DispatcherTimer.RunOnce(() =>
                 {
+                    if (!isCurrent() || !GenreCloudNodesCanvas.Children.Contains(entry.Button))
+                        return;
                     entry.Button.Opacity = 1;
                     if (entry.Button.RenderTransform is ScaleTransform transform)
                     {

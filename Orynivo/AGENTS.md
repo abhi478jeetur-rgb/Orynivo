@@ -1230,6 +1230,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   shared-load tokens and clears their outcome/retry notice before archive
   replacement, in addition to existing search/playlist and playback abandonment.
   Test held pre-cleanup and pre-import loads with synthetic SQLite and HTTP.
+- Genre Cloud Loaded layout and staggered animation callbacks retain binding,
+  cancellation, catalog/source, taxonomy, navigation and outer Back ownership.
+  Removed buttons must never animate after a mode rebuild; hidden or abandoned
+  bindings must not arrange a newer cloud.
 - A cached Genre Cloud level renders immediately and must not retain the
   first-load branch-transition delay.
 - `AppSettings.LastMainView` persists every selectable sidebar leaf tag, not a
