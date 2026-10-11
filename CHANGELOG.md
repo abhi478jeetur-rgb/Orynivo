@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Plex page, child and lazy-folder loads now retain copied source, section,
+  token and navigation ownership. Obsolete results cannot replace rows, trees,
+  status or playback metadata. Paging captures its offset and existing rows;
+  child Back states capture rows/title before loading. Independent Plex actions
+  abandon root loading/fades, and Back restores root paging availability.
+  Sectionless playback-history links retain their source and Back base.
+
 - Genre Cloud foreground loads now reject obsolete rows and playback metadata
   after navigation, catalog/source changes and overlapping Back restores. Branch
   and mode actions replace root loading and fades while reusing shared snapshot

@@ -43,7 +43,6 @@ public partial class MainWindow : Window
     private const float PcmOutputBoostFactor = 1.9952623f;
     internal const string LocalSourceKey = "local";
     private int _plexNavigationLoadVersion;
-    private int _plexViewLoadVersion;
     /// <summary>Gets load ownership used by the shared view retry indicator.</summary>
     private int _unifiedLibraryLoadVersion => _unifiedLibraryLoads.Version;
     private CancellationTokenSource? _unifiedLibraryAppendCts;
@@ -829,7 +828,7 @@ public partial class MainWindow : Window
         CancelAndDispose(ref _radioSearchCts);
         CancelAndDispose(ref _podcastSearchCts);
         CancelAndDispose(ref _podcastFeedCts);
-        CancelAndDispose(ref _plexViewCts);
+        CancelPlexViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         _musicBrainzBackgroundCts.Cancel();

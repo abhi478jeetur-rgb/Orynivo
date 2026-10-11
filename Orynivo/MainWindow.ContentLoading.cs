@@ -53,7 +53,14 @@ public partial class MainWindow : Window
         _topLevelViewLoads.Invalidate();
         var previousCancellation = _topLevelViewCts;
         _topLevelViewCts = null;
-        CancelGenreCloudViewLoad();
+        var previousCloudCancellation = _genreCloudCts;
+        _genreCloudCts = null;
+        _genreCloudLoads.Invalidate();
+        var previousPlexCancellation = _plexViewCts;
+        _plexViewCts = null;
+        _plexLoads.Invalidate();
+        CancelAndDispose(ref previousCloudCancellation);
+        CancelAndDispose(ref previousPlexCancellation);
         CancelAndDispose(ref previousCancellation);
     }
 
@@ -142,6 +149,8 @@ public partial class MainWindow : Window
         // the tree or the count of the view the user is switching to.
         CancelAndDispose(ref _folderViewCts);
         CancelGenreCloudViewLoad();
+        if (!CanPublish()) return;
+        CancelPlexViewLoad();
         if (!CanPublish()) return;
         ContentDataGrid.ItemsSource = null;
         AlbumArtworkListBox.ItemsSource = null;
@@ -306,7 +315,7 @@ public partial class MainWindow : Window
             }
             else if (tag.StartsWith("PlexLibrary:", StringComparison.Ordinal))
             {
-                await ShowPlexLibraryAsync(tag);
+                await ShowPlexLibraryAsync(tag, CanPublish);
             }
             else if (isOrynivoServerTag)
             {

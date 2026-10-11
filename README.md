@@ -1154,6 +1154,10 @@ byte-range streaming without FFmpeg.
   ambiguous metadata does not generate repeated requests.
 - German, English, French, Spanish, Russian, Simplified Chinese, and Hindi user
   interfaces
+- Plex browsing rejects obsolete pages and folder expansions after navigation or
+  source changes. Back returns to the rows and title captured before drill-down
+  and restores paging on the library overview. Plex links from playback history
+  retain their source without requiring a library section.
 - Multiple Plex Media Server configurations with protected access tokens and
   music-library discovery, artist/album/track browsing, folder navigation, and
   playback, including an A–Z root-folder index and multi-part tracks decoded as

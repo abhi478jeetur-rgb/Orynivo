@@ -305,7 +305,10 @@ public partial class MainWindow : Window
             ContentDataGrid.ItemsSource = plexState.Rows;
             ContentDataGrid.IsVisible = true;
             FolderTreeView.IsVisible = false;
-            PlexViewModeBorder.IsVisible = _plexNavigationStack.Count == 0;
+            PlexViewModeBorder.IsVisible = _activePlexSectionKey is not null && _plexNavigationStack.Count == 0;
+            PlexLoadMoreButton.IsVisible = _activePlexSectionKey is not null &&
+                _plexNavigationStack.Count == 0 && _plexLoadedCount < _plexTotalCount;
+            StatusTextBlock.Text = string.Empty;
             ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(plexState.Rows.Count);
             UpdateAlphabetIndex(plexState.Rows, true);
             BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;

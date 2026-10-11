@@ -282,6 +282,7 @@ public partial class MainWindow : Window
         {
             EntityType = "PlexAlbum",
             ExternalId = albumKey,
+            PlexServerId = server.Id,
             Title = title,
             Artist = artist
         };
@@ -304,6 +305,7 @@ public partial class MainWindow : Window
         {
             EntityType = "PlexArtist",
             ExternalId = artistKey,
+            PlexServerId = server.Id,
             Title = title
         };
         await OpenPlexChildrenFromHistoryAsync(server, token, parent);
@@ -316,7 +318,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="server">The Plex server to activate.</param>
     /// <param name="token">The Plex access token, or <see langword="null"/>.</param>
-    /// <param name="parent">The synthesized parent row (album or artist) to expand.</param>
+    /// <param name="parent">The source-owned synthesized album or artist row to expand.</param>
     /// <returns>A task representing the asynchronous navigation.</returns>
     private async Task OpenPlexChildrenFromHistoryAsync(
         PlexServerSettings server,
@@ -328,7 +330,9 @@ public partial class MainWindow : Window
 
         _activePlexServer = server;
         _activePlexToken = token;
+        _activePlexSectionKey = null;
         _activePlexSectionTitle = server.Name;
+        _activePlexView = parent.EntityType == "PlexArtist" ? "Artists" : "Albums";
         _plexNavigationStack.Clear();
 
         // Reveal the Plex table and hide every other full-area view, mirroring the
@@ -351,11 +355,9 @@ public partial class MainWindow : Window
         HideAlbumDetailHeader();
         UpdateLibraryIntroCard(null);
 
-        await ShowPlexChildrenAsync(parent);
-
-        // Base level: further intra-Plex drill-downs push their own state, but Back from
-        // this first level should return to the originating view via the global stack.
-        _plexNavigationStack.Clear();
+        // The first history detail returns through global Back. Later child loads
+        // own their Plex states; this continuation must not clear newer history.
+        await ShowPlexChildrenAsync(parent, captureParent: false);
     }
 }
 

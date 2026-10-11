@@ -1014,6 +1014,17 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   that day get a chip. Album/artist links are available for local, remote
   Orynivo Server, and Plex entries; Plex clickability requires the stored Plex
   context (album/artist rating keys) and a still-configured Plex server
+- Plex page, child and folder requests retain their own cancellation identity,
+  copied connection, token, library section, sidebar identity and enclosing
+  root/Back ownership. Guard rows, status, lazy expansion and metadata after
+  awaits. History entry rows retain their owning server without borrowing a
+  library section; base details use global Back and never clear newer Plex
+  history after awaiting. Sectionless Back keeps library controls hidden. Paging
+  retains admitted offset/rows; child history retains pre-load rows/title.
+  Independent Plex actions release old root loading and reject old fades. Back
+  clears loading text and restores root paging. Top-level cancellation detaches
+  top/cloud/Plex sources before callbacks so newly admitted replacements cannot
+  be cancelled by older cleanup.
 - `Orynivo/SettingsStore.cs`: persists non-secret settings in
   `%LOCALAPPDATA%\Orynivo\settings.json`, overlays secrets from
   `ApplicationCredentialStore`, and migrates legacy plaintext JSON credentials

@@ -728,6 +728,19 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   membership after awaits and in deferred selection/scroll callbacks. Never
   resolve a rejected source against ambient active-server state. Preserve legacy
   Root defaults and the one window-owned Back stack.
+- Plex page, child and lazy-folder loads retain request/token ownership, copied
+  connection settings, section, sidebar identity, enclosing root and outer Back
+  context. Publish admission before cancelling older work; guard success,
+  errors, tree expansion and playback registration after awaits. Capture paging
+  offset/rows and child Back rows/title before source work. Independent Plex
+  actions abandon root loading/fades; root cancellation also abandons Plex.
+  Detach top/cloud/Plex cancellation sources and invalidate their ownership
+  before invoking any cancellation callbacks, so replacements stay intact. Back
+  clears obsolete Plex loading text and restores root paging availability. Plex
+  history entry rows retain their owning server and explicitly omit a library
+  section. Their base detail returns through global Back without a post-await
+  Plex-stack clear; nested Back keeps library controls hidden there. Preserve
+  the existing Plex stack and encrypted credential store.
 - NavigationLoadOwnership guards remote view request publication without owning
   history, rows or cancellation sources. Install new request/token before old
   cancellation callbacks and recheck ownership afterward. Top-level navigation,
