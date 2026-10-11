@@ -633,10 +633,23 @@ public partial class MainWindow : Window
             ++_gaplessQueueRefreshRevision;
             return pending;
         }
+        if (_player is IGaplessAudioPlayer && _playbackPreparationReady is { IsCompleted: false } preparing &&
+            _playbackStarts.IsCurrent(_playbackPreparationIntent))
+            return AwaitPlaybackPreparationAsync(preparing, _playbackPreparationIntent);
         if (_player is not IGaplessAudioPlayer || string.IsNullOrWhiteSpace(_currentFilePath))
             return Task.FromResult(true);
         ++_gaplessQueueRefreshRevision;
         return _gaplessQueueRefreshTask = RebuildGaplessQueueUntilCurrentAsync();
+    }
+
+    /// <summary>Joins a pending seek without superseding its original playback command.</summary>
+    /// <param name="preparing">Current preparation publication.</param>
+    /// <param name="intent">Captured owning start.</param>
+    /// <returns>Whether its final player remains active after readiness.</returns>
+    private async Task<bool> AwaitPlaybackPreparationAsync(Task<IAudioPlayer?> preparing, long intent)
+    {
+        var player = await preparing;
+        return _playbackStarts.IsCurrent(intent) && player is not null && ReferenceEquals(_player, player);
     }
 
     /// <summary>Rebuilds again when edits arrive during creation without restarting a newer playback session.</summary>

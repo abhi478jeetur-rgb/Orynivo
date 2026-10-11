@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Queue edits during a pending gapless start seek join the original preparation
+  instead of replacing its command. Reconcile changed snapshots after seek,
+  preserving resume position/pause and publishing only one history occurrence.
+
 - Gapless initial starts and queue replacements discard unpublished player
   results whose ordered queue snapshot changed during creation. Retry within the
   same start before readiness, retaining requested seek/pause and duplicates.

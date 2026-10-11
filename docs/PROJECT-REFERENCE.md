@@ -467,6 +467,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   release drains admitted refills. Threshold checks require an active player;
   idle initial mix start awaits readiness rather than track completion.
 
+- StartPlaybackIntentAsync exposes an intent-owned preparation publication.
+  Queue refresh joins it while a gapless player is seeking, without beginning
+  another start. PrepareCurrentPlaybackPlayerAsync checks the snapshot after
+  seek, detaches/retires stale output and repeats preparation at its actual
+  position within the same token/lease. Publish metadata, pause, history and
+  readiness only for the final player. Every early return/error completes the
+  publication with null; full release still drains pending seek/late cleanup.
+
 - CreateCurrentQueuePlaybackPlayerAsync compares ordered playable paths before
   and after creation. Retire unpublished gapless results whose snapshot changed
   and retry within the same intent/token/preparation lease. Native single-track
