@@ -365,14 +365,14 @@ public partial class MainWindow : Window
         RadioNowPlayingLogo.Source = null;
         NowPlayingArtworkImage.Source = null;
         _currentRadioArtworkPath = null;
-        _ = LoadRadioLogoAsync(station.Favicon, _playbackCts?.Token ?? CancellationToken.None);
+        _ = LoadRadioLogoAsync(station.Favicon, _playbackSession.Token);
     }
 
     private void StartRadioMetadataMonitor(RadioStationRecord station)
     {
         CancelAndDispose(ref _radioMetadataCts);
         _radioMetadataCts = CancellationTokenSource.CreateLinkedTokenSource(
-            _playbackCts?.Token ?? CancellationToken.None);
+            _playbackSession.Token);
         _ = MonitorRadioMetadataAsync(station, _radioMetadataCts.Token);
     }
 

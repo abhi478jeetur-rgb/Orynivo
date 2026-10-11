@@ -320,11 +320,7 @@ public partial class MainWindow : Window
         if (invalidateStart)
             _playbackPreparations.CancelAll();
         CancelAndDispose(ref _radioMetadataCts);
-        _playbackCts?.Cancel();
-        _playbackCts?.Dispose();
-        _playbackCts = null;
-        var player = _player;
-        _player = null;
+        var player = _playbackSession.Detach();
         if (player is IGaplessAudioPlayer gaplessPlayer)
             gaplessPlayer.TrackChanged -= GaplessPlayer_OnTrackChanged;
         _currentPlaybackDuration = TimeSpan.Zero;

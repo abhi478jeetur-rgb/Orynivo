@@ -379,9 +379,9 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   factory and initial/resume seek awaits; retire obsolete factory results once.
   Factories and native-format fallbacks use the captured playback token. Reject
   stale remote metadata registration and suppress obsolete errors before caller
-  handlers can stop current playback. Active player and queue remain
-  window-owned. Caller actions after awaiting the whole playback lifetime still
-  require ownership guards.
+  handlers can stop current playback. Active output is session-owned; the queue
+  remains window-owned. Caller actions after awaiting the whole playback
+  lifetime still require ownership guards.
 - `Audio.PlaybackPreparationTracker` tracks lookup, creation, resume seek and
   late-result handoff separately from track completion. Capture cancellation
   before remote lookup; a new start or stop cancels pending preparation without
@@ -393,6 +393,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   repeated close requests reuse one task. Update installation and library import
   await `PreparePlaybackShutdownAsync` before direct application shutdown. Keep
   history/progress capture before cancellation.
+- Audio.PlaybackSessionCoordinator owns the only active player and cancellation.
+  Window reads delegate to it. Admit only current, uncancelled starts before
+  shutdown; rejected factory results remain caller-owned for retirement. Gapless
+  retry detaches only the expected player and preserves the session token. Stop
+  clears ownership before cancellation callbacks; callback/reporting failures
+  must not lose the detached player. Source/history/UI cleanup and the queue
+  remain in the window. Test handoff with fake players without a window/device.
 - Audio.PlaybackOutputDrain composes the existing preparation tracker and player
   retirement owner. Register current retirement before waiting for preparation;
   full release then awaits the initial retirement pass and another pass for late

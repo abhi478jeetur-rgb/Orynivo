@@ -462,7 +462,7 @@ public partial class MainWindow : Window
         INowPlayingMetadataProvider provider,
         NowPlayingTrackContext context)
     {
-        var token = _playbackCts?.Token ?? CancellationToken.None;
+        var token = _playbackSession.Token;
         try
         {
             var artwork = await provider.GetArtworkAsync(context, token);

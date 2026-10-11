@@ -418,10 +418,20 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   every retirement already registered, even when no active player remains.
   Disposal and existing error-sink failures are isolated; completed work and
   unused budget timers are removed. The injected TimeProvider makes deadline
-  tests deterministic. Active player, cancellation, queue, history, source
-  context and UI cleanup remain window-owned; pending-start tracking is separate
-  from this retirement helper. No backend selection, PCM/DSD processing or
-  native output changes are introduced here.
+  tests deterministic. PlaybackSessionCoordinator owns active output and its
+  cancellation. Queue, history, source context and UI cleanup remain
+  window-owned; pending-start tracking is separate from this retirement helper.
+  No backend selection, PCM/DSD processing or native output changes are
+  introduced here.
+- `Orynivo/Audio/PlaybackSessionCoordinator.cs`: single dispatcher-affine active
+  output and linked cancellation owner. TryBegin admits current uncancelled
+  intents only with empty output. TryAttach rejects stale or occupied handoffs;
+  rejected players remain caller-owned. DetachForRetry checks intent and player
+  identity and preserves cancellation for the next gapless preparation. Detach
+  clears ownership before cancellation callbacks and returns output once for
+  retirement. Callback/reporting failures cannot strand output. Window
+  source/history/UI adapters and the authoritative queue remain separate. Tests
+  exercise handoff with fake players without a window or audio hardware.
 - `Orynivo/Audio/PlaybackOutputDrain.cs`: composes preparation completion and
   detached-player retirement after the window's synchronous stop cleanup.
   Register retirement before awaiting preparation, then await initial disposal
@@ -444,8 +454,8 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   fallbacks. Check ownership after retirement, creation and resume seeks before
   publishing UI state. Late-created players transfer to the shared retirement
   helper; obsolete lifetime errors do not reach caller stop handlers. Guard
-  remote lookup registration on the dispatcher. Active player and queue remain
-  window-owned.
+  remote lookup registration on the dispatcher. Active output is session-owned;
+  the queue remains window-owned.
 - `Orynivo/Audio/PlaybackReadiness.cs`: dispatcher-owned prepared-player result
   separate from track completion. Initial seek and paused state precede
   readiness; abandoned starts return null, preparation errors reach the awaiting

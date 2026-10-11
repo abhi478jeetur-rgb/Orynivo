@@ -296,9 +296,8 @@ public partial class MainWindow : Window
         if (radioStation is null && podcastPlayback is null)
             _playedQueuePaths.Add(filePath);
 
-        var playbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token);
-        _playbackCts = playbackCancellation;
-        var playbackToken = playbackCancellation.Token;
+        if (!_playbackSession.TryBegin(intent, preparation.Token, out var playbackToken))
+            return;
         var created = await PrepareCurrentPlaybackPlayerAsync(intent, filePath, radioStation, podcastPlayback, initialPosition, playbackToken);
         if (created is not { } result) return;
         var (player, info) = result;
@@ -609,7 +608,11 @@ public partial class MainWindow : Window
             }
             var (player, info) = result;
 
-            _player        = player;
+            if (!_playbackSession.TryAttach(intent, player))
+            {
+                await _audioPlayerRetirement.RetireAsync(player);
+                return null;
+            }
             ApplyCrossfeedSettings(_player);
             ApplyLoudnessNormalizationSettings(
                 _player,
@@ -662,9 +665,9 @@ public partial class MainWindow : Window
             {
                 initialPosition = player.Position;
                 ((IGaplessAudioPlayer)player).TrackChanged -= GaplessPlayer_OnTrackChanged;
-                _player = null;
+                var detached = _playbackSession.DetachForRetry(intent, player);
                 UpdateOutputDeviceLockButton();
-                await _audioPlayerRetirement.RetireAsync(player);
+                await _audioPlayerRetirement.RetireAsync(detached);
                 continue;
             }
             return result;

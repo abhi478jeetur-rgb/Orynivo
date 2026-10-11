@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Active playback output and cancellation now share one standalone session
+  owner. Stale factory/seek handoffs cannot replace newer output; gapless
+  retries retain their token. Failing cancellation callbacks cannot strand
+  output outside background cleanup. Window-free lifecycle tests cover these
+  transitions.
+
 - Playback shutdown admission and its shared drain task now belong to a
   standalone coordinator with window-free tests. Reentrant shutdown requests
   share the same outcome before queue cancellation or UI hooks begin.

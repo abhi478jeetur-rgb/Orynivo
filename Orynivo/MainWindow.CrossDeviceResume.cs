@@ -75,7 +75,7 @@ public partial class MainWindow
         var version = _remoteResumeVersion;
         if (player is null || !player.CanSeek || _playbackShuttingDown) return;
         using var cancellation = CancellationTokenSource.CreateLinkedTokenSource(
-            _playbackCts?.Token ?? CancellationToken.None);
+            _playbackSession.Token);
         _remoteResumeCts = cancellation;
         var token = cancellation.Token;
         double? remoteSeconds;

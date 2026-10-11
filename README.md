@@ -720,7 +720,9 @@ byte-range streaming without FFmpeg.
   Superseded output selections and fade ramps cannot modify newer playback.
 - Overlapping playback requests keep the latest start: obsolete remote lookups
   cannot register playback metadata, late-created players are cleaned up, and
-  failures from older starts cannot stop the current player.
+  failures from older starts cannot stop the current player. Active output and
+  cancellation share one session owner; failing cancellation callbacks do not
+  prevent output cleanup.
 - Seeking, volume control, pause, and an editable persistent **Up next** queue
   with play-next/append actions, drag-and-drop from track, album, and folder
   views, removal, reordering, complete clearing, restore-last-queue, playlist

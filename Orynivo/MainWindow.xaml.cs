@@ -114,7 +114,9 @@ public partial class MainWindow : Window
     // Felder
     // ------------------------------------------------------------------
 
-    private IAudioPlayer?  _player;
+    /// <summary>Gets active output from the single session owner.</summary>
+    private IAudioPlayer? _player => _playbackSession.Player;
+    private readonly PlaybackSessionCoordinator _playbackSession;
     private readonly PlaybackStartOwnership _playbackStarts = new();
     private readonly PlaybackPlayerFactory _playbackPlayerFactory;
     private long _outputProfileSelectionVersion;
@@ -132,7 +134,6 @@ public partial class MainWindow : Window
     private PodcastPlayback? _releasedOutputPodcastPlayback;
     private TimeSpan _releasedOutputPosition;
     private bool _releasedOutputWasPaused;
-    private CancellationTokenSource? _playbackCts;
     private readonly SettingsStore _settingsStore = new();
     private AppSettings _settings = new();
     private readonly Scrobbling.LastFmScrobblingService _lastFmScrobbler =
@@ -362,6 +363,8 @@ public partial class MainWindow : Window
     /// <summary>Initializes the desktop window and its production playback creation adapter.</summary>
     public MainWindow()
     {
+        _playbackSession = new(_playbackStarts, _playbackShutdown,
+            exception => CrashLogger.Log(exception, "Playback cancellation"));
         _playbackPlayerFactory = CreatePlaybackPlayerAsync;
         using var timing = StartupTimingLog.Time("MainWindow constructor");
         using (StartupTimingLog.Time("MainWindow.InitializeComponent"))

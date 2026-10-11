@@ -8,7 +8,7 @@ internal sealed class PlaybackStartOwnership
     /// <summary>Gets the current intent generation for guarding a stop's asynchronous follow-up.</summary>
     internal long Current => _generation;
 
-    /// <summary>Supersedes earlier start intents while leaving active playback under window ownership.</summary>
+    /// <summary>Supersedes earlier start intents while leaving active playback under session ownership.</summary>
     /// <returns>The new start identifier.</returns>
     internal long Begin() => ++_generation;
 
