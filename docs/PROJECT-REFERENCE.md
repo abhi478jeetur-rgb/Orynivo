@@ -1873,7 +1873,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   abandoned work before the next operation or cache write and before returning a
   publishable profile. Already admitted operations are not rolled back. Keep
   source snapshots only in memory and preserve the existing server-owned cache
-  paths.
+  paths. Refresh lookup selection captures displayed local/remote/now-playing
+  identity, source, sidebar/detail/name, profile observation and outer Back
+  before the dialog. NavigationLoadOwnership.CaptureCurrent observes without
+  admitting or cancelling work; a later Begin/Invalidate rejects the
+  observation. Recheck before selection and after its await, then refresh only
+  the captured target. Do not restore an old unified name or run an
+  uncancellable album reload after profile completion; profile refresh already
+  preserves the unified strip.
 - Artwork A-Z navigation indexes the complete lightweight artist/album result,
   but binds rows to the virtualized wrap panels in pages. A jump must append
   through the target row and defer `ScrollIntoView` until layout has processed

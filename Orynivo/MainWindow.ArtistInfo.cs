@@ -199,35 +199,59 @@ public partial class MainWindow : Window
             ResetArtistInfoAlbums();
     }
 
+    /// <summary>Collects a profile lookup name and refreshes only the original displayed artist.</summary>
+    /// <param name="sender">The refresh button.</param>
+    /// <param name="e">The routed click event.</param>
     private async void RefreshArtistInfoButton_OnClick(object? sender, RoutedEventArgs e)
+        => await RefreshDisplayedArtistProfileAsync(async artistName =>
+        {
+            var dialog = new ArtistProfileSearchDialog(artistName);
+            return await dialog.ShowDialog<bool>(this) ? dialog.Query : null;
+        });
+
+    /// <summary>Retains the displayed profile identity across lookup selection without replacing its album strip.</summary>
+    /// <param name="selectQuery">Collects the confirmed lookup name, or <see langword="null"/> for cancellation.</param>
+    /// <returns>A task completing selection and the still-admitted profile refresh.</returns>
+    private async Task RefreshDisplayedArtistProfileAsync(Func<string, Task<string?>> selectQuery)
     {
-        var currentArtistName = ArtistInfoTitleButton.Content as string;
-        if (string.IsNullOrWhiteSpace(currentArtistName))
-            return;
-        var dialog = new ArtistProfileSearchDialog(currentArtistName);
-        if (await dialog.ShowDialog<bool>(this) == false || string.IsNullOrWhiteSpace(dialog.Query))
-            return;
+        var artistName = ArtistInfoTitleButton.Content as string;
+        if (string.IsNullOrWhiteSpace(artistName)) return;
+        var localId = _artistInfoDisplayedId;
+        var remoteRow = _artistInfoDisplayedRemoteRow;
+        var nowPlaying = _nowPlayingRemoteArtistInfo;
+        var trackRow = _currentOrynivoTrackRow;
+        var provider = _currentNowPlayingProvider;
+        var playingArtistId = trackRow?.ArtistId;
+        var server = nowPlaying ? trackRow?.OrynivoServer : remoteRow?.OrynivoServer ?? _activeOrynivoServer;
+        var sourceIsCurrent = nowPlaying || remoteRow is not null
+            ? CreateArtistProfileSourceGuard(server)
+            : () => true;
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var observation = _artistProfileLoads.CaptureCurrent();
+        var restore = _navigationRestores.Context;
+        bool CanRefresh() => ArtistInfoView.IsVisible &&
+            _artistProfileLoads.IsCurrent(observation) && _currentTopLevelTag == tag &&
+            _artistDetailLoadVersion == detailVersion && _artistInfoUnifiedArtistName == unifiedName &&
+            ArtistInfoTitleButton.Content as string == artistName && _artistInfoDisplayedId == localId &&
+            ReferenceEquals(_artistInfoDisplayedRemoteRow, remoteRow) &&
+            _nowPlayingRemoteArtistInfo == nowPlaying && sourceIsCurrent() &&
+            (!nowPlaying || (ReferenceEquals(_currentOrynivoTrackRow, trackRow) &&
+                ReferenceEquals(_currentNowPlayingProvider, provider) &&
+                trackRow?.ArtistId == playingArtistId && ReferenceEquals(trackRow?.OrynivoServer, server))) &&
+            (remoteRow is null || ReferenceEquals(remoteRow.OrynivoServer ?? _activeOrynivoServer, server)) &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
+        if (!CanRefresh() || (!nowPlaying && remoteRow is null && localId is null)) return;
+        var query = await selectQuery(artistName);
+        if (!CanRefresh() || string.IsNullOrWhiteSpace(query)) return;
 
-        var profileLookupName = dialog.Query;
-        var unifiedArtistName = _artistInfoUnifiedArtistName;
-        if (_nowPlayingRemoteArtistInfo)
-        {
-            await ShowNowPlayingRemoteArtistInfoAsync(forceRefresh: true, profileLookupName);
-        }
-        else if (_artistInfoDisplayedRemoteRow is { } remoteRow)
-        {
-            await ShowOrynivoArtistInfoAsync(remoteRow, forceRefresh: true, profileLookupName);
-        }
-        else if (_artistInfoDisplayedId is long artistId)
-        {
-            await ShowArtistInfoAsync(artistId, forceRefresh: true, profileLookupName);
-        }
-
-        if (!string.IsNullOrWhiteSpace(unifiedArtistName))
-        {
-            _artistInfoUnifiedArtistName = unifiedArtistName;
-            await LoadUnifiedArtistInfoAlbumsAsync(unifiedArtistName, CancellationToken.None);
-        }
+        if (nowPlaying)
+            await ShowNowPlayingRemoteArtistInfoAsync(forceRefresh: true, query);
+        else if (remoteRow is not null)
+            await ShowOrynivoArtistInfoAsync(remoteRow, forceRefresh: true, query);
+        else if (localId is long artistId)
+            await ShowArtistInfoAsync(artistId, forceRefresh: true, query);
     }
 
     private async void SearchArtistImageButton_OnClick(object? sender, RoutedEventArgs e)

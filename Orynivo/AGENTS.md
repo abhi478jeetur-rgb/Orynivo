@@ -724,7 +724,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   image read, upload and server-image awaits. Reject abandoned work before the
   next operation or cache write and before returning a publishable profile.
   Already admitted operations are not rolled back. Keep source snapshots only in
-  memory and preserve the existing server-owned cache paths.
+  memory and preserve the existing server-owned cache paths. Refresh lookup
+  selection captures displayed local/remote/now-playing identity, source,
+  sidebar/detail/name, profile observation and outer Back before the dialog.
+  NavigationLoadOwnership.CaptureCurrent observes without admitting or
+  cancelling work; a later Begin/Invalidate rejects the observation. Recheck
+  before selection and after its await, then refresh only the captured target.
+  Do not restore an old unified name or run an uncancellable album reload after
+  profile completion; profile refresh already preserves the unified strip.
 - NavigationCaptureDecision selects typed capture routes from scalar inputs
   without owning rows, providers, credentials or history. Preserve search/cloud,
   logical-album, provider-bound album and artist precedence. Server albums

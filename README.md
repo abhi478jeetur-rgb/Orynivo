@@ -1104,6 +1104,8 @@ byte-range streaming without FFmpeg.
   delayed results cannot overwrite a replacement row or its loading state.
 - Now Playing remote profile requests retain playback and source ownership
   inside the metadata provider, including delayed artist-image cache writes.
+- The profile lookup dialog retains the artist it was opened for and rejects
+  outdated confirmations. Profile refresh preserves the displayed album strip.
 - Manual Wikimedia Commons artist-image search with editable search text
 - Manually selected artist images are retained across profile refreshes,
   renames, and artist merges

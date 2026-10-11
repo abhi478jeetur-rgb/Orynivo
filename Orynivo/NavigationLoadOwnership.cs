@@ -10,6 +10,10 @@ internal sealed class NavigationLoadOwnership
     /// <returns>Captured ownership for asynchronous publication checks.</returns>
     internal Request Begin(CancellationToken token) => new(this, ++_version, token);
 
+    /// <summary>Observes current ownership without replacing an admitted load.</summary>
+    /// <returns>A non-cancelling observation rejected by later admission or invalidation.</returns>
+    internal Request CaptureCurrent() => new(this, _version, CancellationToken.None);
+
     /// <summary>Rejects previous loads when navigation leaves their view.</summary>
     internal void Invalidate() => ++_version;
 

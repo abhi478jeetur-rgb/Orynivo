@@ -53,4 +53,28 @@ public sealed class NavigationLoadOwnershipTests
         Assert.False(owner.IsCurrent(interrupted));
         Assert.True(owner.IsCurrent(reentrant!));
     }
+    /// <summary>Observing a running request does not abandon it, while a later admission rejects the observation.</summary>
+    [Fact]
+    public void ObservationRetainsRunningLoadUntilReplacement()
+    {
+        var owner = new NavigationLoadOwnership();
+        var running = owner.Begin(CancellationToken.None);
+        var observation = owner.CaptureCurrent();
+        Assert.True(owner.IsCurrent(running));
+        Assert.True(owner.IsCurrent(observation));
+        owner.Begin(CancellationToken.None);
+        Assert.False(owner.IsCurrent(observation));
+    }
+
+    /// <summary>Observations survive idle capture and are rejected when navigation invalidates the owner.</summary>
+    [Fact]
+    public void IdleObservationRejectsNavigationInvalidation()
+    {
+        var owner = new NavigationLoadOwnership();
+        var observation = owner.CaptureCurrent();
+        Assert.True(owner.IsCurrent(observation));
+        owner.Invalidate();
+        Assert.False(owner.IsCurrent(observation));
+        Assert.True(owner.IsCurrent(owner.CaptureCurrent()));
+    }
 }

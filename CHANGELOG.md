@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist profile refresh retains its original displayed artist, source and
+  playback identity while the lookup dialog is open. Confirmations after
+  navigation, a newer profile or source changes cannot refresh a different
+  artist. Refresh keeps the existing unified album strip and no longer reloads
+  an obsolete artist detail after completion. Opening the dialog does not
+  abandon a running profile load.
+
 - Now Playing remote artist profiles retain their enclosing view and copied
   server connection inside the metadata provider. Delayed source responses
   cannot start further profile downloads/uploads or overwrite the artist-image
