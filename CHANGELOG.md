@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Concurrent queue edits share gapless preparation and rebuild again with the
+  latest queue before completion. Preserve duplicate entries, position and pause
+  state; obsolete preparation cannot restart a newer or stopped session.
+
 - Clear rejects pending queue-replacement and playlist-play lookup even while
   ordinary output remains active. Append/Next and playlist append reject stale
   acknowledgements after a destructive queue change during gapless preparation.

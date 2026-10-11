@@ -44,6 +44,9 @@ namespace Orynivo;
 public partial class MainWindow : Window
 {
     private readonly QueueEditOwnership _queueEdits = new();
+    private Task<bool>? _gaplessQueueRefreshTask;
+    private long _gaplessQueueRefreshRevision;
+    private long _gaplessQueueRefreshIntent;
 
     /// <summary>Owns original-reference resolution before an independent queue insertion.</summary>
     /// <param name="path">Local path or opaque remote reference.</param>
@@ -596,7 +599,7 @@ public partial class MainWindow : Window
         RefreshQueueNavigationButtons();
         ClearQueueButton.IsEnabled = false;
         SaveQueueAsPlaylistButton.IsEnabled = false;
-        if (!await RefreshActiveGaplessQueueAsync()) throw new OperationCanceledException();
+        if (_player is IGaplessAudioPlayer && !await RefreshActiveGaplessQueueAsync()) throw new OperationCanceledException();
     }
 
     private PlaylistItem? GetCurrentQueueItem() =>
@@ -620,21 +623,41 @@ public partial class MainWindow : Window
             RefreshQueueRows();
     }
 
-    /// <summary>Rebuilds active gapless output at its position and paused state.</summary>
-    /// <returns>Whether the rebuilt player remains current, or no rebuild was needed.</returns>
-    private async Task<bool> RefreshActiveGaplessQueueAsync()
+    /// <summary>Coalesces queue changes until the owning gapless output reflects the latest queue.</summary>
+    /// <returns>Whether the final rebuilt player remains current, or no rebuild was needed.</returns>
+    private Task<bool> RefreshActiveGaplessQueueAsync()
     {
-        if (_player is not IGaplessAudioPlayer ||
-            string.IsNullOrWhiteSpace(_currentFilePath))
+        if (_gaplessQueueRefreshTask is { IsCompleted: false } pending &&
+            _playbackStarts.IsCurrent(_gaplessQueueRefreshIntent))
         {
-            return true;
+            ++_gaplessQueueRefreshRevision;
+            return pending;
         }
+        if (_player is not IGaplessAudioPlayer || string.IsNullOrWhiteSpace(_currentFilePath))
+            return Task.FromResult(true);
+        ++_gaplessQueueRefreshRevision;
+        return _gaplessQueueRefreshTask = RebuildGaplessQueueUntilCurrentAsync();
+    }
 
-        var path = _currentFilePath;
-        var position = _player.Position;
-        var wasPaused = _player.IsPaused;
-        var player = await StartReadyPlaybackAsync(path, initialPosition: position, initiallyPaused: wasPaused);
-        return player is not null && ReferenceEquals(_player, player);
+    /// <summary>Rebuilds again when edits arrive during creation without restarting a newer playback session.</summary>
+    /// <returns>Whether the owning player reaches readiness with the latest admitted queue changes.</returns>
+    private async Task<bool> RebuildGaplessQueueUntilCurrentAsync()
+    {
+        while (true)
+        {
+            var revision = _gaplessQueueRefreshRevision;
+            var path = _currentFilePath!;
+            var position = _player!.Position;
+            var wasPaused = _player.IsPaused;
+            var preparing = StartReadyPlaybackAsync(path, initialPosition: position, initiallyPaused: wasPaused);
+            var intent = _playbackStarts.Current;
+            _gaplessQueueRefreshIntent = intent;
+            var player = await preparing;
+            if (!_playbackStarts.IsCurrent(intent) || player is null || !ReferenceEquals(_player, player))
+                return false;
+            if (revision == _gaplessQueueRefreshRevision)
+                return true;
+        }
     }
 
     private async void SaveQueueAsPlaylistButton_OnClick(object? sender, RoutedEventArgs e)

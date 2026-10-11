@@ -319,6 +319,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   a preparation lease for full release. Advisory lookup owns no audio device and
   is cancelled without delaying output release.
 
+- Gapless queue refresh is dispatcher-coalesced. Requests share the pending task
+  only while its playback intent remains current and increment a revision. After
+  readiness, rebuild again for a changed revision using current position and
+  pause state. All admitted callers await the final snapshot. Stop, Clear,
+  release and newer starts prevent obsolete rebuild loops; never overwrite a
+  newer task. Clear with no active player cancels pending preparation without
+  joining its obsolete refresh. Keep the single authoritative queue.
+
 - ClearPlaybackQueueAsync empties the authoritative queue, then rebuilds active
   gapless output with only the current track at its position and paused state.
   Desktop, MCP and Mobile await preparation; obsolete MCP clears cancel and
