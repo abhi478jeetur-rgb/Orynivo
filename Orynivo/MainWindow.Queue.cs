@@ -655,7 +655,8 @@ public partial class MainWindow : Window
             var player = await preparing;
             if (!_playbackStarts.IsCurrent(intent) || player is null || !ReferenceEquals(_player, player))
                 return false;
-            if (revision == _gaplessQueueRefreshRevision)
+            if (revision == _gaplessQueueRefreshRevision ||
+                _preparedGaplessQueuePaths.SequenceEqual(BuildGaplessPlaybackItems(_currentFilePath!, true).Select(item => item.FilePath)))
                 return true;
         }
     }

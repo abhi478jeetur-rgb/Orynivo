@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Gapless initial starts and queue replacements discard unpublished player
+  results whose ordered queue snapshot changed during creation. Retry within the
+  same start before readiness, retaining requested seek/pause and duplicates.
+
 - Concurrent queue edits share gapless preparation and rebuild again with the
   latest queue before completion. Preserve duplicate entries, position and pause
   state; obsolete preparation cannot restart a newer or stopped session.

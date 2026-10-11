@@ -407,6 +407,9 @@ Clear also cancels pending queue replacement while the current track continues.
 Append/Next and playlist append report success only if their queue change
 survives clearing or replacement while playback preparation is pending.
 
+Gapless starts and queue replacement also include edits arriving during initial
+player creation before they report playback ready.
+
 Queue changes arriving during gapless preparation are combined before they
 finish, preserving their order, duplicate entries and the current pause state.
 

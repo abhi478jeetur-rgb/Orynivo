@@ -270,11 +270,8 @@ public partial class MainWindow : Window
         var playbackCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token);
         _playbackCts = playbackCancellation;
         var playbackToken = playbackCancellation.Token;
-        var created = await _playbackStarts.CreateAsync(
-            intent,
-            token => _playbackPlayerFactory(filePath, radioStation is null && podcastPlayback is null, token),
-            playbackToken,
-            _audioPlayerRetirement);
+        var created = await CreateCurrentQueuePlaybackPlayerAsync(
+            intent, filePath, radioStation is null && podcastPlayback is null, playbackToken);
         if (created is not { } result)
             return;
         if (!_playbackStarts.IsCurrent(intent))
@@ -609,6 +606,34 @@ public partial class MainWindow : Window
                 StatusTextBlock.Text = LocalizationManager.Current.PlaybackFinished;
             }
         }
+    }
+
+    private string[] _preparedGaplessQueuePaths = [];
+
+    /// <summary>Retries unpublished gapless creation when its ordered queue snapshot changes.</summary>
+    /// <param name="intent">The owning playback start.</param>
+    /// <param name="filePath">Current resolved track path.</param>
+    /// <param name="allowQueuedTracks">Whether this source may include queued successors.</param>
+    /// <param name="token">The captured playback cancellation token.</param>
+    /// <returns>A current player with a current queue snapshot, or null for an obsolete or unavailable start.</returns>
+    private async Task<(IAudioPlayer Player, AudioFileInfo Info)?> CreateCurrentQueuePlaybackPlayerAsync(
+        long intent, string filePath, bool allowQueuedTracks, CancellationToken token)
+    {
+        while (_playbackStarts.IsCurrent(intent))
+        {
+            var paths = BuildGaplessPlaybackItems(filePath, allowQueuedTracks).Select(item => item.FilePath).ToArray();
+            var created = await _playbackStarts.CreateAsync(intent,
+                captured => _playbackPlayerFactory(filePath, allowQueuedTracks, captured), token, _audioPlayerRetirement);
+            if (created is not { } result) return null;
+            if (result.Player is not IGaplessAudioPlayer ||
+                paths.SequenceEqual(BuildGaplessPlaybackItems(filePath, allowQueuedTracks).Select(item => item.FilePath)))
+            {
+                _preparedGaplessQueuePaths = paths;
+                return result;
+            }
+            await _audioPlayerRetirement.RetireAsync(result.Player);
+        }
+        return null;
     }
 
     /// <summary>Creates a player using the captured cancellation token and existing backend selection.</summary>

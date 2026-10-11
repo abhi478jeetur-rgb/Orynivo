@@ -467,6 +467,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   release drains admitted refills. Threshold checks require an active player;
   idle initial mix start awaits readiness rather than track completion.
 
+- CreateCurrentQueuePlaybackPlayerAsync compares ordered playable paths before
+  and after creation. Retire unpublished gapless results whose snapshot changed
+  and retry within the same intent/token/preparation lease. Native single-track
+  output does not retry for unrelated queue edits. Store the prepared path
+  snapshot in memory only; never persist or log authenticated paths. Coalesced
+  refresh compares it with the latest queue to avoid a redundant rebuild after
+  creation already incorporated admitted changes. Position/pause apply to the
+  final player; obsolete retries remain part of full preparation drain.
+
 - Gapless queue refresh is dispatcher-coalesced. Requests share the pending task
   only while its playback intent remains current and increment a revision. After
   readiness, rebuild again for a changed revision using current position and
