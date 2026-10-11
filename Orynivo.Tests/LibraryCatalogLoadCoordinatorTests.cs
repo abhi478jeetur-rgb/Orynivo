@@ -173,6 +173,61 @@ public sealed class LibraryCatalogLoadCoordinatorTests
         Assert.True(owner.TryGet(owner.Begin("Artists", default), true, out _));
     }
 
+    /// <summary>Shared-view scheduling admits all configured servers and retains ordered failures beside local rows.</summary>
+    /// <returns>The asynchronous regression test.</returns>
+    [Fact]
+    public async Task ProviderBatch_AdmitsAllServersAndComposesPartialOutcome()
+    {
+        var owner = new LibraryCatalogLoadCoordinator<int>(3);
+        var request = owner.Begin("Tracks", default);
+        var gates = Enumerable.Range(0, 5).Select(_ =>
+            new TaskCompletionSource<IReadOnlyList<int>>(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        var started = new List<int>();
+        var pending = owner.LoadAsync(request,
+        [
+            _ => Task.FromResult(Success("local", [9])),
+            token => LibrarySourceBatchLoader.LoadAsync<int, int>([0, 1, 2, 3, 4],
+                source => $"server:{source}", (source, _) =>
+                {
+                    started.Add(source);
+                    return gates[source].Task;
+                }, token, maximumConcurrency: gates.Length)
+        ]);
+        Assert.Equal([0, 1, 2, 3, 4], started);
+        for (var index = 4; index >= 0; --index)
+            if (index == 2) gates[index].SetException(new IOException("Private source detail"));
+            else gates[index].SetResult([index]);
+        var result = await pending;
+        Assert.Equal([9, 0, 1, 3, 4], result!.Rows);
+        Assert.Equal(LibraryLoadStatus.Partial, result.Status);
+        Assert.Equal(["local", "server:0", "server:1", "server:2", "server:3", "server:4"],
+            result.Sources.Select(source => source.SourceKey));
+        Assert.Equal(LibrarySourceLoadStatus.Failed, result.Sources[3].Status);
+        Assert.False(owner.TryStore(request, request.Key, true, result));
+    }
+
+    /// <summary>Invalidation rejects a held provider batch even if its adapters finish successfully later.</summary>
+    /// <returns>The asynchronous regression test.</returns>
+    [Fact]
+    public async Task ProviderBatch_InvalidationRejectsLatePublicationAndAllowsRecovery()
+    {
+        var owner = new LibraryCatalogLoadCoordinator<int>(3);
+        var request = owner.Begin("Albums", default);
+        var gate = new TaskCompletionSource<IReadOnlyList<int>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pending = owner.LoadAsync(request,
+            [token => LibrarySourceBatchLoader.LoadAsync<int, int>([0, 1], source => $"server:{source}",
+                (_, _) => gate.Task, token, maximumConcurrency: 2)]);
+        owner.Invalidate();
+        gate.SetResult([4]);
+        Assert.Null(await pending);
+        var current = owner.Begin("Albums", default);
+        var recovered = await owner.LoadAsync(current,
+            [token => LibrarySourceBatchLoader.LoadAsync<int, int>([0], _ => "server:0",
+                (_, _) => Task.FromResult<IReadOnlyList<int>>([]), token)]);
+        Assert.Equal(LibraryLoadStatus.Complete, recovered!.Status);
+        Assert.True(owner.TryStore(current, current.Key, true, recovered));
+    }
+
     /// <summary>Creates a successful typed source result without catalog I/O.</summary>
     /// <param name="source">Opaque source identity.</param>
     /// <param name="rows">Synthetic rows.</param>

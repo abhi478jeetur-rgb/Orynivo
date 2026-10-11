@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Shared catalog server requests now use the common source batch scheduler,
+  retaining concurrent admission of every configured server, ordered outcomes
+  and independent 20-second budgets. Regression tests compose scheduling with
+  catalog invalidation and complete-only cache ownership.
+
 - Shared catalog load ownership and the three-entry complete-result cache now
   belong to a standalone coordinator. Source outcomes retain their configured
   order; obsolete loads cannot publish or overwrite cache entries. Window-free

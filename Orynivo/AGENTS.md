@@ -1070,7 +1070,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   rejecting late writes atomically in `LibraryViewCache`.
   LibraryCatalogLoadCoordinator owns the one bounded cache, load versions and
   captured request generations. Its source adapters return typed outcomes;
-  independent local/remote loads combine in supplied order and reject obsolete
+  shared-view server fan-out uses LibrarySourceBatchLoader with concurrency
+  equal to the configured source count (at least one), retaining existing
+  all-server admission and independent 20-second budgets. Server adapters return
+  raw rows; only the scheduler creates sanitized terminal outcomes. Do not nest
+  another source budget around those adapters. Composition tests cover more than
+  three servers, ordered partial outcomes, invalidation and empty recovery.
+  Independent local/remote loads combine in supplied order and reject obsolete
   or cancelled publication. The window retains source/filter adapters,
   sort/merge, metadata registration and binding. Publish new request/token
   ownership before cancelling old work and recheck after callbacks. Search,

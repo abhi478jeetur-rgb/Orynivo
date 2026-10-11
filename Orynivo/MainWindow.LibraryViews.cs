@@ -258,48 +258,43 @@ public partial class MainWindow : Window
     /// <param name="servers">Server snapshot captured before asynchronous loading.</param>
     /// <param name="cancellationToken">Owning navigation cancellation.</param>
     /// <returns>Available remote rows with explicit per-source outcomes.</returns>
-    private async Task<LibraryLoadResult<ContentRow>> LoadRemoteUnifiedRowsAsync(
+    private Task<LibraryLoadResult<ContentRow>> LoadRemoteUnifiedRowsAsync(
         string tag,
         IReadOnlyList<OrynivoServerSettings> servers,
-        CancellationToken cancellationToken)
-    {
-        var tasks = servers
-            .Select(server => LoadRemoteUnifiedServerRowsAsync(
-                tag,
-                server,
-                cancellationToken))
-            .ToArray();
-        return LibraryLoadResult<ContentRow>.Combine(await Task.WhenAll(tasks));
-    }
+        CancellationToken cancellationToken) =>
+        LibrarySourceBatchLoader.LoadAsync<OrynivoServerSettings, ContentRow>(servers,
+            server => GetServerSourceKey(server.Id),
+            (server, token) => LoadRemoteUnifiedServerRowsAsync(tag, server, token),
+            cancellationToken, maximumConcurrency: Math.Max(1, servers.Count),
+            timeout: TimeSpan.FromSeconds(20));
 
-    /// <summary>Loads one remote server's shared library rows with an independent timeout.</summary>
+    /// <summary>Maps one server's strict catalog request inside the shared scheduler's source budget.</summary>
     /// <param name="tag">Shared Artists, Albums, or Tracks view tag.</param>
     /// <param name="server">Owning Orynivo Server.</param>
-    /// <param name="cancellationToken">Navigation cancellation token.</param>
-    /// <returns>Mapped available rows and a sanitized source outcome.</returns>
-    private Task<LibraryLoadResult<ContentRow>> LoadRemoteUnifiedServerRowsAsync(
+    /// <param name="cancellationToken">Scheduler-owned navigation and budget cancellation.</param>
+    /// <returns>Mapped rows; failures propagate to the scheduler's sanitized outcome.</returns>
+    private async Task<IReadOnlyList<ContentRow>> LoadRemoteUnifiedServerRowsAsync(
         string tag,
         OrynivoServerSettings server,
-        CancellationToken cancellationToken) =>
-        LibrarySourceLoader.LoadAsync<ContentRow>(GetServerSourceKey(server.Id), async token =>
+        CancellationToken cancellationToken)
+    {
+        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        return tag switch
         {
-            var provider = CreateCompleteOrynivoCatalogProvider(server);
-            return tag switch
-            {
-                "Artists" => (await LoadAllOrynivoArtistsAsync(server, token))
-                    .Where(artist => !_artistFavoritesOnly || artist.IsFavorite)
-                    .Select(artist => ToCatalogArtistContentRow(artist, server))
-                    .ToList(),
-                "Albums" => (await LoadAllOrynivoAlbumsAsync(server, token))
-                    .Where(album => !_albumFavoritesOnly || album.IsFavorite)
-                    .Select(album => ToCatalogAlbumContentRow(album, server))
-                    .ToList(),
-                "Tracks" => (await LoadRemoteTracksForUnifiedViewAsync(server, provider, token))
-                    .Select(track => ToCatalogTrackContentRow(track, server, registerRemoteMetadata: false))
-                    .ToList(),
-                _ => []
-            };
-        }, cancellationToken, TimeSpan.FromSeconds(20));
+            "Artists" => (await LoadAllOrynivoArtistsAsync(server, cancellationToken))
+                .Where(artist => !_artistFavoritesOnly || artist.IsFavorite)
+                .Select(artist => ToCatalogArtistContentRow(artist, server))
+                .ToList(),
+            "Albums" => (await LoadAllOrynivoAlbumsAsync(server, cancellationToken))
+                .Where(album => !_albumFavoritesOnly || album.IsFavorite)
+                .Select(album => ToCatalogAlbumContentRow(album, server))
+                .ToList(),
+            "Tracks" => (await LoadRemoteTracksForUnifiedViewAsync(server, provider, cancellationToken))
+                .Select(track => ToCatalogTrackContentRow(track, server, registerRemoteMetadata: false))
+                .ToList(),
+            _ => []
+        };
+    }
 
     /// <summary>Returns cached plain or synchronized lyrics for the current track.</summary>
     /// <returns>Cached lyrics, or <see langword="null"/> when no eligible track or lyrics exist.</returns>
