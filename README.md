@@ -916,7 +916,9 @@ byte-range streaming without FFmpeg.
   after navigation, configuration changes or a newer album load. Remote album
   metadata lookups follow the same ownership checks, including Back restoration
   during newer navigation to the same view. Local album workers retain copied
-  scopes and reject outdated detail updates after navigation or reloading
+  scopes and reject outdated detail updates after navigation or reloading.
+  Logical album tracks and artwork follow the same ownership rules, retaining
+  their captured local and server sources
 - Conservative artist-name normalization for `feat.` credits and unambiguous
   case, accent, spacing, and punctuation variants, with a repair action for
   existing libraries

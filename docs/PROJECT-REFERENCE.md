@@ -1216,14 +1216,24 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   detail kind. Check before rows/header/rating refresh admission and gate fades
   separately. Return ownership to guard the opening caller's Back-button update.
   Held dispatcher tests cover reset, top-level navigation, configuration,
-  same-album overlap and input/window ID mutation. Logical detail publication
-  and its cross-source artwork synchronization remain separate audit boundaries.
-  Never restore a remote album detail through the local `ShowAlbumTracksAsync`
-  path because server and local album IDs can collide. Remote artist-info views
-  must use the bound remote row/server profile data, not local
-  `AudioDatabase.GetArtistById`, because server IDs can collide with local
-  artist IDs. The remote artist-info rename/merge and Wikimedia image actions
-  must call the Orynivo Server API (`RenameArtistAsync`,
+  same-album overlap and input/window ID mutation. Logical detail uses the same
+  request ownership with copied source parts resolved to configured server IDs.
+  Capture artist scope before awaits and stage tracks from every source before
+  mapping or playback registration. Guard request, generation, tag, logical row/
+  parts and source membership; the shared lease balances loading and ownership
+  guards header/rating admission, fade and Back. Artwork uses linked navigation/
+  timeout cancellation and ownership guards before metadata, write admission and
+  row hydration. Successful writes invalidate caches in finally even if
+  subsequent refresh is abandoned. A still-current owner accounts for exactly
+  one own cache generation advance; external invalidation remains obsolete.
+  Optional artwork adapters preserve other callers. Held tests cover
+  track/metadata/write abandonment, same-album overlap and own versus external
+  invalidation. Never restore a remote album detail through the local
+  `ShowAlbumTracksAsync` path because server and local album IDs can collide.
+  Remote artist-info views must use the bound remote row/server profile data,
+  not local `AudioDatabase.GetArtistById`, because server IDs can collide with
+  local artist IDs. The remote artist-info rename/merge and Wikimedia image
+  actions must call the Orynivo Server API (`RenameArtistAsync`,
   `UploadArtistImageAsync`) and update the remote row/detail view rather than
   writing to the local database. Remote Tracks offers the same
   Genre/Audio-Type/Bitrate facet filters as local, reusing the client's

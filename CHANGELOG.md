@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Logical album detail now owns artwork and track publication across navigation
+  and configuration changes. Source parts and artist scope are captured before
+  awaiting; obsolete responses cannot register playback metadata or update
+  tracks, headers, fades or Back. Artwork writes require current admission and
+  invalidate caches after successful writes even when later work is abandoned.
+  Own artwork invalidation permits the current detail to continue loading.
+
 - Local album workers now retain copied album IDs and artist scope. Navigation,
   configuration changes and same-album replacement reject obsolete rows,
   headers, rating-refresh admission, fades and Back-button publication, while

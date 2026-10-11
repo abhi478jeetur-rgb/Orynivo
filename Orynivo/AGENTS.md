@@ -729,8 +729,20 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   mapping or playback registration. Guard request, catalog generation, active
   provider, album, tag and server identity. Navigation/reset/push/configuration
   changes cancel the scope; completion and deferred fades retain ownership. Test
-  held same-album loads and source/configuration changes. Logical detail loaders
-  remain a separate audit boundary.
+  held same-album loads and source/configuration changes.
+- Logical album opens and reloads reuse `NavigationLoadOwnership`; existing
+  album abandonment cancels their token. Copy source parts, resolve copied
+  server IDs to configured owners and capture artist scope before awaiting.
+  Stage every source's tracks before mapping/playback registration. Guard
+  request, generation, tag, active logical row/parts and configured source
+  identity. Use the counted lease and guard header/rating admission, fade and
+  opening caller's Back update. Artwork uses linked navigation/budget
+  cancellation plus ownership checks before metadata work, write admission and
+  row hydration. Successful writes invalidate caches in finally, even when
+  refresh is abandoned. Notify a still-current owner of exactly one own
+  generation advance; external invalidation must still reject publication.
+  Preserve other callers' optional artwork adapters. Test held tracks,
+  same-album overlap, metadata/write cancellation and own/external invalidation.
 - Local album workers reuse `NavigationLoadOwnership` and `ContentLoadingLease`.
   Copy album IDs and artist scope before `Task.Run`; its SQLite worker must not
   read window state. Pass the request token for pre-start cancellation and guard

@@ -3,6 +3,7 @@ using Orynivo.Streaming;
 
 namespace Orynivo;
 
+/// <summary>Best-effort source artwork synchronization with navigation-aware publication adapters.</summary>
 public partial class MainWindow
 {
     private const int SynchronizedArtworkMaximumBytes = 20 * 1024 * 1024;
@@ -106,104 +107,131 @@ public partial class MainWindow
     /// <summary>Copies existing artwork into equivalent album identities that currently lack it.</summary>
     /// <param name="sources">Source-specific album records.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="canContinue">Optional ownership guard for write admission.</param>
+    /// <param name="onCatalogInvalidated">Optional notification for this operation's own cache invalidation.</param>
     /// <returns>Refreshed source records containing newly stored artwork paths.</returns>
     private async Task<List<(LibraryCatalogAlbum Album, OrynivoServerSettings? Server)>> SynchronizeMissingAlbumArtworkAsync(
         IReadOnlyList<(LibraryCatalogAlbum Album, OrynivoServerSettings? Server)> sources,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool>? canContinue = null,
+        Action? onCatalogInvalidated = null)
     {
         var result = sources.ToList();
         var changed = false;
-        var groups = result
-            .Select((source, index) => (source, index))
-            .GroupBy(item =>
-                $"{ArtistNameNormalizer.CreateComparisonKey(item.source.Album.Title)}|" +
-                $"{ArtistNameNormalizer.CreateComparisonKey(item.source.Album.DisplayArtist)}",
-                StringComparer.Ordinal);
-
-        foreach (var group in groups)
+        bool CanContinue() => !cancellationToken.IsCancellationRequested && (canContinue?.Invoke() ?? true);
+        try
         {
-            var entries = group.ToList();
-            if (entries.Count < 2 || entries.All(item => HasAlbumArtwork(item.source)))
-                continue;
+            var groups = result
+                .Select((source, index) => (source, index))
+                .GroupBy(item =>
+                    $"{ArtistNameNormalizer.CreateComparisonKey(item.source.Album.Title)}|" +
+                    $"{ArtistNameNormalizer.CreateComparisonKey(item.source.Album.DisplayArtist)}",
+                    StringComparer.Ordinal);
 
-            (byte[] Data, string MimeType)? image = null;
-            foreach (var candidate in entries.Where(item => HasAlbumArtwork(item.source)))
+            foreach (var group in groups)
             {
-                image = await TryReadArtworkBytesAsync(
-                    candidate.source.Album.ArtworkPath ?? candidate.source.Album.ThumbnailPath,
-                    cancellationToken);
-                if (image is not null)
-                    break;
-            }
-            if (image is null)
-                continue;
+                if (!CanContinue()) return result;
+                var entries = group.ToList();
+                if (entries.Count < 2 || entries.All(item => HasAlbumArtwork(item.source)))
+                    continue;
 
-            foreach (var target in entries.Where(item => !HasAlbumArtwork(item.source)))
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                try
+                (byte[] Data, string MimeType)? image = null;
+                foreach (var candidate in entries.Where(item => HasAlbumArtwork(item.source)))
                 {
-                    ILibraryCatalogProvider provider = target.source.Server is null
-                        ? _localCatalogProvider
-                        : CreateOrynivoCatalogProvider(target.source.Server);
-                    if (!await provider.SetAlbumArtworkAsync(
-                            target.source.Album.Id,
-                            image.Value.Data,
-                            image.Value.MimeType,
-                            cancellationToken))
-                    {
-                        continue;
-                    }
-
-                    var refreshed = await provider.GetAlbumAsync(
-                        target.source.Album.Id,
-                        includeArtwork: true,
+                    if (!CanContinue()) return result;
+                    image = await TryReadArtworkBytesAsync(
+                        candidate.source.Album.ArtworkPath ?? candidate.source.Album.ThumbnailPath,
                         cancellationToken);
-                    if (refreshed is not null)
-                        result[target.index] = (refreshed, target.source.Server);
-                    if (target.source.Server is not null)
-                        DeleteOrynivoAlbumListCache(target.source.Server);
-                    changed = true;
+                    if (!CanContinue()) return result;
+                    if (image is not null)
+                        break;
                 }
-                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                if (image is null)
+                    continue;
+
+                foreach (var target in entries.Where(item => !HasAlbumArtwork(item.source)))
                 {
-                    throw;
+                    if (!CanContinue()) return result;
+                    cancellationToken.ThrowIfCancellationRequested();
+                    try
+                    {
+                        ILibraryCatalogProvider provider = target.source.Server is null
+                            ? _localCatalogProvider
+                            : CreateOrynivoCatalogProvider(target.source.Server);
+                        if (!await provider.SetAlbumArtworkAsync(
+                                target.source.Album.Id,
+                                image.Value.Data,
+                                image.Value.MimeType,
+                                cancellationToken))
+                        {
+                            continue;
+                        }
+
+                        changed = true;
+                        if (target.source.Server is not null)
+                            DeleteOrynivoAlbumListCache(target.source.Server);
+                        if (!CanContinue()) return result;
+                        var refreshed = await provider.GetAlbumAsync(
+                            target.source.Album.Id,
+                            includeArtwork: true,
+                            cancellationToken);
+                        if (!CanContinue()) return result;
+                        if (refreshed is not null)
+                            result[target.index] = (refreshed, target.source.Server);
+                    }
+                    catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                    {
+                        throw;
+                    }
+                    catch
+                    {
+                        // Synchronization is best effort for unreachable remote libraries.
+                    }
                 }
-                catch
-                {
-                    // Synchronization is best effort for unreachable remote libraries.
-                }
+            }
+
+            return result;
+        }
+        finally
+        {
+            if (changed)
+            {
+                var notifyOwner = canContinue?.Invoke() ?? true;
+                InvalidateUnifiedLibraryViewCache();
+                if (notifyOwner) onCatalogInvalidated?.Invoke();
             }
         }
-
-        if (changed)
-            InvalidateUnifiedLibraryViewCache();
-        return result;
     }
 
     /// <summary>Synchronizes and applies artwork for the source identities represented by an opened album.</summary>
     /// <param name="row">Unified album row used by the detail header.</param>
     /// <param name="parts">Local and remote album identities.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="canPublish">Guard checked before source work and header row hydration.</param>
+    /// <param name="onCatalogInvalidated">Notification for synchronization's own cache generation advance.</param>
     /// <returns>A task representing synchronization and row refresh.</returns>
     private async Task SynchronizeLogicalAlbumArtworkAsync(
         ContentRow row,
         IReadOnlyList<LogicalAlbumPart> parts,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool> canPublish,
+        Action onCatalogInvalidated)
     {
-        if (parts.Count < 2)
+        if (parts.Count < 2 || cancellationToken.IsCancellationRequested || !canPublish())
             return;
 
         var sources = new List<(LibraryCatalogAlbum Album, OrynivoServerSettings? Server)>();
         foreach (var part in parts)
         {
+            if (cancellationToken.IsCancellationRequested || !canPublish()) return;
             ILibraryCatalogProvider provider = part.Server is null
                 ? _localCatalogProvider
                 : CreateOrynivoCatalogProvider(part.Server);
             try
             {
-                if (await provider.GetAlbumAsync(part.AlbumId, includeArtwork: true, cancellationToken) is { } album)
-                    sources.Add((album, part.Server));
+                var album = await provider.GetAlbumAsync(part.AlbumId, includeArtwork: true, cancellationToken);
+                if (cancellationToken.IsCancellationRequested || !canPublish()) return;
+                if (album is not null) sources.Add((album, part.Server));
             }
             catch
             {
@@ -211,7 +239,10 @@ public partial class MainWindow
             }
         }
 
-        var synchronized = await SynchronizeMissingAlbumArtworkAsync(sources, cancellationToken);
+        if (cancellationToken.IsCancellationRequested || !canPublish()) return;
+        var synchronized = await SynchronizeMissingAlbumArtworkAsync(sources, cancellationToken,
+            canPublish, onCatalogInvalidated);
+        if (cancellationToken.IsCancellationRequested || !canPublish()) return;
         var artwork = synchronized.FirstOrDefault(HasAlbumArtwork);
         if (artwork.Album is null)
             return;
