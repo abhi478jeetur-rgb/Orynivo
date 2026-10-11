@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Global Back now restores the opened Plex detail after switching views,
+  including selection, scroll, playback metadata, existing parent views and
+  library paging. Sectionless playback-history details retain their origin.
+  Saved source and encrypted credentials are revalidated before publication;
+  rejected snapshots fall back to Tracks and obsolete credential lookups cannot
+  overwrite newer navigation.
+
 - Plex child Back rejects saved rows after source, connection, credential,
   section or navigation changes. It returns to the global origin when available,
   with Tracks as the fallback for a removed Plex origin. Deferred scroll work

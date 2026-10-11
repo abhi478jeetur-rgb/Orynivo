@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private string? _activePlexSectionKey;
     private string? _activePlexSectionTitle;
     private string _activePlexView = "Artists";
+    private bool _plexDetailVisible;
     private int _plexLoadedCount;
     private int _plexTotalCount;
     private CancellationTokenSource? _plexViewCts;
@@ -342,6 +343,10 @@ public partial class MainWindow : Window
     /// <param name="Token">Transient credential identity, never persisted or logged.</param>
     /// <param name="Section">Owning library section, or null for history detail.</param>
     /// <param name="NavigationTag">Sidebar context captured before loading.</param>
+    /// <param name="IsDetail">Whether the binding is a child detail rather than the library root.</param>
+    /// <param name="SectionTitle">Owning library heading.</param>
+    /// <param name="LoadedCount">Retained library paging offset.</param>
+    /// <param name="TotalCount">Retained library paging total.</param>
     private sealed record PlexNavigationState(
         string Title,
         string View,
@@ -353,13 +358,32 @@ public partial class MainWindow : Window
         string BaseUrl,
         string? Token,
         string? Section,
-        string? NavigationTag);
+        string? NavigationTag,
+        bool IsDetail,
+        string? SectionTitle,
+        int LoadedCount,
+        int TotalCount);
     private sealed record PlaylistActionTag(ILibraryPlaylistProvider Provider, long PlaylistId, PlaylistSelection Selection);
     private sealed record NewPlaylistActionTag(ILibraryPlaylistProvider Provider, PlaylistSelection Selection);
     private sealed record OrynivoPlaylistMenuTag(OrynivoServerSettings Server, long PlaylistId, IReadOnlyList<long> TrackIds);
     private sealed record RemovePlaylistEntryTag(long PlaylistEntryId);
     private sealed record RemoveOrynivoPlaylistEntryTag(OrynivoServerSettings Server, long PlaylistEntryId);
     private sealed record PodcastPlayback(PodcastRecord Podcast, PodcastEpisode Episode);
+    /// <summary>Retains the existing in-memory global Back payload and optional source-owned Plex detail.</summary>
+    /// <param name="View">Saved view discriminator or sidebar tag.</param>
+    /// <param name="SelectedId">Selected provider-local identifier.</param>
+    /// <param name="ArtistFilterId">Active artist identifier.</param>
+    /// <param name="ArtistFilterName">Active artist name.</param>
+    /// <param name="SearchQuery">Saved query or detail heading.</param>
+    /// <param name="VerticalOffset">Saved visible vertical position.</param>
+    /// <param name="NavigationTag">Owning source navigation tag.</param>
+    /// <param name="SelectedSourceKey">Selected row source identity.</param>
+    /// <param name="GenreKey">Saved cloud branch.</param>
+    /// <param name="GenreAlbums">Saved cloud recommendation mode.</param>
+    /// <param name="LogicalAlbumIds">Local logical album identifiers.</param>
+    /// <param name="LogicalAlbumParts">Source-aware logical album parts.</param>
+    /// <param name="PlexState">Optional transient Plex detail binding.</param>
+    /// <param name="PlexParents">Existing Plex parents, ordered from nearest to root.</param>
     private sealed record NavigationState(
         string View,
         long? SelectedId,
@@ -372,7 +396,9 @@ public partial class MainWindow : Window
         string? GenreKey = null,
         bool? GenreAlbums = null,
         IReadOnlyList<long>? LogicalAlbumIds = null,
-        IReadOnlyList<LogicalAlbumPart>? LogicalAlbumParts = null);
+        IReadOnlyList<LogicalAlbumPart>? LogicalAlbumParts = null,
+        PlexNavigationState? PlexState = null,
+        IReadOnlyList<PlexNavigationState>? PlexParents = null);
 
 
     // ------------------------------------------------------------------

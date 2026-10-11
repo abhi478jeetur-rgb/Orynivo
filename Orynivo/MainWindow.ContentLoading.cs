@@ -152,6 +152,7 @@ public partial class MainWindow : Window
         if (!CanPublish()) return;
         CancelPlexViewLoad();
         if (!CanPublish()) return;
+        _plexDetailVisible = false;
         ContentDataGrid.ItemsSource = null;
         AlbumArtworkListBox.ItemsSource = null;
         ArtistArtworkListBox.ItemsSource = null;

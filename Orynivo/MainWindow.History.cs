@@ -337,29 +337,11 @@ public partial class MainWindow : Window
 
         // Reveal the Plex table and hide every other full-area view, mirroring the
         // remote-library entry path so the previous view does not cover Plex content.
-        ContentDataGrid.IsVisible = true;
+        ShowPlexContentTable();
         ContentDataGrid.ItemsSource = null;
-        FolderTreeView.IsVisible = false;
-        AlbumArtworkListBox.IsVisible = false;
-        ArtistArtworkListBox.IsVisible = false;
-        SearchResultsScrollViewer.IsVisible = false;
-        DashboardScrollViewer.IsVisible = false;
-        InternetRadioView.IsVisible = false;
-        PodcastView.IsVisible = false;
-        LyricsView.IsVisible = false;
-        ArtistInfoView.IsVisible = false;
-        PodcastInfoView.IsVisible = false;
-        PlexLoadMoreButton.IsVisible = false;
-        TrackFilterButton.IsVisible = false;
-        SaveSmartPlaylistButton.IsVisible = false;
-        HideAlbumDetailHeader();
-        UpdateLibraryIntroCard(null);
 
         // The first history detail returns through global Back. Later child loads
         // own their Plex states; this continuation must not clear newer history.
         await ShowPlexChildrenAsync(parent, captureParent: false);
     }
 }
-
-
-

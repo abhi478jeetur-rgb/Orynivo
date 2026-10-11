@@ -142,6 +142,7 @@ public partial class MainWindow : Window
 
         _activePlexView = "Artists";
         _plexNavigationStack.Clear();
+        _plexDetailVisible = false;
         _updatingViewMode = true;
         PlexArtistsViewRadioButton.IsChecked = true;
         _updatingViewMode = false;
@@ -149,6 +150,9 @@ public partial class MainWindow : Window
         await LoadPlexViewAsync(reset: true, isParentCurrent);
     }
 
+    /// <summary>Leaves published Plex detail for an independently owned library mode load.</summary>
+    /// <param name="sender">Checked Plex mode radio button.</param>
+    /// <param name="e">Mode selection event.</param>
     private async void PlexViewModeRadioButton_OnChecked(object? sender, RoutedEventArgs e)
     {
         if (!IsVisible || _updatingViewMode ||
@@ -159,6 +163,7 @@ public partial class MainWindow : Window
         }
 
         _plexNavigationStack.Clear();
+        _plexDetailVisible = false;
         _activePlexView = view;
         ContentTitleTextBlock.Text = _activePlexSectionTitle;
         BackButton.IsVisible = _navigationStack.Count > 0;
@@ -314,6 +319,53 @@ public partial class MainWindow : Window
         return row;
     }
 
+    /// <summary>Reveals the shared Plex table while hiding competing full-area surfaces.</summary>
+    private void ShowPlexContentTable()
+    {
+        ContentDataGrid.IsVisible = true;
+        FolderTreeView.IsVisible = false;
+        AlbumArtworkListBox.IsVisible = false;
+        ArtistArtworkListBox.IsVisible = false;
+        SearchResultsScrollViewer.IsVisible = false;
+        GenreCloudPanel.IsVisible = false;
+        GenreCloudSurface.IsVisible = false;
+        AiChatViewControl.IsVisible = false;
+        PodcastEpisodesView.IsVisible = false;
+        DashboardScrollViewer.IsVisible = false;
+        InternetRadioView.IsVisible = false;
+        PodcastView.IsVisible = false;
+        LyricsView.IsVisible = false;
+        ArtistInfoView.IsVisible = false;
+        PodcastInfoView.IsVisible = false;
+        PlexLoadMoreButton.IsVisible = false;
+        PlexViewModeBorder.IsVisible = false;
+        AlbumViewModeBorder.IsVisible = false;
+        OrynivoServerViewModeBorder.IsVisible = false;
+        ClearQueueButton.IsVisible = false;
+        InfiniteMixButton.IsVisible = false;
+        InfiniteMixActionsPanel.IsVisible = false;
+        InfiniteMixStatusTextBlock.IsVisible = false;
+        SaveQueueAsPlaylistButton.IsVisible = false;
+        RestoreQueueButton.IsVisible = false;
+        TrackFilterPopup.IsOpen = false;
+        UpdateEntityFavoritesFilterToggle(null);
+        SearchTextBox.IsVisible = false;
+        TrackFilterButton.IsVisible = false;
+        SaveSmartPlaylistButton.IsVisible = false;
+        HideAlbumDetailHeader();
+        UpdateLibraryIntroCard(null);
+    }
+
+    /// <summary>Captures the existing Plex binding, source identity and paging before navigation.</summary>
+    /// <returns>Transient saved state, or null when no active Plex source exists.</returns>
+    private PlexNavigationState? CapturePlexNavigationState() => _activePlexServer is null ? null : new(
+        ContentTitleTextBlock.Text ?? string.Empty, _activePlexView,
+        (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? [],
+        ContentDataGrid.SelectedItem as ContentRow, CaptureCurrentVerticalOffset(),
+        _activePlexServer.Id, _activePlexServer.Name, _activePlexServer.BaseUrl,
+        _activePlexToken, _activePlexSectionKey, _currentTopLevelTag, _plexDetailVisible,
+        _activePlexSectionTitle, _plexLoadedCount, _plexTotalCount);
+
     /// <summary>Checks retained Plex Back inputs against the active and configured source.</summary>
     /// <param name="state">In-memory parent state captured before child loading.</param>
     /// <returns>Whether saved rows and position still belong to the current source.</returns>
@@ -335,11 +387,7 @@ public partial class MainWindow : Window
         var parentKey = parent.ExternalId;
         var title = parent.Title ?? _activePlexSectionTitle;
         var targetView = parent.EntityType == "PlexArtist" ? "Albums" : "Tracks";
-        var previousState = new PlexNavigationState(ContentTitleTextBlock.Text ?? string.Empty,
-            _activePlexView, (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? [],
-            GetSelectedContentRow(), CaptureCurrentVerticalOffset(),
-            _activePlexServer.Id, _activePlexServer.Name, _activePlexServer.BaseUrl,
-            _activePlexToken, _activePlexSectionKey, _currentTopLevelTag);
+        var previousState = CapturePlexNavigationState()!;
         var context = BeginPlexLoad(null, allowSectionless: true);
         if (context is null) return;
         StatusTextBlock.Text = LocalizationManager.Current.PlexLoading;
@@ -353,6 +401,7 @@ public partial class MainWindow : Window
             if (captureParent) _plexNavigationStack.Push(previousState);
             BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
             _activePlexView = targetView;
+            _plexDetailVisible = true;
             ApplyColumns("Plex" + targetView);
             ContentDataGrid.ItemsSource = rows;
             ContentTitleTextBlock.Text = title;

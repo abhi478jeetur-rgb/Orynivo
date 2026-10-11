@@ -749,6 +749,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   validate it before rebinding rows and in deferred callbacks. Invalid child
   state returns through the existing global origin, or Tracks when no origin
   exists or its Plex source was removed. Never persist or log these snapshots.
+  Global Back payloads may retain the existing Plex detail and parent states;
+  capture only a published, visible detail and release the active Plex stack on
+  independent navigation. Restore into that existing stack in original order.
+  Read encrypted credentials off the UI thread and revalidate configured source
+  and ownership afterward; invalid global snapshots fall back to Tracks. Retain
+  root paging and mode alongside exact selection/position, and register only
+  current restored track metadata. No additional stack or cache is permitted.
 - NavigationLoadOwnership guards remote view request publication without owning
   history, rows or cancellation sources. Install new request/token before old
   cancellation callbacks and recheck ownership afterward. Top-level navigation,

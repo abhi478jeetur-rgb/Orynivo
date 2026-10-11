@@ -67,6 +67,7 @@ public partial class MainWindow : Window
         _activeLogicalAlbumParts = null;
         _activeLogicalAlbumRow = null;
         _plexNavigationStack.Clear();
+        _plexDetailVisible = false;
         if (clearNavigationHistory)
             _navigationStack.Clear();
         BackButton.IsVisible = _navigationStack.Count > 0;
@@ -92,6 +93,11 @@ public partial class MainWindow : Window
             return;
 
         _navigationStack.Push(state);
+        if (state.PlexState is not null)
+        {
+            _plexDetailVisible = false;
+            _plexNavigationStack.Clear();
+        }
         BackButton.IsVisible = true;
     }
 
@@ -128,6 +134,10 @@ public partial class MainWindow : Window
                 GenreKey: _genreCloudSelectedKey,
                 GenreAlbums: GenreAlbumRecommendationsRadioButton.IsChecked == true);
         }
+
+        if (_plexDetailVisible && ContentDataGrid.IsVisible && CapturePlexNavigationState() is { } plexState)
+            return new NavigationState("PlexDetail", null, null, null,
+                PlexState: plexState, PlexParents: _plexNavigationStack.ToArray());
 
         if (target.Kind == NavigationCaptureKind.LogicalAlbum && _activeAlbumFilterId is long logicalAlbumId)
         {
@@ -344,30 +354,53 @@ public partial class MainWindow : Window
                 if (CanRestore()) BackButton.IsVisible = _navigationStack.Count > 0;
                 return;
             }
-            _activePlexView = plexState.View;
-            ContentTitleTextBlock.Text = plexState.Title;
-            ApplyColumns("Plex" + plexState.View);
-            ContentDataGrid.ItemsSource = plexState.Rows;
-            ContentDataGrid.IsVisible = true;
-            FolderTreeView.IsVisible = false;
-            PlexViewModeBorder.IsVisible = _activePlexSectionKey is not null && _plexNavigationStack.Count == 0;
-            PlexLoadMoreButton.IsVisible = _activePlexSectionKey is not null &&
-                _plexNavigationStack.Count == 0 && _plexLoadedCount < _plexTotalCount;
-            StatusTextBlock.Text = string.Empty;
-            ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(plexState.Rows.Count);
-            UpdateAlphabetIndex(plexState.Rows, true);
-            BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
-            var selectedRow = plexState.Rows.FirstOrDefault(row => ReferenceEquals(row, plexState.SelectedRow));
-            ContentDataGrid.SelectedItem = selectedRow;
-            RestoreDataGridPositionAfterLayout(selectedRow, plexState.VerticalOffset,
-                () => CanRestore() && IsCurrentPlexNavigationSource(plexState) &&
-                    ReferenceEquals(ContentDataGrid.ItemsSource, plexState.Rows));
+            PublishPlexNavigationState(plexState, CanRestore);
         }
         finally
         {
             _navigationRestores.Complete(request);
             _navigationRestores.Context = previousContext;
         }
+    }
+
+    /// <summary>Publishes a valid retained Plex binding with source-owned deferred position.</summary>
+    /// <param name="state">Transient Plex table and paging state.</param>
+    /// <param name="canRestore">Owning Back execution guard.</param>
+    private void PublishPlexNavigationState(PlexNavigationState state, Func<bool> canRestore)
+    {
+        if (!canRestore() || !IsCurrentPlexNavigationSource(state)) return;
+        _activePlexView = state.View;
+        _plexDetailVisible = state.IsDetail;
+        _activePlexSectionTitle = state.SectionTitle;
+        _plexLoadedCount = state.LoadedCount;
+        _plexTotalCount = state.TotalCount;
+        ContentTitleTextBlock.Text = state.Title;
+        var previousUpdatingViewMode = _updatingViewMode;
+        _updatingViewMode = true;
+        try
+        {
+            if (PlexViewModeBorder.Child is StackPanel modes)
+                foreach (var button in modes.Children.OfType<RadioButton>())
+                    button.IsChecked = button.Tag as string == state.View;
+        }
+        finally { _updatingViewMode = previousUpdatingViewMode; }
+        if (!canRestore() || !IsCurrentPlexNavigationSource(state)) return;
+        ApplyColumns("Plex" + state.View);
+        ContentDataGrid.ItemsSource = state.Rows;
+        ShowPlexContentTable();
+        FolderTreeView.IsVisible = false;
+        PlexViewModeBorder.IsVisible = _activePlexSectionKey is not null && _plexNavigationStack.Count == 0;
+        PlexLoadMoreButton.IsVisible = _activePlexSectionKey is not null &&
+            _plexNavigationStack.Count == 0 && _plexLoadedCount < _plexTotalCount;
+        StatusTextBlock.Text = string.Empty;
+        ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(state.Rows.Count);
+        UpdateAlphabetIndex(state.Rows, true);
+        BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
+        var selectedRow = state.Rows.FirstOrDefault(row => ReferenceEquals(row, state.SelectedRow));
+        ContentDataGrid.SelectedItem = selectedRow;
+        RestoreDataGridPositionAfterLayout(selectedRow, state.VerticalOffset,
+            () => canRestore() && IsCurrentPlexNavigationSource(state) &&
+                ReferenceEquals(ContentDataGrid.ItemsSource, state.Rows));
     }
 
     /// <summary>Owns one Back execution and its deferred restoration without suppressing independent navigation.</summary>
@@ -392,7 +425,7 @@ public partial class MainWindow : Window
             CancelAndDispose(ref _unifiedLibraryAppendCts);
             if (!CanRestore()) return;
             await RestoreNavigationStateCoreAsync(state, CanRestore);
-            if (CanRestore()) BackButton.IsVisible = _navigationStack.Count > 0;
+            if (CanRestore()) BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
         }
         finally
         {
@@ -408,11 +441,19 @@ public partial class MainWindow : Window
     private async Task RestoreNavigationStateCoreAsync(NavigationState state, Func<bool> canRestore)
     {
         if (!canRestore()) return;
+        _plexDetailVisible = false;
+        _plexNavigationStack.Clear();
         _activeArtistFilterId = state.ArtistFilterId;
         _activeArtistFilterName = state.ArtistFilterName;
         _activeAlbumFilterId = null;
         _activeAlbumFilterTitle = null;
         HideAlbumDetailHeader();
+
+        if (state.PlexState is { } plexState)
+        {
+            await RestoreGlobalPlexNavigationAsync(state, plexState, canRestore);
+            return;
+        }
 
         switch (NavigationRestoreDecision.Select(new(state.View, state.SelectedId,
                     state.ArtistFilterId, state.ArtistFilterName,
@@ -520,6 +561,55 @@ public partial class MainWindow : Window
                 await RestoreTopLevelNavigationAsync(state, canRestore);
                 break;
         }
+    }
+
+    /// <summary>Restores a captured Plex detail and its existing parents after source and credential validation.</summary>
+    /// <param name="state">Global payload containing the retained Plex parent chain.</param>
+    /// <param name="plexState">Transient saved Plex detail binding.</param>
+    /// <param name="canRestore">Owning global Back guard.</param>
+    /// <returns>A task completing after guarded publication or fallback.</returns>
+    private async Task RestoreGlobalPlexNavigationAsync(
+        NavigationState state, PlexNavigationState plexState, Func<bool> canRestore)
+    {
+        if (!canRestore()) return;
+        string? currentToken;
+        try
+        {
+            currentToken = (await new WindowsPlexCredentialStore().LoadAllAsync())
+                .GetValueOrDefault(plexState.ServerId);
+        }
+        catch
+        {
+            if (canRestore()) await RestoreTopLevelNavigationAsync(
+                new NavigationState("Tracks", null, null, null), canRestore);
+            return;
+        }
+        if (!canRestore()) return;
+        var server = (_settings.PlexServers ?? []).FirstOrDefault(candidate =>
+            candidate.Id == plexState.ServerId && candidate.Name == plexState.ServerName &&
+            candidate.BaseUrl == plexState.BaseUrl);
+        var validTag = plexState.NavigationTag is not null &&
+            (plexState.Section is null || plexState.NavigationTag ==
+                $"PlexLibrary:{plexState.ServerId}:{plexState.Section}");
+        if (server is null || currentToken != plexState.Token || !validTag)
+        {
+            _plexNavigationStack.Clear();
+            await RestoreTopLevelNavigationAsync(new NavigationState("Tracks", null, null, null), canRestore);
+            return;
+        }
+        _activePlexServer = server;
+        _activePlexToken = currentToken;
+        _activePlexSectionKey = plexState.Section;
+        _currentTopLevelTag = plexState.NavigationTag;
+        SelectNavigationItem(plexState.NavigationTag!);
+        if (!canRestore() || !IsCurrentPlexNavigationSource(plexState)) return;
+        _plexNavigationStack.Clear();
+        foreach (var parent in (state.PlexParents ?? []).Reverse())
+            _plexNavigationStack.Push(parent);
+        foreach (var row in plexState.Rows)
+            if (row.EntityType == "PlexTrack" && !string.IsNullOrEmpty(row.FilePath))
+                _plexTracksByUrl[row.FilePath] = row;
+        PublishPlexNavigationState(plexState, canRestore);
     }
 
     /// <summary>Restores a top-level binding and layout only while its exact loader and Back execution remain current.</summary>

@@ -1028,11 +1028,19 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   copied source/connection, transient credential, section and navigation tag.
   Reject changed/removed sources before binding and during deferred layout;
   return through the global origin, or Tracks when no origin exists or its Plex
-  source has been removed. Keep snapshots in memory and never log them.
-  Independent Plex actions release old root loading and reject old fades. Back
-  clears loading text and restores root paging. Top-level cancellation detaches
-  top/cloud/Plex sources before callbacks so newly admitted replacements cannot
-  be cancelled by older cleanup.
+  source has been removed. Keep snapshots in memory and never log them. Global
+  Back payloads retain published Plex detail rows, selection/position, paging
+  and the existing parent states when leaving for another view. A visibility
+  marker excludes stale ambient Plex fields. Restore revalidates configured
+  source and encrypted credentials off the UI thread, guards the continuation
+  and repopulates the existing Plex stack in original order. Invalid global
+  snapshots fall back to Tracks. Only admitted restored tracks register playback
+  metadata; no new stack/cache is introduced. The shared Plex table adapter
+  hides competing surfaces and unrelated view/queue controls. Independent Plex
+  actions release old root loading and reject old fades. Back clears loading
+  text and restores root paging. Top-level cancellation detaches top/cloud/Plex
+  sources before callbacks so newly admitted replacements cannot be cancelled by
+  older cleanup.
 - `Orynivo/SettingsStore.cs`: persists non-secret settings in
   `%LOCALAPPDATA%\Orynivo\settings.json`, overlays secrets from
   `ApplicationCredentialStore`, and migrates legacy plaintext JSON credentials
