@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Back navigation capture now uses a window-independent typed decision helper.
+  It preserves search/cloud precedence, logical album parts, and local/server
+  identity even when album or artist IDs collide. The window still owns history,
+  selection, scroll restoration and view loading.
+
 - Shared catalog server requests now use the common source batch scheduler,
   retaining concurrent admission of every configured server, ordered outcomes
   and independent 20-second budgets. Regression tests compose scheduling with

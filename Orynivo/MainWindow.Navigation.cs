@@ -85,10 +85,18 @@ public partial class MainWindow : Window
         BackButton.IsVisible = true;
     }
 
+    /// <summary>Adapts the pure capture decision to the existing window-owned Back state.</summary>
+    /// <returns>The current selectable view state, or null for section-only navigation.</returns>
     private NavigationState? CaptureCurrentNavigationState()
     {
         var selectedRow = GetSelectedContentRow();
-        if (SearchResultsScrollViewer.IsVisible)
+        var target = NavigationCaptureDecision.Select(new NavigationCaptureContext(
+            SearchResultsScrollViewer.IsVisible, GenreCloudPanel.IsVisible, _currentTopLevelTag,
+            _activeAlbumFilterId, _activeArtistFilterId, _activeArtistFilterName,
+            _activeLogicalAlbumParts is { Count: > 0 },
+            _activeCatalogAlbum is { Source: LibraryCatalogSource.OrynivoServer },
+            _activeOrynivoServer?.Id, _activeAlbumCatalogProvider is not null));
+        if (target.Kind == NavigationCaptureKind.Search)
             return new NavigationState(
                 "Search",
                 selectedRow?.Id,
@@ -98,8 +106,7 @@ public partial class MainWindow : Window
                 CaptureCurrentVerticalOffset(),
                 SelectedSourceKey: selectedRow?.SourceKey);
 
-        if (string.Equals(_currentTopLevelTag, "GenreCloud", StringComparison.Ordinal) &&
-            GenreCloudPanel.IsVisible)
+        if (target.Kind == NavigationCaptureKind.GenreCloud)
         {
             return new NavigationState(
                 "GenreCloud",
@@ -112,8 +119,7 @@ public partial class MainWindow : Window
                 GenreAlbums: GenreAlbumRecommendationsRadioButton.IsChecked == true);
         }
 
-        if (_activeAlbumFilterId is long logicalAlbumId &&
-            _activeLogicalAlbumParts is { Count: > 0 })
+        if (target.Kind == NavigationCaptureKind.LogicalAlbum && _activeAlbumFilterId is long logicalAlbumId)
         {
             return new NavigationState(
                 "LogicalAlbumTracks",
@@ -125,20 +131,8 @@ public partial class MainWindow : Window
                 LogicalAlbumParts: _activeLogicalAlbumParts);
         }
 
-        if (_activeAlbumFilterId is long orynivoAlbumId &&
-            _activeCatalogAlbum is { Source: LibraryCatalogSource.OrynivoServer } &&
-            _activeOrynivoServer is { } orynivoAlbumServer)
+        if (target.Kind == NavigationCaptureKind.ServerAlbum && _activeAlbumFilterId is long orynivoAlbumId)
         {
-            // A provider-backed remote album must be restored through the remote
-            // path. Detecting it only via the top-level tag failed when the album
-            // was opened from the dashboard (tag "Dashboard"), so it was captured
-            // as a local "AlbumTracks" state and Back reopened a local album that
-            // merely shared the numeric id. Detect it by the catalog album source
-            // instead and rebuild a server navigation tag when needed.
-            var albumNavigationTag =
-                _currentTopLevelTag?.StartsWith("OrynivoServer:", StringComparison.Ordinal) == true
-                    ? _currentTopLevelTag
-                    : $"OrynivoServer:{orynivoAlbumServer.Id}:Albums";
             return new NavigationState(
                 "OrynivoAlbumTracks",
                 orynivoAlbumId,
@@ -146,11 +140,11 @@ public partial class MainWindow : Window
                 _activeArtistFilterName,
                 _activeAlbumFilterTitle,
                 CaptureCurrentVerticalOffset(),
-                albumNavigationTag,
+                target.NavigationTag,
                 LogicalAlbumIds: _activeLogicalAlbumIds);
         }
 
-        if (_activeAlbumFilterId is long albumId)
+        if (target.Kind == NavigationCaptureKind.LocalAlbum && _activeAlbumFilterId is long albumId)
             return new NavigationState(
                 "AlbumTracks",
                 albumId,
@@ -159,9 +153,7 @@ public partial class MainWindow : Window
                 _activeAlbumFilterTitle,
                 LogicalAlbumIds: _activeLogicalAlbumIds);
 
-        if (_activeAlbumFilterId is null &&
-            _activeArtistFilterId is long remoteArtistId &&
-            _currentTopLevelTag?.StartsWith("OrynivoServer:", StringComparison.Ordinal) == true)
+        if (target.Kind == NavigationCaptureKind.ServerArtist && _activeArtistFilterId is long remoteArtistId)
         {
             return new NavigationState(
                 "OrynivoArtistAlbums",
@@ -170,14 +162,11 @@ public partial class MainWindow : Window
                 _activeArtistFilterName,
                 _activeArtistFilterName,
                 CaptureCurrentVerticalOffset(),
-                _currentTopLevelTag,
+                target.NavigationTag,
                 selectedRow?.SourceKey);
         }
 
-        if (_activeAlbumFilterId is null &&
-            _activeArtistFilterId is long artistId &&
-            _activeAlbumCatalogProvider is null &&
-            !(_currentTopLevelTag?.StartsWith("OrynivoServer:", StringComparison.Ordinal) == true))
+        if (target.Kind == NavigationCaptureKind.LocalArtist && _activeArtistFilterId is long artistId)
         {
             return new NavigationState(
                 "ArtistAlbums",
@@ -189,10 +178,7 @@ public partial class MainWindow : Window
                 SelectedSourceKey: selectedRow?.SourceKey);
         }
 
-        if (_activeAlbumFilterId is null &&
-            _activeArtistFilterId is null &&
-            !string.IsNullOrWhiteSpace(_activeArtistFilterName) &&
-            string.Equals(_currentTopLevelTag, "Albums", StringComparison.Ordinal))
+        if (target.Kind == NavigationCaptureKind.UnifiedArtist)
         {
             return new NavigationState(
                 "UnifiedArtistAlbums",
@@ -204,11 +190,10 @@ public partial class MainWindow : Window
                 SelectedSourceKey: selectedRow?.SourceKey);
         }
 
-        if (!string.IsNullOrWhiteSpace(_currentTopLevelTag) &&
-            !_currentTopLevelTag.StartsWith("Section:", StringComparison.Ordinal))
+        if (target.Kind == NavigationCaptureKind.TopLevel && _currentTopLevelTag is { } topLevelTag)
         {
             return new NavigationState(
-                _currentTopLevelTag,
+                topLevelTag,
                 selectedRow?.Id,
                 _activeArtistFilterId,
                 _activeArtistFilterName,

@@ -695,6 +695,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   superseded results. Synchronous local provider calls and bitmap decoding must
   run through `Task.Run`; `ShowArtistInfoAsync` must never reset albums while a
   unified artist context is active.
+- NavigationCaptureDecision selects typed capture routes from scalar inputs
+  without owning rows, providers, credentials or history. Preserve search/cloud,
+  logical-album, provider-bound album and artist precedence. Server albums
+  opened from Dashboard use their catalog source and active server identity
+  rather than a coincident local ID. MainWindow retains the one Back stack,
+  state payloads, selection/scroll and restore adapters. Test decisions without
+  a window and exercise the capture adapter with synthetic data before changing
+  restore paths.
 - Navigation state must distinguish local, remote, Plex, and unified
   drill-downs; numeric IDs from different sources can collide. Back restoration
   of the top-level Artists and Albums views must use the normal unified loader
