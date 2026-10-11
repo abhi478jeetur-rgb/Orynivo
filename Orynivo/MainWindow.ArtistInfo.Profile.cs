@@ -496,11 +496,12 @@ public partial class MainWindow : Window
         {
             var language = GetProfileLanguageCode();
             ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloading;
-            var profile = await provider.GetArtistProfileAsync(
+            var profile = await provider.GetArtistProfileForViewAsync(
                 new NowPlayingArtistContext(artistId, profileLookupName ?? artistName),
                 language,
                 forceRefresh,
-                cts.Token);
+                cts.Token,
+                CanPublish);
             if (!CanPublish()) return;
 
             byte[]? imageData = null;

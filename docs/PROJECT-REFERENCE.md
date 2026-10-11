@@ -1865,7 +1865,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Guard before persistence, after decoding and before row publication; dispose
   rejected images. Per-artist loading markers retain their background owner so
   old completion cannot remove a newer marker. Keep the initial negative-result
-  freshness stamp to bound retries.
+  freshness stamp to bound retries. Remote now-playing profile resolution passes
+  the enclosing guard into `GetArtistProfileForViewAsync`; the standard metadata
+  interface delegates without a view guard. Copy source settings per request and
+  retain original connection/profile identity. Recheck after cached profile,
+  external download, image read, upload and server-image awaits. Reject
+  abandoned work before the next operation or cache write and before returning a
+  publishable profile. Already admitted operations are not rolled back. Keep
+  source snapshots only in memory and preserve the existing server-owned cache
+  paths.
 - Artwork A-Z navigation indexes the complete lightweight artist/album result,
   but binds rows to the virtualized wrap panels in pages. A jump must append
   through the target row and defer `ScrollIntoView` until layout has processed

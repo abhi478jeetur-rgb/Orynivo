@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Now Playing remote artist profiles retain their enclosing view and copied
+  server connection inside the metadata provider. Delayed source responses
+  cannot start further profile downloads/uploads or overwrite the artist-image
+  cache after playback, view or connection changes. Current cached profiles and
+  the standard metadata-provider interface remain supported.
+
 - Artist-profile synchronization retains its enclosing request and original
   server sources between reads, writes and cache cleanup. Superseded work stops
   further synchronization; manually selected images remain protected. Automatic

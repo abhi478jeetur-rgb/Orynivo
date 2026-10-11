@@ -716,7 +716,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   completion. Guard before persistence, after decoding and before row
   publication; dispose rejected images. Per-artist loading markers retain their
   background owner so old completion cannot remove a newer marker. Keep the
-  initial negative-result freshness stamp to bound retries.
+  initial negative-result freshness stamp to bound retries. Remote now-playing
+  profile resolution passes the enclosing guard into
+  `GetArtistProfileForViewAsync`; the standard metadata interface delegates
+  without a view guard. Copy source settings per request and retain original
+  connection/profile identity. Recheck after cached profile, external download,
+  image read, upload and server-image awaits. Reject abandoned work before the
+  next operation or cache write and before returning a publishable profile.
+  Already admitted operations are not rolled back. Keep source snapshots only in
+  memory and preserve the existing server-owned cache paths.
 - NavigationCaptureDecision selects typed capture routes from scalar inputs
   without owning rows, providers, credentials or history. Preserve search/cloud,
   logical-album, provider-bound album and artist precedence. Server albums
