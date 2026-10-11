@@ -1230,6 +1230,17 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   shared-load tokens and clears their outcome/retry notice before archive
   replacement, in addition to existing search/playlist and playback abandonment.
   Test held pre-cleanup and pre-import loads with synthetic SQLite and HTTP.
+- Genre Cloud foreground requests retain their own admission token, taxonomy,
+  catalog/source identity, enclosing top-level load and outer Back context.
+  Publish new ownership before cancelling older work; recheck after callbacks
+  and awaits. Branch/mode actions abandon enclosing root loading/fades without
+  cancelling their new foreground request. Top-level cancellation also abandons
+  foreground cloud work. Shared snapshot tasks remain navigation-independent,
+  copy server connections and map rows without playback registration. Only the
+  current view registers recommendation metadata. Background resolution and
+  decoding retain foreground and configured-mode guards; dispose rejected
+  decoded images. A mode click transfers pending Back work through the same
+  cache instead of reloading complete libraries.
 - Genre Cloud Loaded layout and staggered animation callbacks retain binding,
   cancellation, catalog/source, taxonomy, navigation and outer Back ownership.
   Removed buttons must never animate after a mode rebuild; hidden or abandoned

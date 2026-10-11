@@ -1073,18 +1073,25 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   shared Genre Cloud view merges compact snapshots from the local library and
   every configured Orynivo Server; remote recommendations retain their server
   context and client-side favorite state. Older servers fall back to
-  `/api/tracks/facets` when `/api/genres/cloud` is unavailable. Cloud callbacks
-  retain binding identity, foreground cancellation, catalog/source identity,
-  taxonomy key, navigation tag and outer Back ownership for deferred Loaded
-  layout and staggered animations. Removed buttons do not animate after a mode
-  rebuild, and abandoned callbacks do not arrange a replacement. Genre nodes
-  carry both matching-track and distinct matching-album counts; the desktop
-  chooses the count matching its current recommendation mode. Local media live
-  under a collapsible **Local** child node followed by local Artists, Albums,
-  Tracks, Folder structure, and a nested local Playlists group. The complete
-  **Local** child node (and its rows/playlists) is hidden whenever no local
-  library directory is configured (`AppSettings.LibraryPaths` empty). When
-  neither a local directory nor any Orynivo Server is configured, a hint row
+  `/api/tracks/facets` when `/api/genres/cloud` is unavailable. Foreground cloud
+  loads own their admission token, taxonomy, catalog/source identity, enclosing
+  root load and outer Back context. They reject obsolete rows and playback
+  metadata after awaits; shared snapshot tasks continue independently, copy
+  connections and map rows without playback registration. Only the admitted view
+  registers metadata. Branch and mode actions replace root loading/fades while
+  reusing shared work. Background resolution/decoding retains foreground and
+  configured-mode ownership, disposing rejected images. Cloud callbacks retain
+  binding identity, foreground cancellation, catalog/source identity, taxonomy
+  key, navigation tag and outer Back ownership for deferred Loaded layout and
+  staggered animations. Removed buttons do not animate after a mode rebuild, and
+  abandoned callbacks do not arrange a replacement. Genre nodes carry both
+  matching-track and distinct matching-album counts; the desktop chooses the
+  count matching its current recommendation mode. Local media live under a
+  collapsible **Local** child node followed by local Artists, Albums, Tracks,
+  Folder structure, and a nested local Playlists group. The complete **Local**
+  child node (and its rows/playlists) is hidden whenever no local library
+  directory is configured (`AppSettings.LibraryPaths` empty). When neither a
+  local directory nor any Orynivo Server is configured, a hint row
   (`LibraryEmptyHintItem`, `L_LibraryEmptyHint`) is shown directly under the
   Library header telling the user to add local directories or one or more
   Orynivo Servers in Settings. The hint disappears immediately when a directory

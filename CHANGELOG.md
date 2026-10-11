@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Genre Cloud foreground loads now reject obsolete rows and playback metadata
+  after navigation, catalog/source changes and overlapping Back restores. Branch
+  and mode actions replace root loading and fades while reusing shared snapshot
+  work. Background images also retain foreground and mode ownership; discarded
+  decoded images are disposed.
+
 - Genre Cloud deferred layout and staggered button animations now reject
   replaced bindings, abandoned Back restores, navigation and catalog changes.
 

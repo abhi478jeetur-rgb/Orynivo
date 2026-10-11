@@ -51,6 +51,7 @@ public partial class MainWindow
     private const int GenreCloudBackgroundHeight = 400;
     private const int GenreCloudViewCacheMaximumEntries = 16;
 
+    private readonly NavigationLoadOwnership _genreCloudLoads = new();
     private CancellationTokenSource? _genreCloudCts;
     private string? _genreCloudSelectedKey;
     private List<GenreCloudNode> _genreCloudNodes = [];
@@ -84,15 +85,46 @@ public partial class MainWindow
         await StartInfiniteMixAsync(editSettings: false);
     }
 
-    /// <summary>Loads and renders one level of the unified local and remote genre cloud.</summary>
-    /// <param name="parentKey">Selected taxonomy key, or <see langword="null"/> for the root.</param>
-    private async Task ShowGenreCloudAsync(string? parentKey)
+    /// <summary>Abandons foreground cloud publication without cancelling shared snapshot work.</summary>
+    private void CancelGenreCloudViewLoad()
     {
-        var hasCachedView = IsGenreCloudViewCached(parentKey);
-        _genreCloudSelectedKey = parentKey;
+        _genreCloudLoads.Invalidate();
         CancelAndDispose(ref _genreCloudCts);
+    }
+
+    /// <summary>Loads and renders one level owned by the current navigation.</summary>
+    /// <param name="parentKey">Selected taxonomy key, or <see langword="null"/> for the root.</param>
+    /// <param name="isParentCurrent">Optional ownership of the enclosing top-level load.</param>
+    /// <returns>A task completing after publication or abandonment.</returns>
+    private async Task ShowGenreCloudAsync(string? parentKey, Func<bool>? isParentCurrent = null)
+    {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        var restoreContext = _navigationRestores.Context;
+        var previousCancellation = _genreCloudCts;
         _genreCloudCts = new CancellationTokenSource();
         var cancellationToken = _genreCloudCts.Token;
+        var request = _genreCloudLoads.Begin(cancellationToken);
+        var cacheKey = CreateGenreCloudViewCacheKey(parentKey);
+        bool OwnsAdmission() => _genreCloudLoads.IsCurrent(request) &&
+            (isParentCurrent is null || isParentCurrent()) &&
+            (restoreContext is null || _navigationRestores.IsCurrent(restoreContext)) &&
+            string.Equals(CreateGenreCloudViewCacheKey(parentKey), cacheKey, StringComparison.Ordinal);
+        bool CanPublish() => OwnsAdmission() && _currentTopLevelTag == "GenreCloud" &&
+            GenreCloudPanel.IsVisible && string.Equals(_genreCloudSelectedKey, parentKey, StringComparison.Ordinal);
+        if (isParentCurrent is null)
+        {
+            // Branch and mode actions replace the enclosing root load without
+            // cancelling their newly admitted foreground request.
+            _topLevelViewLoads.Invalidate();
+            var previousTopLevelCancellation = _topLevelViewCts;
+            _topLevelViewCts = null;
+            CancelAndDispose(ref previousTopLevelCancellation);
+        }
+        CancelAndDispose(ref previousCancellation);
+        if (!OwnsAdmission()) return;
+        var hasCachedView = IsGenreCloudViewCached(parentKey);
+        _genreCloudSelectedKey = parentKey;
+        if (!CanPublish()) return;
         try
         {
             if (!hasCachedView && GenreCloudNodesCanvas.Children.Count > 0)
@@ -100,6 +132,7 @@ public partial class MainWindow
                 GenreCloudNodesCanvas.Opacity = 0;
                 await Task.Delay(140, cancellationToken);
             }
+            if (!CanPublish()) return;
             GenreCloudNodesCanvas.Children.Clear();
             GenreCloudBreadcrumbPanel.Children.Clear();
             GenreCloudEmptyTextBlock.IsVisible = false;
@@ -111,6 +144,12 @@ public partial class MainWindow
             ContentCountTextBlock.Text = string.Empty;
 
             var snapshot = await GetGenreCloudViewSnapshotAsync(parentKey, cancellationToken);
+            if (!CanPublish()) return;
+            foreach (var row in snapshot.TrackRows)
+            {
+                if (row.OrynivoServer is not null && row.FilePath is string path)
+                    _orynivoTracksByUrl[path] = row;
+            }
             var nodes = snapshot.Nodes;
             _genreCloudNodes = nodes;
             BuildGenreCloudBreadcrumb(parentKey);
@@ -143,7 +182,8 @@ public partial class MainWindow
                 backgroundWidth,
                 backgroundColumns,
                 backgroundImageCount,
-                cancellationToken);
+                cancellationToken,
+                CanPublish);
         }
         catch (OperationCanceledException)
         {
@@ -217,7 +257,7 @@ public partial class MainWindow
             return _genreCloudViewCache.ContainsKey(key);
     }
 
-    /// <summary>Loads and resolves one Genre Cloud level from local and remote catalogs.</summary>
+    /// <summary>Loads one cacheable cloud level using copied server connections without playback publication.</summary>
     /// <param name="parentKey">Selected taxonomy key, or <see langword="null"/> for the root.</param>
     /// <param name="cancellationToken">Token that cancels source and row resolution.</param>
     /// <returns>A complete cacheable view snapshot.</returns>
@@ -225,6 +265,12 @@ public partial class MainWindow
         string? parentKey,
         CancellationToken cancellationToken)
     {
+        var servers = (_settings.OrynivoServers ?? []).Select(server => new OrynivoServerSettings
+        {
+            Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl, ApiKey = server.ApiKey,
+            ProfileId = server.ProfileId, StreamingFormat = server.StreamingFormat,
+            StreamingBitrateKbps = server.StreamingBitrateKbps
+        }).ToArray();
         var localTask = Task.Run(() =>
         {
             using var db = AudioDatabase.OpenDefault();
@@ -233,7 +279,7 @@ public partial class MainWindow
                 GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parentKey, 500));
         }, cancellationToken);
         var listeningWeightsTask = Task.Run(LoadGenreListeningWeights, cancellationToken);
-        var remoteTasks = (_settings.OrynivoServers ?? [])
+        var remoteTasks = servers
             .Select(server => LoadRemoteGenreCloudAsync(server, parentKey, cancellationToken))
             .ToArray();
 
@@ -268,7 +314,7 @@ public partial class MainWindow
             return (Nodes: nodes, Candidates: candidates);
         }, cancellationToken);
 
-        var rows = await ResolveGenreCandidateRowsAsync(composed.Candidates, cancellationToken);
+        var rows = await ResolveGenreCandidateRowsAsync(composed.Candidates, cancellationToken, registerRemoteMetadata: false);
         var albumRows = await ResolveGenreCandidateAlbumRowsAsync(rows, cancellationToken);
         return new GenreCloudViewSnapshot(composed.Nodes, rows, albumRows);
     }
@@ -314,6 +360,8 @@ public partial class MainWindow
     /// <param name="columnCount">Maximum tile columns appropriate for the current surface width.</param>
     /// <param name="imageCount">Maximum number of unique images to render.</param>
     /// <param name="cancellationToken">Token that cancels stale genre navigation.</param>
+    /// <param name="isCurrent">Guard for the owning foreground cloud request.</param>
+    /// <returns>A task completing after background publication or abandonment.</returns>
     private async Task UpdateGenreCloudBackgroundAsync(
         string? genreKey,
         IReadOnlyList<ContentRow> rows,
@@ -321,7 +369,8 @@ public partial class MainWindow
         int renderWidth,
         int columnCount,
         int imageCount,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool> isCurrent)
     {
         try
         {
@@ -332,7 +381,8 @@ public partial class MainWindow
                 renderWidth,
                 columnCount,
                 imageCount,
-                cancellationToken);
+                cancellationToken,
+                isCurrent);
         }
         catch (OperationCanceledException)
         {
@@ -352,6 +402,8 @@ public partial class MainWindow
     /// <param name="columnCount">Maximum tile columns appropriate for the current surface width.</param>
     /// <param name="imageCount">Maximum number of unique images to render.</param>
     /// <param name="cancellationToken">Token that cancels stale genre navigation.</param>
+    /// <param name="isCurrent">Guard for the owning foreground cloud request.</param>
+    /// <returns>A task completing after background publication or abandonment.</returns>
     private async Task UpdateGenreCloudBackgroundCoreAsync(
         string? genreKey,
         IReadOnlyList<ContentRow> rows,
@@ -359,9 +411,11 @@ public partial class MainWindow
         int renderWidth,
         int columnCount,
         int imageCount,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool> isCurrent)
     {
-        if (mode == GenreCloudBackgroundMode.None)
+        bool CanPublish() => isCurrent() && _settings.GenreCloudBackground == mode;
+        if (mode == GenreCloudBackgroundMode.None || !CanPublish())
             return;
 
         var cachePath = GetGenreCloudBackgroundCachePath(genreKey, mode, columnCount);
@@ -370,10 +424,12 @@ public partial class MainWindow
             var imageSources = mode == GenreCloudBackgroundMode.Albums
                 ? ResolveGenreCloudAlbumImages(rows, imageCount * 3)
                 : await ResolveGenreCloudArtistImagesAsync(rows, imageCount * 3, cancellationToken);
+            if (!CanPublish()) return;
             var imageData = await LoadGenreCloudImageDataAsync(
                 imageSources,
                 imageCount,
                 cancellationToken);
+            if (!CanPublish()) return;
             if (imageData.Count > 0)
             {
                 await Task.Run(
@@ -387,13 +443,16 @@ public partial class MainWindow
         }
 
         cancellationToken.ThrowIfCancellationRequested();
-        if (!File.Exists(cachePath) || !string.Equals(_genreCloudSelectedKey, genreKey, StringComparison.Ordinal))
+        if (!CanPublish() || !File.Exists(cachePath))
             return;
 
         var image = await Task.Run(() => CreateArtworkImage(cachePath, renderWidth), cancellationToken);
-        cancellationToken.ThrowIfCancellationRequested();
-        if (image is null || !string.Equals(_genreCloudSelectedKey, genreKey, StringComparison.Ordinal))
+        if (image is null) return;
+        if (cancellationToken.IsCancellationRequested || !CanPublish())
+        {
+            (image as IDisposable)?.Dispose();
             return;
+        }
 
         GenreCloudBackgroundImage.Source = image;
         GenreCloudBackgroundImage.Opacity = _settings.GenreCloudBackgroundOpacity;
@@ -781,10 +840,11 @@ public partial class MainWindow
     /// <param name="candidates">Ordered source-aware candidates.</param>
     /// <param name="cancellationToken">Owning cancellation.</param>
     /// <param name="isCurrent">Optional dispatcher-owned publication guard.</param>
+    /// <param name="registerRemoteMetadata">Whether admitted rows may enter the playback lookup.</param>
     /// <returns>Current playable rows.</returns>
     private async Task<List<ContentRow>> ResolveGenreCandidateRowsAsync(
         IReadOnlyList<GenreCloudCandidate> candidates,
-        CancellationToken cancellationToken, Func<bool>? isCurrent = null)
+        CancellationToken cancellationToken, Func<bool>? isCurrent = null, bool registerRemoteMetadata = true)
     {
         isCurrent ??= () => true;
         var resolved = new Dictionary<(string Source, long Id), ContentRow>();
@@ -812,7 +872,7 @@ public partial class MainWindow
             var tracks = await _orynivoClient.GetTracksByIdsAsync(server, ids, cancellationToken);
             if (!isCurrent()) return [];
             foreach (var track in tracks)
-                resolved[($"server:{server.Id}", track.Id)] = ToOrynivoTrackContentRow(server, track);
+                resolved[($"server:{server.Id}", track.Id)] = ToOrynivoTrackContentRow(server, track, registerRemoteMetadata);
         }
 
         return candidates
@@ -923,16 +983,19 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>Handles an explicit click on the Track/Album recommendation-mode selector.</summary>
-    private void GenreRecommendationMode_OnClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
+    /// <summary>Transfers foreground ownership after an explicit recommendation-mode click, reusing shared snapshot work.</summary>
+    /// <param name="sender">Clicked recommendation-mode radio button.</param>
+    /// <param name="e">Routed click event.</param>
+    private async void GenreRecommendationMode_OnClick(object? sender, Avalonia.Interactivity.RoutedEventArgs e)
     {
-        if (sender is not RadioButton radioButton)
+        if (sender is not RadioButton radioButton || !_navigationRestores.TryAdmitNavigation())
             return;
         var showAlbums = ReferenceEquals(radioButton, GenreAlbumRecommendationsRadioButton);
         GenreAlbumRecommendationsRadioButton.IsChecked = showAlbums;
         GenreTrackRecommendationsRadioButton.IsChecked = !showAlbums;
         BuildGenreCloudNodes(_genreCloudNodes, showAlbums);
         ApplyGenreRecommendationMode();
+        await ShowGenreCloudAsync(_genreCloudSelectedKey);
     }
 
     /// <summary>Builds clickable breadcrumbs from the selected taxonomy path.</summary>

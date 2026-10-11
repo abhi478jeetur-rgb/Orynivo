@@ -47,11 +47,14 @@ public partial class MainWindow : Window
     private readonly NavigationLoadOwnership _topLevelViewLoads = new();
     private CancellationTokenSource? _topLevelViewCts;
 
-    /// <summary>Abandons outer view publication and cancels its counted loading scope.</summary>
+    /// <summary>Abandons outer view and foreground cloud publication while releasing counted loading.</summary>
     private void CancelTopLevelViewLoad()
     {
         _topLevelViewLoads.Invalidate();
-        CancelAndDispose(ref _topLevelViewCts);
+        var previousCancellation = _topLevelViewCts;
+        _topLevelViewCts = null;
+        CancelGenreCloudViewLoad();
+        CancelAndDispose(ref previousCancellation);
     }
 
     /// <summary>Loads a top-level view while retaining ownership of its loading and fade publication.</summary>
@@ -138,7 +141,8 @@ public partial class MainWindow : Window
         // Stop any in-flight unified folder-tree load so a late completion cannot mutate
         // the tree or the count of the view the user is switching to.
         CancelAndDispose(ref _folderViewCts);
-        CancelAndDispose(ref _genreCloudCts);
+        CancelGenreCloudViewLoad();
+        if (!CanPublish()) return;
         ContentDataGrid.ItemsSource = null;
         AlbumArtworkListBox.ItemsSource = null;
         ArtistArtworkListBox.ItemsSource = null;
@@ -278,7 +282,7 @@ public partial class MainWindow : Window
                 ApplyColumns("Tracks");
                 if (!_navigationRestores.ShouldSuppressHistory)
                     _genreCloudSelectedKey = null;
-                await ShowGenreCloudAsync(_genreCloudSelectedKey);
+                await ShowGenreCloudAsync(_genreCloudSelectedKey, CanPublish);
             }
             else if (tag.StartsWith("Podcast:", StringComparison.Ordinal) &&
                      long.TryParse(tag.AsSpan("Podcast:".Length), out var podcastId))

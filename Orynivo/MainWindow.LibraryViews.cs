@@ -44,7 +44,13 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private ContentRow ToOrynivoTrackContentRow(OrynivoServerSettings server, OrynivoTrackInfo track)
+    /// <summary>Maps a remote track and optionally registers its admitted playback metadata.</summary>
+    /// <param name="server">Owning server connection.</param>
+    /// <param name="track">Remote track metadata.</param>
+    /// <param name="registerRemoteMetadata">Whether the caller owns playback publication.</param>
+    /// <returns>The source-aware playable row.</returns>
+    private ContentRow ToOrynivoTrackContentRow(OrynivoServerSettings server, OrynivoTrackInfo track,
+        bool registerRemoteMetadata = true)
     {
         var streamUrl = OrynivoServerClient.GetStreamUrl(server, track.Id);
         var row = new ContentRow
@@ -95,7 +101,7 @@ public partial class MainWindow : Window
             KnownDuration = track.Duration.HasValue ? TimeSpan.FromSeconds(track.Duration.Value) : null,
             OrynivoServer = server
         };
-        _orynivoTracksByUrl[streamUrl] = row;
+        if (registerRemoteMetadata) _orynivoTracksByUrl[streamUrl] = row;
         return row;
     }
 

@@ -1195,6 +1195,11 @@ history when available, but the cloud remains usable with a new or empty play
 history. Remote results retain their owning server for playback, favorites,
 artwork, and album/artist navigation.
 
+Cloud requests abandoned by navigation or catalog changes cannot replace the
+current recommendations, register playback metadata, or assign background
+images. Branch and recommendation-mode changes reuse shared in-flight catalog
+work while replacing the earlier view request.
+
 Genre button layout and entrance animations follow the current cloud binding;
 changing mode or leaving the view abandons pending callbacks.
 
