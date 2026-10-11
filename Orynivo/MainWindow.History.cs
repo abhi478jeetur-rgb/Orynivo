@@ -166,6 +166,7 @@ public partial class MainWindow : Window
                 null,
                 entry.DurationSeconds is > 0 ? TimeSpan.FromSeconds(entry.DurationSeconds.Value) : null);
 
+        _queueEdits.Invalidate();
         _queue.Clear();
         _queue.Add(queueItem);
         _queueIndex = 0;

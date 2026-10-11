@@ -103,6 +103,29 @@ var run = Task.Run(async () =>
         Check(!replacementTool.IsCompleted && legacyLookups == 0, "MCP replacement resolves outside command owner");
         replacementReady.SetResult(2);
         Check((await replacementTool).Contains("2 track(s); 1 could not be resolved"), "queue counts use owning resolution result");
+        foreach (var next in new[] { false, true })
+        {
+            var editEntered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var editReady = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await bridge.OnUiAsync(() =>
+            {
+                if (next) bridge.PlayNextFunc = async path => { editEntered.SetResult(path); return await editReady.Task; };
+                else bridge.AppendToQueueFunc = async path => { editEntered.SetResult(path); return await editReady.Task; };
+            });
+            var tools = new McpTools(bridge);
+            var edit = next ? tools.QueuePlayNextAsync(opaqueReference) : tools.QueueAppendAsync(opaqueReference);
+            Check(await editEntered.Task.WaitAsync(TimeSpan.FromSeconds(10)) == opaqueReference && legacyLookups == 0 && !edit.IsCompleted,
+                "MCP independent queue edit resolves original identity inside owner");
+            editReady.SetResult("fixture.flac");
+            Check((await edit).Contains(opaqueReference), "edit confirmation retains opaque identity");
+            await bridge.OnUiAsync(() =>
+            {
+                if (next) bridge.PlayNextFunc = _ => Task.FromResult<string?>(null);
+                else bridge.AppendToQueueFunc = _ => Task.FromResult<string?>(null);
+            });
+            var missing = next ? await tools.QueuePlayNextAsync(opaqueReference) : await tools.QueueAppendAsync(opaqueReference);
+            Check(missing.Contains("Could not resolve"), "unresolved independent edit reported success");
+        }
         var snapshot = await client.GetStringAsync("/remote/api/state");
         Check(!snapshot.Contains("private-path") && !snapshot.Contains("secret-path") && !snapshot.Contains(token), "safe state DTO");
         Check(snapshot.Contains("\"title\":\"Fixture track\""), "camelCase state");

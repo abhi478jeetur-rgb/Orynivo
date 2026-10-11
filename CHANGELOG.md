@@ -21,6 +21,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- MCP and Mobile Remote append/next own resolution before lookup. Clear,
+  wholesale replacement and shutdown reject old entries and remote metadata.
+  Ordinary playback start/Stop preserves independent queue edits. MCP forwards
+  original references and reports unavailable resolution instead of success.
+
 - Gapless queue rebuilding completes after player preparation and preserves the
   paused position before publication. Obsolete rebuild completion cannot pause a
   newer player.

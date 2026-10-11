@@ -65,6 +65,7 @@ public partial class MainWindow
         UpdateInfiniteMixUi();
         if (_currentTopLevelTag == "Queue")
             UpdateRestoreQueueButtonState("Queue");
+        _queueEdits.Invalidate();
         _queue.Clear();
         if (activeItem is not null)
             _queue.Add(activeItem);

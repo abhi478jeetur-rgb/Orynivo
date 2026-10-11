@@ -398,6 +398,10 @@ Single-track Play from MCP resolves remote references inside the owning playback
 preparation. Mobile single-track Play also guards its identity lookup: a newer
 start or Stop rejects older results before metadata registration or playback.
 
+Pending append/next and playlist-append lookups are discarded by Clear or
+wholesale queue replacement. Ordinary start/Stop preserves independent queue
+edits; shutdown rejects late lookup results.
+
 MCP queue replacement and mobile playlist Play also guard their asynchronous
 resolution against newer starts and Stop. Queue replacement preserves order and
 duplicate entries, reports its playable count, and keeps the existing queue when

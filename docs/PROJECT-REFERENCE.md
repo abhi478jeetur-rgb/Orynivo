@@ -467,6 +467,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   release drains admitted refills. Threshold checks require an active player;
   idle initial mix start awaits readiness rather than track completion.
 
+- QueueEditOwnership owns destructive queue-change generation/cancellation
+  independently of playback. Wholesale clears invalidate it; replacement owns
+  intent before lookup and shutdown closes it. MCP append/next forward original
+  references to InsertPlaybackQueueAsync, returning resolved paths or null.
+  Mobile track/playlist append guards registration and handoff. Old edits cannot
+  populate a replaced/cleared queue; ordinary start/Stop preserves them.
+  Independent lookup owns no device and does not delay full output release.
+
 - Mobile/MCP play and queue replacement use readiness; mobile track and
   queue-index callbacks return false without their current prepared player, and
   MCP play/replace commands cancel abandoned or unavailable starts. Skip and

@@ -92,6 +92,7 @@ public partial class MainWindow
             _infiniteMixEnabled = true;
             _infiniteMixPaused = false;
             _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
+            _queueEdits.Invalidate();
             _queue.Clear();
             // Keep an already playing title at the head of the queue. Replacing
             // the queue must never tear down the active player.
@@ -187,6 +188,7 @@ public partial class MainWindow
             _infiniteMixEnabled = true;
             _infiniteMixPaused = false;
             _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
+            _queueEdits.Invalidate();
             _queue.Clear();
             if (!string.IsNullOrWhiteSpace(activePlaybackPath))
                 _queue.Add(CreatePlaylistItem(activePlaybackPath));

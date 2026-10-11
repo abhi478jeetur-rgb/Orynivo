@@ -236,6 +236,7 @@ public partial class MainWindow : Window
         var selectedIndex = PlaylistRowPlaybackIndex.Find(row, playableRows);
         if (selectedIndex < 0) return;
         StopInfiniteMix();
+        _queueEdits.Invalidate();
         _queue.Clear();
         foreach (var r in playableRows)
             _queue.Add(ToPlaylistItem(r));

@@ -277,6 +277,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   and the one authoritative queue; ReplaceQueueFunc returns the prepared
   playable count. Preserve duplicates and keep the existing queue for entirely
   unresolved input.
+- QueueEditOwnership is dispatcher-owned and independent of playback starts.
+  Capture version/token before append/next or playlist-append lookup; guard
+  registration and mutation. Wholesale clears and replacements invalidate old
+  ownership; shutdown disposes it. Ordinary start/Stop preserves independent
+  work. MCP forwards original references to callbacks returning resolved paths
+  or null; obsolete edits cancel. Superseded mobile edits return false.
+
 - Mobile/MCP play and queue-start commands await prepared-player readiness, not
   the audible lifetime. Abandoned/unavailable MCP starts are cancelled; mobile
   track and queue-index starts return false without a current ready player. Skip

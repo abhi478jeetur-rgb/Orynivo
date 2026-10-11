@@ -645,25 +645,8 @@ public partial class MainWindow : Window
                 await _player.SeekAsync(TimeSpan.FromSeconds(seconds));
         };
         _mcpBridge.SetVolumeFunc   = v => VolumeSlider.Value = Math.Clamp(v, 0, 1);
-        _mcpBridge.AppendToQueueFunc = async path =>
-        {
-            _queue.Add(CreatePlaylistItem(path));
-            ResetQueuePlaybackState();
-            PersistPlaybackQueue();
-            RefreshQueueRowsIfVisible();
-            RefreshQueueNavigationButtons();
-            await RefreshActiveGaplessQueueAsync();
-        };
-        _mcpBridge.PlayNextFunc = async path =>
-        {
-            var insertIndex = Math.Clamp(_queueIndex + 1, 0, _queue.Count);
-            _queue.Insert(insertIndex, CreatePlaylistItem(path));
-            ResetQueuePlaybackState();
-            PersistPlaybackQueue();
-            RefreshQueueRowsIfVisible();
-            RefreshQueueNavigationButtons();
-            await RefreshActiveGaplessQueueAsync();
-        };
+        _mcpBridge.AppendToQueueFunc = path => InsertPlaybackQueueAsync(path, playNext: false);
+        _mcpBridge.PlayNextFunc = path => InsertPlaybackQueueAsync(path, playNext: true);
         _mcpBridge.ClearQueueFunc = () => ClearPlaybackQueue();
         _mcpBridge.ReplaceQueueFunc = ReplacePlaybackQueueAsync;
         _mcpBridge.RefreshPlaylistsFunc = LoadNavPlaylists;

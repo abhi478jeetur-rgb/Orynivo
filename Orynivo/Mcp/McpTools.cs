@@ -248,11 +248,10 @@ public sealed class McpTools(McpPlayerBridge bridge)
         CancellationToken ct = default)
     {
         if (!bridge.IsToolEnabled("queue_append")) return "Tool is disabled.";
-        var resolved = await ResolvePlayablePathAsync(path);
+        var resolved = bridge.AppendToQueueFunc is null ? null :
+            await bridge.OnUiAsync(() => bridge.AppendToQueueFunc(path), ct);
         if (resolved is null)
             return $"Could not resolve remote track reference: {path}";
-        if (bridge.AppendToQueueFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.AppendToQueueFunc(resolved), ct);
         return $"Appended to queue: {DisplayNameForPath(path, resolved)}";
     }
 
@@ -267,11 +266,10 @@ public sealed class McpTools(McpPlayerBridge bridge)
         CancellationToken ct = default)
     {
         if (!bridge.IsToolEnabled("queue_play_next")) return "Tool is disabled.";
-        var resolved = await ResolvePlayablePathAsync(path);
+        var resolved = bridge.PlayNextFunc is null ? null :
+            await bridge.OnUiAsync(() => bridge.PlayNextFunc(path), ct);
         if (resolved is null)
             return $"Could not resolve remote track reference: {path}";
-        if (bridge.PlayNextFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.PlayNextFunc(resolved), ct);
         return $"Inserted as next: {DisplayNameForPath(path, resolved)}";
     }
 
@@ -615,19 +613,6 @@ public sealed class McpTools(McpPlayerBridge bridge)
     /// <returns>An <c>orynivo://serverId/track/trackId</c> reference.</returns>
     private static string BuildOrynivoTrackReference(OrynivoServerSettings server, long trackId) =>
         $"orynivo://{Uri.EscapeDataString(server.Id)}/track/{trackId.ToString(CultureInfo.InvariantCulture)}";
-
-    /// <summary>
-    /// Resolves a tool-supplied path (local file, real URL, or <c>orynivo://</c> remote reference)
-    /// into a playable path, registering remote track metadata as a side effect.
-    /// </summary>
-    /// <param name="path">The path or reference to resolve.</param>
-    /// <returns>The playable path, or <see langword="null"/> when a remote reference cannot be resolved.</returns>
-    private async Task<string?> ResolvePlayablePathAsync(string path)
-    {
-        if (bridge.ResolveRemoteTrackFunc is null || string.IsNullOrWhiteSpace(path))
-            return path;
-        return await bridge.ResolveRemoteTrackFunc(path);
-    }
 
     /// <summary>Masks the API key in a remote stream URL so it is never shown to the model.</summary>
     /// <param name="path">A path or URL that may contain a <c>key=</c> query parameter.</param>

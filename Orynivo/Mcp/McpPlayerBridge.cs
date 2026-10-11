@@ -123,11 +123,11 @@ public sealed class McpPlayerBridge
     /// <summary>Gets or sets an action that sets the player volume to a value between 0.0 and 1.0.</summary>
     public Action<double>? SetVolumeFunc { get; set; }
 
-    /// <summary>Gets or sets an action that appends the given path to the end of the playback queue.</summary>
-    public Func<string, Task>? AppendToQueueFunc { get; set; }
+    /// <summary>Gets or sets an owning resolver that appends the original reference and returns its resolved path.</summary>
+    public Func<string, Task<string?>>? AppendToQueueFunc { get; set; }
 
-    /// <summary>Gets or sets an action that inserts the given path as the next queue entry after the current one.</summary>
-    public Func<string, Task>? PlayNextFunc { get; set; }
+    /// <summary>Gets or sets an owning resolver that inserts the original reference next and returns its resolved path.</summary>
+    public Func<string, Task<string?>>? PlayNextFunc { get; set; }
 
     /// <summary>Gets or sets an action that clears all items from the playback queue without stopping the current track.</summary>
     public Action? ClearQueueFunc { get; set; }

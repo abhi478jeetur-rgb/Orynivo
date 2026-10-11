@@ -43,6 +43,32 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private readonly QueueEditOwnership _queueEdits = new();
+
+    /// <summary>Owns original-reference resolution before an independent queue insertion.</summary>
+    /// <param name="path">Local path or opaque remote reference.</param>
+    /// <param name="playNext">Whether to insert after the current queue position.</param>
+    /// <returns>The resolved path, or null if unavailable; obsolete edits are cancelled.</returns>
+    private async Task<string?> InsertPlaybackQueueAsync(string path, bool playNext)
+    {
+        if (_playbackShuttingDown) throw new OperationCanceledException();
+        var edit = _queueEdits.Capture();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version);
+        string? resolved;
+        try { resolved = await ResolveRemoteMcpTrackForPlaybackAsync(path, IsCurrent, edit.Token); }
+        catch (Exception) when (!IsCurrent()) { throw new OperationCanceledException(); }
+        if (!IsCurrent()) throw new OperationCanceledException();
+        if (resolved is null) return null;
+        if (playNext) _queue.Insert(Math.Clamp(_queueIndex + 1, 0, _queue.Count), CreatePlaylistItem(resolved));
+        else _queue.Add(CreatePlaylistItem(resolved));
+        ResetQueuePlaybackState();
+        PersistPlaybackQueue();
+        RefreshQueueRowsIfVisible();
+        RefreshQueueNavigationButtons();
+        await RefreshActiveGaplessQueueAsync();
+        return resolved;
+    }
+
     /// <summary>Owns source resolution before replacing the authoritative queue and preparing playback.</summary>
     /// <param name="paths">Ordered local paths or opaque remote references.</param>
     /// <returns>The prepared queue size, or zero if no supplied track resolves.</returns>
@@ -50,6 +76,7 @@ public partial class MainWindow : Window
     {
         if (_playbackShuttingDown)
             throw new OperationCanceledException();
+        _queueEdits.Invalidate();
         var intent = _playbackStarts.Begin();
         _playbackPreparations.CancelAll();
         using var preparation = _playbackPreparations.Begin();
@@ -74,6 +101,7 @@ public partial class MainWindow : Window
             throw new OperationCanceledException();
         if (resolved.Count == 0) return 0;
         preparation.Dispose();
+        _queueEdits.Invalidate();
         _queue.Clear();
         foreach (var path in resolved) _queue.Add(CreatePlaylistItem(path));
         _queueIndex = 0;
@@ -87,6 +115,7 @@ public partial class MainWindow : Window
 
     private void RestorePlaybackQueueState()
     {
+        _queueEdits.Invalidate();
         _queue.Clear();
         using var db = AudioDatabase.OpenDefault();
         var snapshot = db.GetPlaybackQueue();
@@ -255,6 +284,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _queueEdits.Invalidate();
         _queue.Clear();
         foreach (var path in paths)
             _queue.Add(CreatePlaylistItem(path));
@@ -536,6 +566,7 @@ public partial class MainWindow : Window
     private void ClearPlaybackQueue()
     {
         StopInfiniteMix();
+        _queueEdits.Invalidate();
         _queue.Clear();
         _queueIndex = -1;
         ResetQueuePlaybackState();

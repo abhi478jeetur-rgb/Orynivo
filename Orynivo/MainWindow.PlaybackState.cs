@@ -268,6 +268,7 @@ public partial class MainWindow : Window
         if (_playbackShutdownTask is not null)
             return _playbackShutdownTask;
         _playbackShuttingDown = true;
+        _queueEdits.Dispose();
         IsEnabled = false;
         return _playbackShutdownTask = StopPlaybackAsync(waitForCompleteDisposal: true);
     }

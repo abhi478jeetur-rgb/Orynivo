@@ -38,14 +38,16 @@ public partial class MainWindow
     {
         if (id <= 0 || action is not ("play" or "append")) return false;
         if (_playbackShuttingDown) return false;
+        if (action == "play") _queueEdits.Invalidate();
+        var edit = _queueEdits.Capture();
         var generation = _unifiedLibraryViewCache.Generation;
         var intent = action == "play" ? _playbackStarts.Begin() : _playbackStarts.Current;
         if (action == "play") _playbackPreparations.CancelAll();
         using var preparation = action == "play" ? _playbackPreparations.Begin() : null;
         LibraryLoadResult<ContentRow> result;
-        try { result = await LoadStoredPlaylistAsync(id, preparation?.Token ?? CancellationToken.None); }
-        catch (Exception) when (action == "play" && !_playbackStarts.IsCurrent(intent)) { return false; }
-        if (generation != _unifiedLibraryViewCache.Generation ||
+        try { result = await LoadStoredPlaylistAsync(id, preparation?.Token ?? edit.Token); }
+        catch (Exception) when (!_queueEdits.IsCurrent(edit.Version) || (action == "play" && !_playbackStarts.IsCurrent(intent))) { return false; }
+        if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version) || generation != _unifiedLibraryViewCache.Generation ||
             (action == "play" && !_playbackStarts.IsCurrent(intent))) return false;
         var rows = result.Rows;
         var playable = rows.Where(r => r.Id.HasValue && !string.IsNullOrEmpty(r.FilePath)).ToList();
@@ -311,7 +313,13 @@ public partial class MainWindow
             var player = await StartReadyPlaybackAsync(resolved);
             return player is not null && ReferenceEquals(_player, player);
         }
-        var path = await ResolveMobilePlaybackPathAsync(identity, () => true, CancellationToken.None);
+        if (_playbackShuttingDown || requestedAction is not ("next" or "append")) return false;
+        var edit = _queueEdits.Capture();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version);
+        string? path;
+        try { path = await ResolveMobilePlaybackPathAsync(identity, IsCurrent, edit.Token); }
+        catch (Exception) when (!IsCurrent()) { return false; }
+        if (!IsCurrent()) return false;
         if (string.IsNullOrWhiteSpace(path))
             return false;
         switch (requestedAction)
@@ -319,13 +327,11 @@ public partial class MainWindow
             case "next":
                 if (_mcpBridge.PlayNextFunc is null)
                     return false;
-                await _mcpBridge.PlayNextFunc(path);
-                return true;
+                return await _mcpBridge.PlayNextFunc(path) is not null;
             case "append":
                 if (_mcpBridge.AppendToQueueFunc is null)
                     return false;
-                await _mcpBridge.AppendToQueueFunc(path);
-                return true;
+                return await _mcpBridge.AppendToQueueFunc(path) is not null;
             default:
                 return false;
         }
