@@ -286,6 +286,9 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Mobile. Ordinary starts preserve already accepted independent edits.
 
 - QueueEditOwnership is dispatcher-owned and independent of playback starts.
+  Mobile queue move/remove captures that generation before mutation and checks
+  it after gapless preparation, including obsolete failures. Reject edits during
+  shutdown. Ordinary start/Stop/release retains accepted independent edits.
   Capture version/token before append/next or playlist-append lookup; guard
   registration and mutation. Wholesale clears and replacements invalidate old
   ownership; shutdown disposes it. Ordinary start/Stop preserves independent

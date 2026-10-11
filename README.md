@@ -405,7 +405,8 @@ track is active; ordinary single-track playback continues without rebuilding.
 
 Clear also cancels pending queue replacement while the current track continues.
 Append/Next and playlist append report success only if their queue change
-survives clearing or replacement while playback preparation is pending.
+survives clearing or replacement while playback preparation is pending. Mobile
+queue move/remove actions follow the same rule and reject edits during shutdown.
 
 Queue edits during a pending gapless start seek wait for its original start. The
 final player retains the resumed position and pause state, with one entry in

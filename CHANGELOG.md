@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Mobile queue move/remove commands reject stale success and obsolete errors
+  after Clear, queue replacement, or shutdown during gapless preparation.
+  Ordinary playback changes preserve accepted edits.
+
 - Queue edits during a pending gapless start seek join the original preparation
   instead of replacing its command. Reconcile changed snapshots after seek,
   preserving resume position/pause and publishing only one history occurrence.

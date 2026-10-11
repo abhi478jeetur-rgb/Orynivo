@@ -506,11 +506,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   destructive supersession cancels MCP acknowledgement or returns false to
   Mobile. Ordinary starts preserve already accepted independent edits.
 
-- QueueEditOwnership owns destructive queue-change generation/cancellation
-  independently of playback. Wholesale clears invalidate it; replacement owns
-  intent before lookup and shutdown closes it. MCP append/next forward original
-  references to InsertPlaybackQueueAsync, returning resolved paths or null.
-  Mobile track/playlist append guards registration and handoff. Old edits cannot
+- QueueEditOwnership owns playback-independent queue generation/cancellation for
+  mobile move/remove acknowledgements as well as asynchronous insertions.
+  Capture before mutation, reject shutdown, and recheck after gapless readiness.
+  Suppress obsolete preparation errors after Clear/replacement/shutdown while
+  preserving current failures and accepted edits across ordinary start/Stop.
+  Wholesale clears invalidate it; replacement owns intent before lookup and
+  shutdown closes it. MCP append/next forward original references to
+  InsertPlaybackQueueAsync, returning resolved paths or null. Mobile
+  track/playlist append guards registration and handoff. Old edits cannot
   populate a replaced/cleared queue; ordinary start/Stop preserves them.
   Independent lookup owns no device and does not delay full output release.
 
