@@ -340,13 +340,14 @@ public partial class MainWindow
     /// <summary>Moves, removes, or clears queue entries through the same state-maintenance path as the desktop.</summary>
     /// <param name="action">One of <c>remove</c>, <c>up</c>, <c>down</c>, or <c>clear</c>.</param>
     /// <param name="index">Target queue index for item actions.</param>
-    /// <returns><see langword="true"/> when the requested edit was valid.</returns>
+    /// <returns><see langword="true"/> for a valid edit after any Clear preparation; obsolete Clear returns false.</returns>
     private async Task<bool> EditMobileRemoteQueueAsync(string action, int? index)
     {
         action = action.Trim().ToLowerInvariant();
         if (action == "clear")
         {
-            ClearPlaybackQueue();
+            try { await ClearPlaybackQueueAsync(); }
+            catch (OperationCanceledException) { return false; }
             return true;
         }
         if (index is not int target || target < 0 || target >= _queue.Count)

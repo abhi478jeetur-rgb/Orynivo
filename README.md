@@ -398,6 +398,11 @@ Single-track Play from MCP resolves remote references inside the owning playback
 preparation. Mobile single-track Play also guards its identity lookup: a newer
 start or Stop rejects older results before metadata registration or playback.
 
+Clearing Up Next removes upcoming tracks from active gapless playback while
+preserving the current track's position and pause state. Desktop, MCP and Mobile
+wait until that playback change is ready. Pending starts are cancelled when no
+track is active; ordinary single-track playback continues without rebuilding.
+
 Pending append/next and playlist-append lookups are discarded by Clear or
 wholesale queue replacement. Ordinary start/Stop preserves independent queue
 edits; shutdown rejects late lookup results.

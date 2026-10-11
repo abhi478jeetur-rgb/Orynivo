@@ -556,15 +556,31 @@ public partial class MainWindow : Window
     /// <summary>Handles the Up Next header button that clears the complete queue.</summary>
     /// <param name="sender">The button.</param>
     /// <param name="e">The click event data.</param>
-    private void ClearQueueButton_OnClick(object? sender, RoutedEventArgs e)
+    private async void ClearQueueButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        ClearPlaybackQueue();
-        StatusTextBlock.Text = LocalizationManager.Current.QueueCleared;
+        var clearing = ClearPlaybackQueueAsync();
+        var intent = _playbackStarts.Current;
+        try
+        {
+            await clearing;
+            if (!_playbackShuttingDown && _playbackStarts.IsCurrent(intent))
+                StatusTextBlock.Text = LocalizationManager.Current.QueueCleared;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
+        catch (Exception) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
     }
 
-    /// <summary>Clears the editable playback queue without stopping the currently playing item.</summary>
-    private void ClearPlaybackQueue()
+    /// <summary>Clears the queue and prepares current-track-only gapless output at its position and pause state.</summary>
+    /// <returns>Completion after the active gapless snapshot has been rebuilt.</returns>
+    private async Task ClearPlaybackQueueAsync()
     {
+        if (_playbackShuttingDown) throw new OperationCanceledException();
+        if (_player is null)
+        {
+            _playbackStarts.Invalidate();
+            _playbackPreparations.CancelAll();
+        }
         StopInfiniteMix();
         _queueEdits.Invalidate();
         _queue.Clear();
@@ -575,6 +591,7 @@ public partial class MainWindow : Window
         RefreshQueueNavigationButtons();
         ClearQueueButton.IsEnabled = false;
         SaveQueueAsPlaylistButton.IsEnabled = false;
+        if (!await RefreshActiveGaplessQueueAsync()) throw new OperationCanceledException();
     }
 
     private PlaylistItem? GetCurrentQueueItem() =>
@@ -599,19 +616,20 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Rebuilds active gapless output at its position and paused state.</summary>
-    /// <returns>Player preparation without waiting for audible completion.</returns>
-    private async Task RefreshActiveGaplessQueueAsync()
+    /// <returns>Whether the rebuilt player remains current, or no rebuild was needed.</returns>
+    private async Task<bool> RefreshActiveGaplessQueueAsync()
     {
         if (_player is not IGaplessAudioPlayer ||
             string.IsNullOrWhiteSpace(_currentFilePath))
         {
-            return;
+            return true;
         }
 
         var path = _currentFilePath;
         var position = _player.Position;
         var wasPaused = _player.IsPaused;
-        await StartReadyPlaybackAsync(path, initialPosition: position, initiallyPaused: wasPaused);
+        var player = await StartReadyPlaybackAsync(path, initialPosition: position, initiallyPaused: wasPaused);
+        return player is not null && ReferenceEquals(_player, player);
     }
 
     private async void SaveQueueAsPlaylistButton_OnClick(object? sender, RoutedEventArgs e)

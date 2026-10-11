@@ -467,6 +467,12 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   release drains admitted refills. Threshold checks require an active player;
   idle initial mix start awaits readiness rather than track completion.
 
+- ClearPlaybackQueueAsync empties the authoritative queue, then rebuilds active
+  gapless output with only the current track at its position and paused state.
+  Desktop, MCP and Mobile await preparation; obsolete MCP clears cancel and
+  mobile clears return false. Ordinary single-track output needs no rebuild.
+  Pending starts are cancelled when no player is active.
+
 - QueueEditOwnership owns destructive queue-change generation/cancellation
   independently of playback. Wholesale clears invalidate it; replacement owns
   intent before lookup and shutdown closes it. MCP append/next forward original

@@ -647,7 +647,7 @@ public partial class MainWindow : Window
         _mcpBridge.SetVolumeFunc   = v => VolumeSlider.Value = Math.Clamp(v, 0, 1);
         _mcpBridge.AppendToQueueFunc = path => InsertPlaybackQueueAsync(path, playNext: false);
         _mcpBridge.PlayNextFunc = path => InsertPlaybackQueueAsync(path, playNext: true);
-        _mcpBridge.ClearQueueFunc = () => ClearPlaybackQueue();
+        _mcpBridge.ClearQueueFunc = ClearPlaybackQueueAsync;
         _mcpBridge.ReplaceQueueFunc = ReplacePlaybackQueueAsync;
         _mcpBridge.RefreshPlaylistsFunc = LoadNavPlaylists;
         _mcpBridge.GetOrynivoServersFunc = () => _settings.OrynivoServers ?? [];

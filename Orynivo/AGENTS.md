@@ -311,6 +311,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   a preparation lease for full release. Advisory lookup owns no audio device and
   is cancelled without delaying output release.
 
+- ClearPlaybackQueueAsync empties the authoritative queue, then rebuilds active
+  gapless output with only the current track at its position and paused state.
+  Desktop, MCP and Mobile await preparation; obsolete MCP clears cancel and
+  mobile clears return false. Ordinary single-track output needs no rebuild.
+  Pending starts are cancelled when no player is active.
+
 - RefreshActiveGaplessQueueAsync awaits readiness with captured position and
   initiallyPaused state; never apply Pause after awaiting the audible lifetime.
   Obsolete rebuilding must not pause another player. Independent queue edits

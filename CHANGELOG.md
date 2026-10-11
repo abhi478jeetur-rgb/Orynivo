@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Clear rebuilds active gapless output with only the current track, retaining
+  position and pause state. Desktop, MCP and Mobile wait for preparation;
+  superseded MCP clears cancel instead of reporting success.
+
 - MCP and Mobile Remote append/next own resolution before lookup. Clear,
   wholesale replacement and shutdown reject old entries and remote metadata.
   Ordinary playback start/Stop preserves independent queue edits. MCP forwards

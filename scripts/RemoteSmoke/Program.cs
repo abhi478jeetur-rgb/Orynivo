@@ -126,6 +126,17 @@ var run = Task.Run(async () =>
             var missing = next ? await tools.QueuePlayNextAsync(opaqueReference) : await tools.QueueAppendAsync(opaqueReference);
             Check(missing.Contains("Could not resolve"), "unresolved independent edit reported success");
         }
+        var clearEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clearReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await bridge.OnUiAsync(() => bridge.ClearQueueFunc = async () => { clearEntered.SetResult(); await clearReady.Task; });
+        var clearTool = new McpTools(bridge).ClearQueueAsync();
+        await clearEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(!clearTool.IsCompleted, "MCP Clear acknowledged before gapless preparation");
+        clearReady.SetResult();
+        Check((await clearTool).Contains("cleared"), "MCP Clear confirmation missing");
+        await bridge.OnUiAsync(() => bridge.ClearQueueFunc = () => Task.FromException(new OperationCanceledException()));
+        try { await new McpTools(bridge).ClearQueueAsync(); throw new Exception("Cancelled Clear reported success"); }
+        catch (OperationCanceledException) { }
         var snapshot = await client.GetStringAsync("/remote/api/state");
         Check(!snapshot.Contains("private-path") && !snapshot.Contains("secret-path") && !snapshot.Contains(token), "safe state DTO");
         Check(snapshot.Contains("\"title\":\"Fixture track\""), "camelCase state");
