@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Plex child Back now retains the exact selected row and scroll position before
+  loading. Deferred layout and cancellation callbacks cannot overwrite a newer
+  navigation action or consume its saved history.
+
 - Plex page, child and lazy-folder loads now retain copied source, section,
   token and navigation ownership. Obsolete results cannot replace rows, trees,
   status or playback metadata. Paging captures its offset and existing rows;

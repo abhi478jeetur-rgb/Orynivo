@@ -1020,11 +1020,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   awaits. History entry rows retain their owning server without borrowing a
   library section; base details use global Back and never clear newer Plex
   history after awaiting. Sectionless Back keeps library controls hidden. Paging
-  retains admitted offset/rows; child history retains pre-load rows/title.
-  Independent Plex actions release old root loading and reject old fades. Back
-  clears loading text and restores root paging. Top-level cancellation detaches
-  top/cloud/Plex sources before callbacks so newly admitted replacements cannot
-  be cancelled by older cleanup.
+  retains admitted offset/rows; child history retains pre-load rows/title, exact
+  selected row and vertical offset. Plex Back uses NavigationRestoreOwnership
+  before cancellation, checks between adapters and guards deferred position with
+  both restore and binding identity. Replacement navigation cannot lose its
+  history entry or receive an obsolete layout callback. Independent Plex actions
+  release old root loading and reject old fades. Back clears loading text and
+  restores root paging. Top-level cancellation detaches top/cloud/Plex sources
+  before callbacks so newly admitted replacements cannot be cancelled by older
+  cleanup.
 - `Orynivo/SettingsStore.cs`: persists non-secret settings in
   `%LOCALAPPDATA%\Orynivo\settings.json`, overlays secrets from
   `ApplicationCredentialStore`, and migrates legacy plaintext JSON credentials

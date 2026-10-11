@@ -326,7 +326,8 @@ public partial class MainWindow : Window
         var title = parent.Title ?? _activePlexSectionTitle;
         var targetView = parent.EntityType == "PlexArtist" ? "Albums" : "Tracks";
         var previousState = new PlexNavigationState(ContentTitleTextBlock.Text ?? string.Empty,
-            _activePlexView, (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? []);
+            _activePlexView, (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? [],
+            GetSelectedContentRow(), CaptureCurrentVerticalOffset());
         var context = BeginPlexLoad(null, allowSectionless: true);
         if (context is null) return;
         StatusTextBlock.Text = LocalizationManager.Current.PlexLoading;

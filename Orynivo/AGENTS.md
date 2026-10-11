@@ -740,7 +740,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   history entry rows retain their owning server and explicitly omit a library
   section. Their base detail returns through global Back without a post-await
   Plex-stack clear; nested Back keeps library controls hidden there. Preserve
-  the existing Plex stack and encrypted credential store.
+  the existing Plex stack and encrypted credential store. Child states retain
+  the exact selected row and vertical offset before loading, avoiding Plex
+  numeric ID collisions. Plex Back owns cancellation and deferred layout through
+  NavigationRestoreOwnership; check between cancellation adapters and retain
+  binding identity for deferred position restoration.
 - NavigationLoadOwnership guards remote view request publication without owning
   history, rows or cancellation sources. Install new request/token before old
   cancellation callbacks and recheck ownership afterward. Top-level navigation,

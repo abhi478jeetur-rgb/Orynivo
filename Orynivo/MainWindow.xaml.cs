@@ -330,10 +330,18 @@ public partial class MainWindow : Window
         long LibraryChangedAt,
         long CachedAt,
         List<LibraryCatalogAlbum> Albums);
+    /// <summary>Retains the exact Plex parent binding, selection and table position in memory.</summary>
+    /// <param name="Title">Parent heading captured before child loading.</param>
+    /// <param name="View">Parent Plex table mode.</param>
+    /// <param name="Rows">Parent rows retaining their source identity.</param>
+    /// <param name="SelectedRow">Exact selected parent row, avoiding numeric ID collisions.</param>
+    /// <param name="VerticalOffset">Parent table scroll position before loading.</param>
     private sealed record PlexNavigationState(
         string Title,
         string View,
-        IReadOnlyList<ContentRow> Rows);
+        IReadOnlyList<ContentRow> Rows,
+        ContentRow? SelectedRow,
+        double? VerticalOffset);
     private sealed record PlaylistActionTag(ILibraryPlaylistProvider Provider, long PlaylistId, PlaylistSelection Selection);
     private sealed record NewPlaylistActionTag(ILibraryPlaylistProvider Provider, PlaylistSelection Selection);
     private sealed record OrynivoPlaylistMenuTag(OrynivoServerSettings Server, long PlaylistId, IReadOnlyList<long> TrackIds);

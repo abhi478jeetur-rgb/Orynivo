@@ -215,6 +215,8 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>Captures the current table, search or artwork vertical position.</summary>
+    /// <returns>The visible scroll offset, or null when no scroll adapter exists.</returns>
     private double? CaptureCurrentVerticalOffset()
     {
         if (SearchResultsScrollViewer.IsVisible)
@@ -293,11 +295,36 @@ public partial class MainWindow : Window
 
         if (_plexNavigationStack.Count > 0)
         {
+            RestorePlexNavigationState();
+            return;
+        }
+
+        if (_navigationStack.Count == 0)
+            return;
+
+        var state = _navigationStack.Pop();
+        await RestoreNavigationStateAsync(state);
+    }
+
+    /// <summary>Restores retained Plex rows and position while rejecting replacement navigation.</summary>
+    private void RestorePlexNavigationState()
+    {
+        var previousContext = _navigationRestores.Context;
+        var request = _navigationRestores.Begin();
+        _navigationRestores.Context = request;
+        bool CanRestore() => _navigationRestores.IsCurrent(request);
+        try
+        {
             CancelProviderAlbumLoad();
+            if (!CanRestore()) return;
             CancelTopLevelViewLoad();
+            if (!CanRestore()) return;
             CancelRemoteViewLoad();
+            if (!CanRestore()) return;
             CancelLibrarySearch();
+            if (!CanRestore()) return;
             CancelAndDispose(ref _unifiedLibraryAppendCts);
+            if (!CanRestore() || _plexNavigationStack.Count == 0) return;
             var plexState = _plexNavigationStack.Pop();
             _activePlexView = plexState.View;
             ContentTitleTextBlock.Text = plexState.Title;
@@ -312,14 +339,16 @@ public partial class MainWindow : Window
             ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(plexState.Rows.Count);
             UpdateAlphabetIndex(plexState.Rows, true);
             BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
-            return;
+            var selectedRow = plexState.Rows.FirstOrDefault(row => ReferenceEquals(row, plexState.SelectedRow));
+            ContentDataGrid.SelectedItem = selectedRow;
+            RestoreDataGridPositionAfterLayout(selectedRow, plexState.VerticalOffset,
+                () => CanRestore() && ReferenceEquals(ContentDataGrid.ItemsSource, plexState.Rows));
         }
-
-        if (_navigationStack.Count == 0)
-            return;
-
-        var state = _navigationStack.Pop();
-        await RestoreNavigationStateAsync(state);
+        finally
+        {
+            _navigationRestores.Complete(request);
+            _navigationRestores.Context = previousContext;
+        }
     }
 
     /// <summary>Owns one Back execution and its deferred restoration without suppressing independent navigation.</summary>
