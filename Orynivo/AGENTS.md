@@ -339,6 +339,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   creation already incorporated admitted changes. Position/pause apply to the
   final player; obsolete retries remain part of full preparation drain.
 
+- Audio.GaplessQueueRefreshCoordinator owns dispatcher-affine refresh joining
+  and revision/retry decisions through injected readiness/ownership/snapshot
+  adapters. It owns no player or queue. Window adapters capture position/pause
+  and validate prepared-player identity. Each run retains its own revision and
+  completion; obsolete completion must not clear newer pending work. Test this
+  coordination without an Avalonia window or audio hardware.
 - Gapless queue refresh is dispatcher-coalesced. Requests share the pending task
   only while its playback intent remains current and increment a revision. After
   readiness, rebuild again for a changed revision using current position and

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Gapless queue refresh coordination now lives in a standalone helper with
+  injected playback adapters and window-free tests for joining, repeated edits,
+  supersession, failures, and recovery. Queue and player ownership stay intact.
+
 - Asynchronous player disposal is owned by a standalone retirement helper with
   controllable-clock regression tests. Detached gapless players no longer retain
   their window event subscription.

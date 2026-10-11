@@ -44,9 +44,7 @@ namespace Orynivo;
 public partial class MainWindow : Window
 {
     private readonly QueueEditOwnership _queueEdits = new();
-    private Task<bool>? _gaplessQueueRefreshTask;
-    private long _gaplessQueueRefreshRevision;
-    private long _gaplessQueueRefreshIntent;
+    private GaplessQueueRefreshCoordinator? _gaplessQueueRefresh;
 
     /// <summary>Owns original-reference resolution before an independent queue insertion.</summary>
     /// <param name="path">Local path or opaque remote reference.</param>
@@ -627,19 +625,23 @@ public partial class MainWindow : Window
     /// <returns>Whether the final rebuilt player remains current, or no rebuild was needed.</returns>
     private Task<bool> RefreshActiveGaplessQueueAsync()
     {
-        if (_gaplessQueueRefreshTask is { IsCompleted: false } pending &&
-            _playbackStarts.IsCurrent(_gaplessQueueRefreshIntent))
-        {
-            ++_gaplessQueueRefreshRevision;
-            return pending;
-        }
+        return (_gaplessQueueRefresh ??= new GaplessQueueRefreshCoordinator(
+            () => _player is IGaplessAudioPlayer && !string.IsNullOrWhiteSpace(_currentFilePath),
+            JoinCurrentPlaybackPreparation, PrepareGaplessQueueRefresh,
+            _playbackStarts.IsCurrent,
+            () => _preparedGaplessQueuePaths.SequenceEqual(
+                BuildGaplessPlaybackItems(_currentFilePath!, true).Select(item => item.FilePath))))
+            .RefreshAsync();
+    }
+
+    /// <summary>Adapts pending gapless seek preparation without creating another start.</summary>
+    /// <returns>Guarded readiness to join, or null when no current seek preparation exists.</returns>
+    private Task<bool>? JoinCurrentPlaybackPreparation()
+    {
         if (_player is IGaplessAudioPlayer && _playbackPreparationReady is { IsCompleted: false } preparing &&
             _playbackStarts.IsCurrent(_playbackPreparationIntent))
             return AwaitPlaybackPreparationAsync(preparing, _playbackPreparationIntent);
-        if (_player is not IGaplessAudioPlayer || string.IsNullOrWhiteSpace(_currentFilePath))
-            return Task.FromResult(true);
-        ++_gaplessQueueRefreshRevision;
-        return _gaplessQueueRefreshTask = RebuildGaplessQueueUntilCurrentAsync();
+        return null;
     }
 
     /// <summary>Joins a pending seek without superseding its original playback command.</summary>
@@ -652,26 +654,14 @@ public partial class MainWindow : Window
         return _playbackStarts.IsCurrent(intent) && player is not null && ReferenceEquals(_player, player);
     }
 
-    /// <summary>Rebuilds again when edits arrive during creation without restarting a newer playback session.</summary>
-    /// <returns>Whether the owning player reaches readiness with the latest admitted queue changes.</returns>
-    private async Task<bool> RebuildGaplessQueueUntilCurrentAsync()
+    /// <summary>Adapts current position and pause to one rebuild owned by the refresh coordinator.</summary>
+    /// <returns>The synchronously captured start intent and guarded prepared-player readiness.</returns>
+    private (long Intent, Task<bool> Ready) PrepareGaplessQueueRefresh()
     {
-        while (true)
-        {
-            var revision = _gaplessQueueRefreshRevision;
-            var path = _currentFilePath!;
-            var position = _player!.Position;
-            var wasPaused = _player.IsPaused;
-            var preparing = StartReadyPlaybackAsync(path, initialPosition: position, initiallyPaused: wasPaused);
-            var intent = _playbackStarts.Current;
-            _gaplessQueueRefreshIntent = intent;
-            var player = await preparing;
-            if (!_playbackStarts.IsCurrent(intent) || player is null || !ReferenceEquals(_player, player))
-                return false;
-            if (revision == _gaplessQueueRefreshRevision ||
-                _preparedGaplessQueuePaths.SequenceEqual(BuildGaplessPlaybackItems(_currentFilePath!, true).Select(item => item.FilePath)))
-                return true;
-        }
+        var preparing = StartReadyPlaybackAsync(_currentFilePath!, initialPosition: _player!.Position,
+            initiallyPaused: _player.IsPaused);
+        var intent = _playbackStarts.Current;
+        return (intent, AwaitPlaybackPreparationAsync(preparing, intent));
     }
 
     private async void SaveQueueAsPlaylistButton_OnClick(object? sender, RoutedEventArgs e)

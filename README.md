@@ -417,6 +417,8 @@ player creation before they report playback ready.
 
 Queue changes arriving during gapless preparation are combined before they
 finish, preserving their order, duplicate entries and the current pause state.
+The refresh coordination has offline lifecycle tests that run without an
+application window or audio device.
 
 Pending append/next and playlist-append lookups are discarded by Clear or
 wholesale queue replacement. Ordinary start/Stop preserves independent queue

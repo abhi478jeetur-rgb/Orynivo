@@ -484,6 +484,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   creation already incorporated admitted changes. Position/pause apply to the
   final player; obsolete retries remain part of full preparation drain.
 
+- `Orynivo/Audio/GaplessQueueRefreshCoordinator.cs` owns dispatcher-affine
+  refresh joining, revision changes and retry decisions without owning a player,
+  queue, or UI. Inject active-output eligibility, existing preparation, guarded
+  readiness, intent ownership and snapshot checks. Window adapters retain
+  position/pause capture and prepared-player identity validation. Each run keeps
+  independent revision and completion state; old completion/failure cannot clear
+  newer pending work. Window-free tests control readiness gates and cover
+  joining, retries, supersession, errors and recovery.
 - Gapless queue refresh is dispatcher-coalesced. Requests share the pending task
   only while its playback intent remains current and increment a revision. After
   readiness, rebuild again for a changed revision using current position and
