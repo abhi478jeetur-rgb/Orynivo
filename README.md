@@ -64,9 +64,10 @@ the ability to reach that library from any device on the local network.
   partial view retries missing sources. Overlapping reloads retain only the
   latest request, including a reload triggered during cancellation. Each load
   keeps its initial filters and server/profile settings throughout its queries.
-  An incomplete-load notice offers **Try again** without clearing usable rows;
-  selection and scroll position survive the refresh, and navigating away cancels
-  it.
+  Saving changed server connections clears cached catalog views, including
+  changes to profile and streaming options. An incomplete-load notice offers
+  **Try again** without clearing usable rows; selection and scroll position
+  survive the refresh, and navigating away cancels it.
 - Library search queries independent servers concurrently, keeps available
   results when a source fails, and offers **Try again** for incomplete searches.
   New queries and navigation cancel the previous search; genuine empty results

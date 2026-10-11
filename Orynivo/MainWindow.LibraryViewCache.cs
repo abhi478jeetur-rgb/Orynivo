@@ -5,6 +5,14 @@ public partial class MainWindow
     private readonly LibraryCatalogLoadCoordinator<ContentRow> _unifiedLibraryLoads = new(3);
     private LibraryLoadResult<ContentRow>? _unifiedLibraryLoadResult;
 
+    /// <summary>Abandons shared catalog snapshots and pending publications after server settings or profile changes.</summary>
+    private void InvalidateCatalogConfiguration()
+    {
+        InvalidateDashboardCatalogCache();
+        InvalidateGenreCloudViewCache();
+        InvalidateUnifiedLibraryViewCache();
+    }
+
     /// <summary>Clears catalog snapshots and abandons pending searches while retaining published search failures.</summary>
     private void InvalidateUnifiedLibraryViewCache()
     {

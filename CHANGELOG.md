@@ -54,6 +54,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Saving changed Orynivo Server connections now invalidates shared catalog,
+  Dashboard, Genre Cloud and similarity snapshots before subsequent settings
+  work. Changes to server profile, streaming format or bitrate also count as
+  configuration changes, preventing reuse of rows with stale playback settings.
+
 - Shared catalog loads retain copied filter, favorite, artwork and
   server/profile inputs throughout local background work and remote follow-up
   requests. Settings or profile changes can no longer alter an already admitted

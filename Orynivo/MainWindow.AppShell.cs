@@ -65,20 +65,6 @@ public partial class MainWindow : Window
                    string.Equals(pair.First.BaseUrl, pair.Second.BaseUrl, StringComparison.Ordinal));
     }
 
-    private static bool OrynivoServerSettingsEqual(
-        IReadOnlyList<OrynivoServerSettings>? left,
-        IReadOnlyList<OrynivoServerSettings>? right)
-    {
-        left ??= [];
-        right ??= [];
-        return left.Count == right.Count &&
-               left.Zip(right).All(pair =>
-                   string.Equals(pair.First.Id, pair.Second.Id, StringComparison.Ordinal) &&
-                   string.Equals(pair.First.Name, pair.Second.Name, StringComparison.Ordinal) &&
-                   string.Equals(pair.First.BaseUrl, pair.Second.BaseUrl, StringComparison.Ordinal) &&
-                   string.Equals(pair.First.ApiKey, pair.Second.ApiKey, StringComparison.Ordinal));
-    }
-
     /// <summary>Abandons pending searches and playback before replacing the local library.</summary>
     internal void PrepareForLibraryImport()
     {

@@ -354,9 +354,7 @@ public partial class MainWindow : Window
         ApplyServerProfileContext();
         _settingsStore.Save(_settings);
         StopInfiniteMix();
-        InvalidateDashboardCatalogCache();
-        InvalidateGenreCloudViewCache();
-        InvalidateUnifiedLibraryViewCache();
+        InvalidateCatalogConfiguration();
         if (!string.IsNullOrWhiteSpace(_currentTopLevelTag))
             await ShowTopLevelViewAsync(_currentTopLevelTag);
     }
@@ -774,7 +772,7 @@ public partial class MainWindow : Window
             var plexServersChanged = !PlexServerSettingsEqual(
                 _settings.PlexServers,
                 window.SelectedPlexServers);
-            var orynivoServersChanged = !OrynivoServerSettingsEqual(
+            var orynivoServersChanged = !LibraryCatalogConfiguration.MatchesServers(
                 _settings.OrynivoServers,
                 window.SelectedOrynivoServers);
             var libraryPathsChanged = !(_settings.LibraryPaths ?? []).SequenceEqual(window.SelectedLibraryPaths);
@@ -860,6 +858,8 @@ public partial class MainWindow : Window
             _settings.QobuzApplicationId      = window.SelectedQobuzApplicationId;
             _settings.PlexServers             = window.SelectedPlexServers.ToList();
             _settings.OrynivoServers          = window.SelectedOrynivoServers.ToList();
+            if (orynivoServersChanged)
+                InvalidateCatalogConfiguration();
             if (!hadOrynivoServers && _settings.OrynivoServers.Count > 0)
                 _settings.IsLocalLibrarySectionExpanded = true;
             _settings.McpServerEnabled        = window.McpServerEnabled;

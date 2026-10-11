@@ -1084,7 +1084,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Remote follow-up requests and cached catalog favorite projection must use
   those copies. Local profile identity flows through AudioDatabase's AsyncLocal
   into Task.Run; never change the caller's profile to execute an old load.
-  Contexts are transient and must never be serialized or logged. Publish new
+  Contexts are transient and must never be serialized or logged.
+  LibraryCatalogConfiguration compares every ordered server field, including
+  profile and streaming options. ApplySettingsAsync must call
+  InvalidateCatalogConfiguration immediately after replacing changed server
+  settings and before later awaits. This shares the profile-change invalidation
+  path for Dashboard, Genre Cloud, unified views and similarity; independent
+  search/playlist publication is abandoned by the unified invalidator. Test each
+  configuration field and held worker profile/scope isolation. Publish new
   request/token ownership before cancelling old work and recheck after
   callbacks. Search, playlists and Mobile read the same catalog generation
   through the coordinator; they retain independent request ownership. Test
