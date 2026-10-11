@@ -193,14 +193,19 @@ public sealed class VisualizerShaderTests
         Assert.InRange(renderer.Output.GetPixel(32, 32, 0), 0.49f, 0.51f);
     }
 
-    /// <summary>The comp main sampler reads old feedback even after the current warp has drawn.</summary>
+    /// <summary>The comp main sampler reads old feedback independently of host-dependent render budgets.</summary>
     [Fact]
     public void RenderFrame_CompMainReadsPreviousFeedback()
     {
         var preset = VisualizerPreset.Parse("wave_a=0\ndecay=1\n" +
             "warp_1=`shader_body { ret=float3(0.5,0.5,0.5); }\n" +
             "comp_1=`shader_body { ret=GetPixel(uv); }");
-        var renderer = new PresetRenderer(preset, 64, 64);
+        var renderer = new PresetRenderer(preset, 64, 64)
+        {
+            // This is a sampling contract test; separate tests exercise budget adaptation.
+            ShaderPassBudgetMilliseconds = double.PositiveInfinity,
+            ShaderTimeBudgetMilliseconds = double.PositiveInfinity
+        };
 
         renderer.RenderFrame(new SilentAudio(), 1d / 60d);
         Assert.Equal(0f, renderer.Output.GetPixel(32, 32, 0));

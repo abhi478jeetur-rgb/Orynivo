@@ -399,8 +399,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   factory results. Ordinary transitions do not drain preparation. Invoke after
   StopPlaybackCore has captured history/progress, cancelled and detached output.
   The helper owns no active player, admission, cancellation or UI state. Test
-  composed release without a window; keep shutdown admission and repeated-close
-  ownership at the window boundary until separately extracted.
+  composed release without a window. PlaybackShutdownCoordinator owns permanent
+  shutdown admission and one shared outcome. Install both before invoking window
+  hooks or drain so reentrant cancellation/disable callbacks cannot start a
+  second shutdown. Keep success/failure/cancellation shared and admission
+  closed. MainWindow's existing shutdown guards delegate to this state; it
+  retains queue shutdown/UI disable hooks and actual Close. Test admission
+  without a window.
 - AirPlay output is a cross-platform `OutputBackend.AirPlay` profile. Discover
   `_raop._tcp.local.` receivers away from the UI thread, persist only their
   stable service ID/display name/last endpoint and refresh the endpoint before

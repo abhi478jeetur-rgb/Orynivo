@@ -427,9 +427,17 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Register retirement before awaiting preparation, then await initial disposal
   and a second retirement pass to include late factory results. Ordinary waits
   retain the retirement budget and do not await preparation. The helper owns no
-  active player, cancellation, admission or UI; shutdown and release publication
-  remain guarded by the window. Tests use real trackers and controlled fake
-  disposal without an Avalonia window or audio hardware.
+  active player, cancellation, admission or UI; release publication remains
+  guarded by the window. Tests use real trackers and controlled fake disposal
+  without an Avalonia window or audio hardware.
+- `Orynivo/Audio/PlaybackShutdownCoordinator.cs`: dispatcher-owned permanent
+  admission closure and shared shutdown outcome. Publish the result task before
+  invoking synchronous hooks or output drain; reentrant and later requests must
+  return that task without repeating hooks. Success, faults and cancellation
+  retain closed admission. MainWindow's shutdown guards delegate to this state;
+  its adapter closes queue edits and disables the window before full release.
+  Actual Close remains window-owned. Unit tests cover these boundaries without a
+  window; isolated window checks include reentrant queue cancellation.
 - `Orynivo/Audio/PlaybackStartOwnership.cs`: dispatcher-affine intent generation
   and late-factory cleanup. Start captures ownership before remote lookup; stop
   invalidates it. Backend creation receives a fixed token, including native DSD

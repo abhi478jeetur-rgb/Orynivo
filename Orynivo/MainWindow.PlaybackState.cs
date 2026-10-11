@@ -265,12 +265,11 @@ public partial class MainWindow : Window
     /// <returns>The shared complete preparation and output-disposal task.</returns>
     internal Task PreparePlaybackShutdownAsync()
     {
-        if (_playbackShutdownTask is not null)
-            return _playbackShutdownTask;
-        _playbackShuttingDown = true;
-        _queueEdits.Dispose();
-        IsEnabled = false;
-        return _playbackShutdownTask = StopPlaybackAsync(waitForCompleteDisposal: true);
+        return _playbackShutdown.BeginAsync(() =>
+        {
+            _queueEdits.Dispose();
+            IsEnabled = false;
+        }, () => StopPlaybackAsync(waitForCompleteDisposal: true));
     }
 
     /// <summary>Keeps the dispatcher alive until every pending player can release its output.</summary>

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Playback shutdown admission and its shared drain task now belong to a
+  standalone coordinator with window-free tests. Reentrant shutdown requests
+  share the same outcome before queue cancellation or UI hooks begin.
+
 - Full output release now uses a standalone preparation/retirement drain with
   window-free tests. Late factory results remain included after cancelled
   preparation finishes; ordinary transitions retain their bounded wait.
@@ -28,6 +32,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stale rows and playback metadata.
 
 ### Fixed
+
+- The composite previous-feedback regression test no longer depends on shader
+  time budgets under host load. Keep its exact pixel assertions while testing
+  budget adaptation separately; production rendering budgets remain unchanged.
 
 - Mobile queue move/remove commands reject stale success and obsolete errors
   after Clear, queue replacement, or shutdown during gapless preparation.

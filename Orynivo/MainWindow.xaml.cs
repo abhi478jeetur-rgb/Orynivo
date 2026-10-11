@@ -119,10 +119,11 @@ public partial class MainWindow : Window
     private readonly PlaybackPlayerFactory _playbackPlayerFactory;
     private long _outputProfileSelectionVersion;
     private readonly PlaybackPreparationTracker _playbackPreparations = new();
-    private bool _playbackShuttingDown;
+    private readonly PlaybackShutdownCoordinator _playbackShutdown = new();
+    /// <summary>Gets the shared shutdown admission state used by existing playback guards.</summary>
+    private bool _playbackShuttingDown => _playbackShutdown.IsShuttingDown;
     private bool _playbackCloseReady;
     private bool _playbackCloseRequested;
-    private Task? _playbackShutdownTask;
     private readonly AudioPlayerRetirement _audioPlayerRetirement = new(
         exception => CrashLogger.Log(exception, "Background audio-player disposal"));
     private bool _audioDeviceExplicitlyReleased;
