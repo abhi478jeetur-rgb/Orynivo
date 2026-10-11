@@ -69,9 +69,11 @@ public partial class MainWindow : Window
 
     /// <summary>Cancels pending searches, stored-playlist publication, and debounce work before changing navigation or source context.</summary>
     /// <param name="clearResult">Whether navigation also clears the published result and retry context.</param>
-    private void CancelLibrarySearch(bool clearResult = true)
+    /// <param name="cancelPlaylist">Whether the caller also owns abandonment of the current playlist load.</param>
+    private void CancelLibrarySearch(bool clearResult = true, bool cancelPlaylist = true)
     {
-        CancelPlaylistLoad();
+        if (cancelPlaylist)
+            CancelPlaylistLoad();
         if (clearResult)
             _searchTimer?.Stop();
         CancelAndDispose(ref _librarySearchCts);

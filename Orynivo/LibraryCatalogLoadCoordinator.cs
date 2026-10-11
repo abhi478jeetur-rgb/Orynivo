@@ -64,7 +64,7 @@ internal sealed class LibraryCatalogLoadCoordinator<T>
         eligible && IsCurrent(request) && string.Equals(request.Key, currentKey, StringComparison.Ordinal) &&
         _cache.TryStore(request.Key, request.Generation, result);
 
-    /// <summary>Invalidates completed snapshots and every pending request's publication generation.</summary>
+    /// <summary>Thread-safely invalidates completed snapshots and every pending request's publication generation.</summary>
     internal void Invalidate() => _cache.Invalidate();
 
     /// <summary>Captures ownership without duplicating rows, sources, filters or UI state.</summary>

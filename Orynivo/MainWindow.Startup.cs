@@ -230,11 +230,14 @@ public partial class MainWindow : Window
                 : _settings.FanartTvApiKey;
     }
 
+    /// <summary>Invalidates thread-safe snapshots immediately and coalesces version-guarded UI abandonment and refresh hints.</summary>
     private void OnWatchedLibraryChanged()
     {
+        var searchVersion = Volatile.Read(ref _librarySearchVersion);
+        var playlistVersion = Volatile.Read(ref _playlistLoadVersion);
         InvalidateDashboardCatalogCache();
         InvalidateGenreCloudViewCache();
-        InvalidateUnifiedLibraryViewCache();
+        _unifiedLibraryLoads.Invalidate();
 
         // Coalesce bursts of change signals into a single UI-thread pass.
         if (Interlocked.Exchange(ref _libraryWatcherRefreshPending, 1) != 0)
@@ -245,6 +248,12 @@ public partial class MainWindow : Window
             Interlocked.Exchange(ref _libraryWatcherRefreshPending, 0);
             try
             {
+                InvalidateSimilarityFeatureCache();
+                if (playlistVersion == _playlistLoadVersion)
+                    CancelPlaylistLoad();
+                if (searchVersion == _librarySearchVersion)
+                    CancelLibrarySearch(clearResult: false, cancelPlaylist: false);
+
                 // The sidebar playlist list is lightweight metadata, not a content
                 // reload, so keep it in sync immediately.
                 LoadNavPlaylists();

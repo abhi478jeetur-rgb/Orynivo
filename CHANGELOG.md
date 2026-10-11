@@ -54,6 +54,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Background library watcher changes no longer cancel searches/playlists or
+  update their notices on a worker thread. Catalog snapshots invalidate
+  immediately; one coalesced dispatcher pass abandons only the captured request
+  versions, preserving searches and playlists started after the notification.
+
 - Saving changed Orynivo Server connections now invalidates shared catalog,
   Dashboard, Genre Cloud and similarity snapshots before subsequent settings
   work. Changes to server profile, streaming format or bitrate also count as

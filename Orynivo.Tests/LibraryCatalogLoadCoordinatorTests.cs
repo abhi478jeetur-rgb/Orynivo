@@ -228,6 +228,26 @@ public sealed class LibraryCatalogLoadCoordinatorTests
         Assert.True(owner.TryStore(current, current.Key, true, recovered));
     }
 
+    /// <summary>Worker notifications atomically reject pending publication and complete cached rows before UI dispatch.</summary>
+    /// <returns>The asynchronous regression test.</returns>
+    [Fact]
+    public async Task WorkerInvalidation_RejectsPendingLoadAndCachedSnapshot()
+    {
+        var owner = new LibraryCatalogLoadCoordinator<int>(3);
+        var request = owner.Begin("Tracks", default);
+        Assert.True(owner.TryStore(request, request.Key, true, Success("local", [1])));
+        var gate = Gate();
+        var pending = owner.LoadAsync(request, [_ => gate.Task]);
+        await Task.WhenAll(Enumerable.Range(0, 12).Select(_ => Task.Run(owner.Invalidate)));
+        Assert.Equal(request.Generation + 12, owner.Generation);
+        Assert.False(owner.TryGet(request, true, out _));
+        gate.SetResult(Success("local", [2]));
+        Assert.Null(await pending);
+        var current = owner.Begin("Tracks", default);
+        Assert.False(owner.TryGet(current, true, out _));
+        Assert.True(owner.TryStore(current, current.Key, true, Success("local", [3])));
+    }
+
     /// <summary>Creates a successful typed source result without catalog I/O.</summary>
     /// <param name="source">Opaque source identity.</param>
     /// <param name="rows">Synthetic rows.</param>

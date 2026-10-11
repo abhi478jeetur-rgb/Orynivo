@@ -1118,7 +1118,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Settings must raise `SettingsView.LocalLibraryChanged` after a successful
   catalog mutation so the same Dashboard, Genre Cloud, and unified-library
   caches are invalidated as for watcher-driven changes; never require an
-  application restart to see new rows.
+  application restart to see new rows. Watcher callbacks run on workers: only
+  Dashboard/Genre Cloud/unified snapshot invalidation may run immediately there.
+  Coalesce search/playlist cancellation, similarity cleanup, notices and refresh
+  hints on the dispatcher. Capture independent request versions before
+  invalidation; only cancel each captured version if still current. Never let a
+  delayed notification cancel a newer search or playlist. Test background bursts
+  and newer admission independently.
 - A cached Genre Cloud level renders immediately and must not retain the
   first-load branch-transition delay.
 - `AppSettings.LastMainView` persists every selectable sidebar leaf tag, not a
