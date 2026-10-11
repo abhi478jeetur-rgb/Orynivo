@@ -1099,6 +1099,9 @@ byte-range streaming without FFmpeg.
 - Local, remote-library and Now Playing artist profiles reject outdated results
   after navigation, source changes or a newer artist/playback selection,
   including delayed images, album/track lists and refresh completion.
+- Profile synchronization stops further updates after its request is abandoned.
+  Automatic artist profiles retain their row binding and background request;
+  delayed results cannot overwrite a replacement row or its loading state.
 - Manual Wikimedia Commons artist-image search with editable search text
 - Manually selected artist images are retained across profile refreshes,
   renames, and artist merges

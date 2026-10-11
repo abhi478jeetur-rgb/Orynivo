@@ -199,7 +199,8 @@ public partial class MainWindow : Window
     private readonly HashSet<int> _selectedTrackBitrates = [];
     private readonly HashSet<string> _selectedTrackSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _expandedTrackFilterSections = new(StringComparer.Ordinal);
-    private readonly HashSet<long> _artistProfilesLoading = [];
+    /// <summary>Tracks the background owner of each automatic artist-profile refresh.</summary>
+    private readonly Dictionary<long, CancellationTokenSource> _artistProfilesLoading = [];
     private bool _isDraggingAlphabetIndex;
     private bool _alphabetScrollUpdatePending;
     private bool _isAlphabetProgrammaticScroll;

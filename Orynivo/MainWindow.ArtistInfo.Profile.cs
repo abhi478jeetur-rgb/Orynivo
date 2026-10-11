@@ -153,7 +153,8 @@ public partial class MainWindow : Window
                     language,
                     imageData,
                     imageMimeType,
-                    request.Token);
+                    request.Token,
+                    CanPublish);
                 if (!CanPublish()) return;
             }
 
@@ -363,7 +364,8 @@ public partial class MainWindow : Window
                     refreshed.ProfileLanguage ?? language,
                     imageData,
                     imageMimeType,
-                    cts.Token);
+                    cts.Token,
+                    CanPublish);
                 if (!CanPublish()) return;
             }
 
@@ -518,7 +520,8 @@ public partial class MainWindow : Window
                     language,
                     imageData,
                     imageMimeType,
-                    cts.Token);
+                    cts.Token,
+                    CanPublish);
                 if (!CanPublish()) return;
             }
 
@@ -592,6 +595,9 @@ public partial class MainWindow : Window
         return () => Matches(server) && (_settings.OrynivoServers ?? []).Any(Matches);
     }
 
+    /// <summary>Refreshes a bound artist row while retaining its background request and row identity.</summary>
+    /// <param name="row">The bound local artist row.</param>
+    /// <returns>A task completing the automatic profile refresh or its abandonment.</returns>
     private async Task EnsureArtistProfileAsync(ContentRow row)
     {
         if (row.Id is not long artistId || row.EntityType != "Artist")
@@ -606,8 +612,23 @@ public partial class MainWindow : Window
         {
             return;
         }
-        if (!_artistProfilesLoading.Add(artistId))
+        var background = _backgroundArtistLoadCts;
+        var backgroundToken = background.Token;
+        var tag = _currentTopLevelTag;
+        var artistName = row.Title;
+        var imageIsManual = row.ImageIsManual;
+        var tableSource = ContentDataGrid.IsVisible ? ContentDataGrid.ItemsSource : null;
+        var artworkSource = ArtistArtworkListBox.IsVisible ? ArtistArtworkListBox.ItemsSource : null;
+        bool CanPublish() => ReferenceEquals(_backgroundArtistLoadCts, background) &&
+            !backgroundToken.IsCancellationRequested && _currentTopLevelTag == tag &&
+            GetProfileLanguageCode() == language && row.Id is long currentId && currentId == artistId &&
+            row.Title == artistName && row.ImageIsManual == imageIsManual &&
+            ((tableSource is not null && ContentDataGrid.IsVisible && ReferenceEquals(ContentDataGrid.ItemsSource, tableSource)) ||
+             (artworkSource is not null && ArtistArtworkListBox.IsVisible && ReferenceEquals(ArtistArtworkListBox.ItemsSource, artworkSource)));
+        if (!CanPublish()) return;
+        if (_artistProfilesLoading.TryGetValue(artistId, out var active) && ReferenceEquals(active, background))
             return;
+        _artistProfilesLoading[artistId] = background;
 
         // Mark this row as fetched for the current session up front. If the download or
         // database write below fails (e.g. no network, or a concurrent library scan holds
@@ -619,7 +640,6 @@ public partial class MainWindow : Window
         row.ProfileLanguage = language;
         row.ProfileFetchedAt = DateTimeOffset.UtcNow.ToUnixTimeSeconds();
 
-        var backgroundToken = _backgroundArtistLoadCts.Token;
         try
         {
             var profile = await ArtistProfileService.DownloadAsync(
@@ -628,6 +648,7 @@ public partial class MainWindow : Window
                 language,
                 downloadImage: !row.ImageIsManual,
                 cancellationToken: backgroundToken);
+            if (!CanPublish()) return;
 
             // Persist the (possibly negative) result and decode the artwork off the UI thread.
             // Opening the database runs connection pragmas and schema DDL, which must never
@@ -636,6 +657,7 @@ public partial class MainWindow : Window
             var (artwork, thumbnail) = await Task.Run(() =>
             {
                 using var db = AudioDatabase.OpenDefault();
+                backgroundToken.ThrowIfCancellationRequested();
                 db.UpdateArtistProfile(
                     artistId,
                     profile?.Biography,
@@ -648,8 +670,12 @@ public partial class MainWindow : Window
                        CreateArtworkImage(imagePath, 96, ignoreCache: true));
             }, backgroundToken);
 
-            if (backgroundToken.IsCancellationRequested)
+            if (!CanPublish())
+            {
+                (artwork as IDisposable)?.Dispose();
+                (thumbnail as IDisposable)?.Dispose();
                 return;
+            }
 
             // The awaits above do not suppress the captured context, so these row updates
             // run on the UI thread as required by INotifyPropertyChanged.
@@ -671,7 +697,8 @@ public partial class MainWindow : Window
         }
         finally
         {
-            _artistProfilesLoading.Remove(artistId);
+            if (_artistProfilesLoading.TryGetValue(artistId, out var finishingOwner) && ReferenceEquals(finishingOwner, background))
+                _artistProfilesLoading.Remove(artistId);
         }
     }
 

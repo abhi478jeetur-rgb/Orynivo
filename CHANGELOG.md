@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist-profile synchronization retains its enclosing request and original
+  server sources between reads, writes and cache cleanup. Superseded work stops
+  further synchronization; manually selected images remain protected. Automatic
+  artist profiles reject replaced row bindings, language/identity changes and
+  obsolete background work; old completion retains newer loading markers and
+  rejected decoded images are disposed.
+
 - Remote-library and Now Playing artist profiles reject delayed results after
   navigation, source changes or a newer playback identity. Obsolete images,
   errors and refresh completion cannot overwrite the current profile. Nested

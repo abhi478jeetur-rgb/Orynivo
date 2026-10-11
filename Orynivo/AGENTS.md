@@ -706,7 +706,17 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   credentials or server profiles. Now-playing publication also retains the exact
   track row, artist ID and metadata provider. Nested artist album/track loads
   check the enclosing guard before cards, playback metadata, tracks and failure
-  cleanup. Rejected decoded profile images are disposed.
+  cleanup. Rejected decoded profile images are disposed. Profile synchronization
+  retains its enclosing guard between local reads, image saves, writes and
+  remote awaits; stop later writes/cache cleanup after abandonment. Capture
+  copied server connections and source guards before any await and skip changed
+  sources. Already admitted writes are not rolled back. Automatic row profiles
+  retain background CTS, sidebar tag, language, row identity/manual-image state
+  and visible binding identity. Do not scan the entire bound catalog per
+  completion. Guard before persistence, after decoding and before row
+  publication; dispose rejected images. Per-artist loading markers retain their
+  background owner so old completion cannot remove a newer marker. Keep the
+  initial negative-result freshness stamp to bound retries.
 - NavigationCaptureDecision selects typed capture routes from scalar inputs
   without owning rows, providers, credentials or history. Preserve search/cloud,
   logical-album, provider-bound album and artist precedence. Server albums
