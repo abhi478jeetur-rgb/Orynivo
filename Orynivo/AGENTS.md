@@ -393,6 +393,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   repeated close requests reuse one task. Update installation and library import
   await `PreparePlaybackShutdownAsync` before direct application shutdown. Keep
   history/progress capture before cancellation.
+- Audio.PlaybackOutputDrain composes the existing preparation tracker and player
+  retirement owner. Register current retirement before waiting for preparation;
+  full release then awaits the initial retirement pass and another pass for late
+  factory results. Ordinary transitions do not drain preparation. Invoke after
+  StopPlaybackCore has captured history/progress, cancelled and detached output.
+  The helper owns no active player, admission, cancellation or UI state. Test
+  composed release without a window; keep shutdown admission and repeated-close
+  ownership at the window boundary until separately extracted.
 - AirPlay output is a cross-platform `OutputBackend.AirPlay` profile. Discover
   `_raop._tcp.local.` receivers away from the UI thread, persist only their
   stable service ID/display name/last endpoint and refresh the endpoint before

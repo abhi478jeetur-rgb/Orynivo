@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Full output release now uses a standalone preparation/retirement drain with
+  window-free tests. Late factory results remain included after cancelled
+  preparation finishes; ordinary transitions retain their bounded wait.
+
 - Gapless queue refresh coordination now lives in a standalone helper with
   injected playback adapters and window-free tests for joining, repeated edits,
   supersession, failures, and recovery. Queue and player ownership stay intact.

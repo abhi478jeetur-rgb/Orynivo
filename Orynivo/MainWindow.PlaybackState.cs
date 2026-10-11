@@ -299,12 +299,8 @@ public partial class MainWindow : Window
     private async Task StopPlaybackAsync(bool waitForCompleteDisposal = false)
     {
         var player = StopPlaybackCore();
-        var retirement = _audioPlayerRetirement.RetireAsync(player, waitForCompleteDisposal);
-        if (waitForCompleteDisposal)
-            await _playbackPreparations.DrainAsync();
-        await retirement;
-        if (waitForCompleteDisposal)
-            await _audioPlayerRetirement.RetireAsync(null, waitForCompleteDisposal: true);
+        await PlaybackOutputDrain.RetireAsync(player, waitForCompleteDisposal,
+            _audioPlayerRetirement, _playbackPreparations);
     }
 
     /// <summary>Clears the window's active playback state and hands its unique player to disposal.</summary>

@@ -422,6 +422,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   context and UI cleanup remain window-owned; pending-start tracking is separate
   from this retirement helper. No backend selection, PCM/DSD processing or
   native output changes are introduced here.
+- `Orynivo/Audio/PlaybackOutputDrain.cs`: composes preparation completion and
+  detached-player retirement after the window's synchronous stop cleanup.
+  Register retirement before awaiting preparation, then await initial disposal
+  and a second retirement pass to include late factory results. Ordinary waits
+  retain the retirement budget and do not await preparation. The helper owns no
+  active player, cancellation, admission or UI; shutdown and release publication
+  remain guarded by the window. Tests use real trackers and controlled fake
+  disposal without an Avalonia window or audio hardware.
 - `Orynivo/Audio/PlaybackStartOwnership.cs`: dispatcher-affine intent generation
   and late-factory cleanup. Start captures ownership before remote lookup; stop
   invalidates it. Backend creation receives a fixed token, including native DSD
