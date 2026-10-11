@@ -44,10 +44,13 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
-    /// <summary>Resets detail navigation and cancels any superseded shared library load.</summary>
+    private readonly NavigationRestoreOwnership _navigationRestores = new();
+
+    /// <summary>Resets admitted detail navigation while preserving current nested Back ownership.</summary>
     /// <param name="clearNavigationHistory">Whether saved Back states are also removed.</param>
     private void ResetDrilldownState(bool clearNavigationHistory = true)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         CancelProviderAlbumLoad();
         CancelTopLevelViewLoad();
         CancelRemoteViewLoad();
@@ -69,16 +72,17 @@ public partial class MainWindow : Window
         BackButton.IsVisible = _navigationStack.Count > 0;
     }
 
-    /// <summary>Captures the current view before navigation and cancels its pending shared-library load.</summary>
+    /// <summary>Captures independent navigation, suppresses only current nested Back capture, and abandons old loads.</summary>
     private void PushCurrentNavigationState()
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         CancelProviderAlbumLoad();
         CancelTopLevelViewLoad();
         CancelRemoteViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         ClearUnifiedLibraryLoadNotice();
-        if (_restoringNavigationHistory)
+        if (_navigationRestores.ShouldSuppressHistory)
             return;
 
         var state = CaptureCurrentNavigationState();
@@ -260,8 +264,12 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>Restores the next existing history entry with owned delayed publication.</summary>
+    /// <param name="sender">Back button.</param>
+    /// <param name="e">Click event.</param>
     private async void BackButton_OnClick(object? sender, RoutedEventArgs e)
     {
+        _navigationRestores.Invalidate();
         if (ArtistInfoView.IsVisible && !string.IsNullOrWhiteSpace(_artistInfoUnifiedArtistName))
         {
             CloseNowPlayingDetailViews();
@@ -271,7 +279,7 @@ public partial class MainWindow : Window
                 var artistOrigin = _navigationStack.Pop();
                 await RestoreNavigationStateAsync(artistOrigin);
             }
-            BackButton.IsVisible = _navigationStack.Count > 0;
+            else BackButton.IsVisible = false;
             return;
         }
 
@@ -285,6 +293,11 @@ public partial class MainWindow : Window
 
         if (_plexNavigationStack.Count > 0)
         {
+            CancelProviderAlbumLoad();
+            CancelTopLevelViewLoad();
+            CancelRemoteViewLoad();
+            CancelLibrarySearch();
+            CancelAndDispose(ref _unifiedLibraryAppendCts);
             var plexState = _plexNavigationStack.Pop();
             _activePlexView = plexState.View;
             ContentTitleTextBlock.Text = plexState.Title;
@@ -304,27 +317,46 @@ public partial class MainWindow : Window
 
         var state = _navigationStack.Pop();
         await RestoreNavigationStateAsync(state);
-        BackButton.IsVisible = _navigationStack.Count > 0;
     }
 
+    /// <summary>Owns one Back execution and its deferred restoration without suppressing independent navigation.</summary>
+    /// <param name="state">Saved window-owned history payload.</param>
+    /// <returns>A task completing after restoration or abandonment.</returns>
     private async Task RestoreNavigationStateAsync(NavigationState state)
     {
-        _restoringNavigationHistory = true;
+        var previousContext = _navigationRestores.Context;
+        var request = _navigationRestores.Begin();
+        _navigationRestores.Context = request;
+        bool CanRestore() => _navigationRestores.IsCurrent(request);
         try
         {
-            await RestoreNavigationStateCoreAsync(state);
+            CancelProviderAlbumLoad();
+            if (!CanRestore()) return;
+            CancelTopLevelViewLoad();
+            if (!CanRestore()) return;
+            CancelRemoteViewLoad();
+            if (!CanRestore()) return;
+            CancelLibrarySearch();
+            if (!CanRestore()) return;
+            CancelAndDispose(ref _unifiedLibraryAppendCts);
+            if (!CanRestore()) return;
+            await RestoreNavigationStateCoreAsync(state, CanRestore);
+            if (CanRestore()) BackButton.IsVisible = _navigationStack.Count > 0;
         }
         finally
         {
-            _restoringNavigationHistory = false;
+            _navigationRestores.Complete(request);
+            _navigationRestores.Context = previousContext;
         }
     }
 
     /// <summary>Adapts a typed restore route to the existing source-specific loaders.</summary>
     /// <param name="state">Saved window-owned history payload.</param>
+    /// <param name="canRestore">Ownership retained by this Back execution.</param>
     /// <returns>A task completing after the selected loader and restoration adapter.</returns>
-    private async Task RestoreNavigationStateCoreAsync(NavigationState state)
+    private async Task RestoreNavigationStateCoreAsync(NavigationState state, Func<bool> canRestore)
     {
+        if (!canRestore()) return;
         _activeArtistFilterId = state.ArtistFilterId;
         _activeArtistFilterName = state.ArtistFilterName;
         _activeAlbumFilterId = null;
@@ -370,20 +402,25 @@ public partial class MainWindow : Window
 
             case NavigationRestoreKind.LocalArtist:
                 var artistId = state.ArtistFilterId!.Value;
-                await ShowArtistAlbumsAsync(
-                    artistId,
-                    string.IsNullOrWhiteSpace(state.SearchQuery)
-                        ? LocalizationManager.Current.Unknown
-                        : state.SearchQuery);
+                var localArtistName = string.IsNullOrWhiteSpace(state.SearchQuery)
+                    ? LocalizationManager.Current.Unknown : state.SearchQuery;
+                var localArtistRestore = ShowArtistAlbumsAsync(artistId, localArtistName);
+                var localArtistVersion = _artistDetailLoadVersion;
+                await localArtistRestore;
                 RestoreSelectionFromCurrentItems(
                     state.SelectedId,
                     state.VerticalOffset,
-                    state.SelectedSourceKey);
+                    state.SelectedSourceKey,
+                    () => canRestore() && localArtistVersion == _artistDetailLoadVersion &&
+                          IsCurrentArtistDetailLoad(localArtistVersion, localArtistName));
                 return;
 
             case NavigationRestoreKind.UnifiedArtist:
-                await ShowUnifiedArtistAlbumsAsync(state.ArtistFilterName!);
-                RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset, state.SelectedSourceKey);
+                var unifiedArtistRestore = ShowUnifiedArtistAlbumsAsync(state.ArtistFilterName!);
+                var unifiedArtistVersion = _artistDetailLoadVersion;
+                await unifiedArtistRestore;
+                RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset, state.SelectedSourceKey,
+                    () => canRestore() && IsCurrentArtistDetailLoad(unifiedArtistVersion, state.ArtistFilterName!));
                 return;
 
             case NavigationRestoreKind.ServerAlbum:
@@ -416,7 +453,7 @@ public partial class MainWindow : Window
                 var searchToken = _librarySearchCts?.Token;
                 await searchRestore;
                 RestoreSearchSelection(state.SelectedId, state.SelectedSourceKey, state.VerticalOffset,
-                    () => searchToken.HasValue && !searchToken.Value.IsCancellationRequested &&
+                    () => canRestore() && searchToken.HasValue && !searchToken.Value.IsCancellationRequested &&
                           searchVersion == _librarySearchVersion &&
                           searchGeneration == _unifiedLibraryLoads.Generation && SearchResultsScrollViewer.IsVisible);
                 return;
@@ -425,23 +462,31 @@ public partial class MainWindow : Window
                 _genreCloudSelectedKey = state.GenreKey;
                 GenreAlbumRecommendationsRadioButton.IsChecked = state.GenreAlbums == true;
                 GenreTrackRecommendationsRadioButton.IsChecked = state.GenreAlbums != true;
-                SelectNavigationItem("GenreCloud");
-                await ShowTopLevelViewAsync("GenreCloud");
-                RestoreSelectionFromCurrentItems(
-                    state.SelectedId,
-                    state.VerticalOffset,
-                    state.SelectedSourceKey);
+                await RestoreTopLevelNavigationAsync(state, canRestore);
                 return;
 
             default:
-                SelectNavigationItem(state.View);
-                await ShowTopLevelViewAsync(state.View);
-                RestoreSelectionFromCurrentItems(
-                    state.SelectedId,
-                    state.VerticalOffset,
-                    state.SelectedSourceKey);
+                await RestoreTopLevelNavigationAsync(state, canRestore);
                 break;
         }
+    }
+
+    /// <summary>Restores a top-level binding and layout only while its exact loader and Back execution remain current.</summary>
+    /// <param name="state">Saved sidebar view, selection and scroll payload.</param>
+    /// <param name="canRestore">Owning Back execution guard.</param>
+    /// <returns>A task completing after load and guarded selection admission.</returns>
+    private async Task RestoreTopLevelNavigationAsync(NavigationState state, Func<bool> canRestore)
+    {
+        if (!canRestore()) return;
+        SelectNavigationItem(state.View);
+        var generation = _unifiedLibraryLoads.Generation;
+        var token = new CancellationToken(canceled: true);
+        await LoadTopLevelViewAsync(state.View, admitted => token = admitted);
+        bool CanRestorePosition() => canRestore() && !token.IsCancellationRequested &&
+            generation == _unifiedLibraryLoads.Generation &&
+            string.Equals(_currentTopLevelTag, state.View, StringComparison.Ordinal);
+        RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset,
+            state.SelectedSourceKey, CanRestorePosition);
     }
 
     private void SelectNavigationItem(string tag)

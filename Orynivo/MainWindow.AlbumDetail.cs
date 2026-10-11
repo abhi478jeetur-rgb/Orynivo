@@ -70,6 +70,7 @@ public partial class MainWindow : Window
     /// <returns>A task completing after detail loading or abandonment.</returns>
     private async Task OpenLogicalAlbumTracksAsync(ContentRow row)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         if (row.Id is not long albumId || row.LogicalAlbumParts is not { Count: > 0 } parts)
             return;
 
@@ -274,6 +275,7 @@ public partial class MainWindow : Window
         string? artistFilterName = null,
         IReadOnlyList<long>? logicalAlbumIds = null)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         PushCurrentNavigationState();
         _activeAlbumFilterId = albumId;
         _activeAlbumFilterTitle = albumTitle;

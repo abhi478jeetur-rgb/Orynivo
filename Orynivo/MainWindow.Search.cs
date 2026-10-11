@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     /// <param name="e">Text change event.</param>
     private void SearchTextBox_OnTextChanged(object sender, TextChangedEventArgs e)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         CancelLibrarySearch();
         UpdateSaveSmartPlaylistButtonState();
         _searchTimer.Stop();
@@ -95,6 +96,7 @@ public partial class MainWindow : Window
     /// <returns>A task completing after publication or abandonment.</returns>
     private async Task ShowLibrarySearchResultsAsync(string query, OrynivoServerSettings? onlyServer = null, bool isRetry = false)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         if (string.IsNullOrWhiteSpace(query))
         {
             CancelLibrarySearch();

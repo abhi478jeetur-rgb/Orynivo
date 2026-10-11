@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Back restores now retain their own execution and deferred selection/scroll
+  ownership. An older completion cannot end a newer restore or change its Back
+  button. Independent navigation resumes history capture immediately; nested
+  restore loaders still avoid duplicate entries. Remote artist restoration also
+  rejects superseded overview and filtered-list loads.
+
 - Extracted Back restore route decisions into a tested UI-independent helper,
   preserving source identity and incomplete-state fallback.
 

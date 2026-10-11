@@ -241,6 +241,8 @@ public partial class MainWindow : Window
     /// <returns>A task completing after publication or rejection of an abandoned request.</returns>
     private async Task LoadOrynivoViewAsync(long? filterArtistId = null, long? filterAlbumId = null)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        var restoreRequest = _navigationRestores.Context;
         if (_activeOrynivoServer is null)
             return;
 
@@ -253,6 +255,7 @@ public partial class MainWindow : Window
         var request = _remoteViewLoads.Begin(ct);
         CancelAndDispose(ref previousCancellation);
         bool CanPublish() => _remoteViewLoads.IsCurrent(request) &&
+            (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest)) &&
             generation == _unifiedLibraryLoads.Generation &&
             ReferenceEquals(_activeOrynivoServer, server) &&
             string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal);

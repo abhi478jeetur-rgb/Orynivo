@@ -55,11 +55,21 @@ public partial class MainWindow : Window
         ArtistInfoView.IsVisible &&
         string.Equals(_artistInfoUnifiedArtistName, artistName, StringComparison.Ordinal);
 
+    /// <summary>Opens unified artist detail while preserving current nested Back ownership.</summary>
+    /// <param name="artistName">Artist display name used across libraries.</param>
+    /// <returns>A task completing after detail loading or abandonment.</returns>
     private async Task ShowUnifiedArtistAlbumsAsync(string artistName)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        var restoreRequest = _navigationRestores.Context;
         var loadVersion = ++_artistDetailLoadVersion;
+        bool OwnsAdmission() => loadVersion == _artistDetailLoadVersion &&
+            (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest));
+        bool CanPublish() => OwnsAdmission() && IsCurrentArtistDetailLoad(loadVersion, artistName);
         CancelArtistProfileLoad();
+        if (!OwnsAdmission()) return;
         PushCurrentNavigationState();
+        if (!OwnsAdmission()) return;
         _currentTopLevelTag = "UnifiedArtistAlbums";
         _activeArtistFilterId = null;
         _activeArtistFilterName = artistName;
@@ -88,7 +98,7 @@ public partial class MainWindow : Window
         var trackRequests = new List<(ILibraryCatalogProvider Provider, OrynivoServerSettings? Server, long ArtistId, long AlbumId)>();
         var localArtists = await Task.Run(async () =>
             await _localCatalogProvider.GetArtistsAsync());
-        if (!IsCurrentArtistDetailLoad(loadVersion, artistName))
+        if (!CanPublish())
             return;
         var matchingLocalArtists = localArtists.Where(candidate =>
                 ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey)
@@ -107,7 +117,7 @@ public partial class MainWindow : Window
             }
             return lists;
         });
-        if (!IsCurrentArtistDetailLoad(loadVersion, artistName))
+        if (!CanPublish())
             return;
         foreach (var catalog in localCatalogLists)
         {
@@ -121,6 +131,7 @@ public partial class MainWindow : Window
         PopulateUnifiedArtistInfoAlbums(albumSources);
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
 
+        if (!CanPublish()) return;
         ContentRow? matchingRemoteRow = null;
         var remoteLoads = (_settings.OrynivoServers ?? [])
             .Select(async server =>
@@ -157,7 +168,7 @@ public partial class MainWindow : Window
             .ToList();
         foreach (var remote in await Task.WhenAll(remoteLoads))
         {
-            if (!IsCurrentArtistDetailLoad(loadVersion, artistName))
+            if (!CanPublish())
                 return;
             foreach (var artist in remote.Artists)
             {
@@ -177,7 +188,7 @@ public partial class MainWindow : Window
             PopulateUnifiedArtistInfoAlbums(albumSources);
         }
         await Dispatcher.UIThread.InvokeAsync(() => { }, DispatcherPriority.Background);
-        if (!IsCurrentArtistDetailLoad(loadVersion, artistName))
+        if (!CanPublish())
             return;
 
         using (var artworkSyncCts = new CancellationTokenSource(TimeSpan.FromSeconds(10)))
@@ -192,7 +203,7 @@ public partial class MainWindow : Window
                 // Artwork synchronization is optional and must not block artist navigation.
             }
         }
-        if (!IsCurrentArtistDetailLoad(loadVersion, artistName))
+        if (!CanPublish())
             return;
 
         _ = LoadAndPopulateArtistInfoTracksAsync(
@@ -211,6 +222,7 @@ public partial class MainWindow : Window
             ArtistInfoStatusTextBlock.IsVisible = true;
         }
 
+        if (!CanPublish()) return;
         _artistInfoUnifiedArtistName = artistName;
         PopulateUnifiedArtistInfoAlbums(albumSources);
         SetArtistInfoFavoriteState(isFavorite);

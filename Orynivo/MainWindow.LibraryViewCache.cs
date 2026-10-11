@@ -8,6 +8,7 @@ public partial class MainWindow
     /// <summary>Abandons shared catalog snapshots and pending publications after server settings or profile changes.</summary>
     private void InvalidateCatalogConfiguration()
     {
+        _navigationRestores.Invalidate();
         CancelProviderAlbumLoad();
         CancelTopLevelViewLoad();
         CancelRemoteViewLoad();

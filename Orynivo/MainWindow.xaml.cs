@@ -187,7 +187,6 @@ public partial class MainWindow : Window
     private bool _updatingAlbumTrackScope;
     private readonly List<DataGrid> _albumFolderGroupGrids = [];
     private readonly Stack<NavigationState> _navigationStack = [];
-    private bool _restoringNavigationHistory;
     private readonly DispatcherTimer _searchTimer;
     private bool _trackFavoritesOnly;
     private bool _artistFavoritesOnly;
@@ -810,6 +809,10 @@ public partial class MainWindow : Window
     /// <param name="e">Window close event.</param>
     protected override void OnClosed(EventArgs e)
     {
+        _navigationRestores.Invalidate();
+        CancelProviderAlbumLoad();
+        CancelTopLevelViewLoad();
+        CancelRemoteViewLoad();
         LogUiDiagnostics("OnClosed started");
         _uiDiagnosticsHeartbeatTimer?.Stop();
         _uiDiagnosticsHeartbeatTimer = null;

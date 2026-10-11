@@ -708,6 +708,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   existing top-level fallback. MainWindow keeps payloads, history and loaders;
   remote adapters retain source validation. Test colliding IDs and incomplete
   states without constructing a window.
+- NavigationRestoreOwnership distinguishes the current asynchronous Back call
+  chain from independent navigation. Only current nested work suppresses history
+  capture; obsolete contexts cannot admit navigation or invalidate newer work.
+  Install a new restore before cancelling prior loaders and recheck between
+  cancellation adapters. Only its own completion clears the executing flag;
+  ownership remains valid for layout callbacks until abandonment. Guard outer
+  Back visibility and immediate/deferred selection. Top-level restore captures
+  its exact admission token, generation and tag; remote artist restore also
+  retains overview and filtered-load tokens. Configuration, Settings and close
+  abandon restore work. Preserve the existing history stacks and source keys.
+  Test overlap, independent navigation, same-tag reload, rejected new targets,
+  nested search resets, new text input and deferred layout without rebinding.
 - ServerNavigationTarget owns the existing server tag grammar and album-origin
   source matching without connection settings. Album capture retains an origin
   only for the owning server; otherwise use its Albums target. Remote restores

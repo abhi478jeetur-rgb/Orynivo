@@ -1171,7 +1171,22 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Required detail identifiers, logical parts and unified artist names preserve
   the existing top-level fallback for incomplete states. The window retains
   payloads and loader execution; server adapters retain source validation. Tests
-  cover colliding IDs and incomplete states. `ServerNavigationTarget` parses the
+  cover colliding IDs and incomplete states. `NavigationRestoreOwnership` reuses
+  request identity with an asynchronous call-chain context. Only current nested
+  restore work suppresses history capture; independent navigation abandons the
+  restore and resumes capture immediately. Obsolete contexts cannot admit
+  loaders or invalidate a newer restore. New Back ownership precedes
+  cancellation of prior loaders, with checks between cancellation adapters.
+  Completion clears only its own executing flag and retains publication identity
+  for deferred layout. Outer Back visibility and immediate/deferred selection
+  require ownership. Top-level restoration additionally captures the exact
+  admission token, catalog generation and tag. Remote artist restoration retains
+  both overview and filtered-list tokens. Configuration, Settings and close
+  abandon restore work. Window-free tests cover overlap and context isolation;
+  synthetic window fixtures cover source collisions, same-tag replacement,
+  independent capture, rejected new targets, nested search resets/text changes
+  and abandoned Loaded callbacks without rebinding. Existing stacks, payloads
+  and loader responsibilities remain. `ServerNavigationTarget` parses the
   existing server tag grammar (including Root defaults) and binds album origins
   to their owning server. Malformed or removed sources are rejected before
   remote restore changes the view or requests data. Restore adapters capture the

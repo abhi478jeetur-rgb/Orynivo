@@ -65,6 +65,8 @@ public partial class MainWindow : Window
     /// <returns>A task completing after loading or abandonment.</returns>
     private async Task LoadTopLevelViewAsync(string tag, Action<CancellationToken>? onAdmitted = null)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        var restoreRequest = _navigationRestores.Context;
         var previousCancellation = _topLevelViewCts;
         _topLevelViewCts = new CancellationTokenSource();
         var token = _topLevelViewCts.Token;
@@ -73,7 +75,8 @@ public partial class MainWindow : Window
         CancelProviderAlbumLoad();
         CancelAndDispose(ref previousCancellation);
         CancelRemoteViewLoad();
-        bool CanPublish() => _topLevelViewLoads.IsCurrent(request);
+        bool CanPublish() => _topLevelViewLoads.IsCurrent(request) &&
+            (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest));
         if (!CanPublish()) return;
         var diagnosticStopwatch = Stopwatch.StartNew();
         LogUiDiagnostics($"ShowTopLevelViewAsync start tag={tag}");
@@ -273,7 +276,7 @@ public partial class MainWindow : Window
                 GenreCloudPanel.IsVisible = true;
                 GenreCloudSurface.IsVisible = true;
                 ApplyColumns("Tracks");
-                if (!_restoringNavigationHistory)
+                if (!_navigationRestores.ShouldSuppressHistory)
                     _genreCloudSelectedKey = null;
                 await ShowGenreCloudAsync(_genreCloudSelectedKey);
             }

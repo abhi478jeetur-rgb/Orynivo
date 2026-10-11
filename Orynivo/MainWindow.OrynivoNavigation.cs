@@ -116,6 +116,7 @@ public partial class MainWindow : Window
         long? artistFilterId = null,
         string? artistFilterName = null)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         if (_activeOrynivoServer is not { } activeServer) return;
         var server = (_settings.OrynivoServers ?? []).FirstOrDefault(candidate =>
             string.Equals(candidate.Id, activeServer.Id, StringComparison.Ordinal));
@@ -137,6 +138,7 @@ public partial class MainWindow : Window
     /// <returns>A task completing after detail loading or abandonment.</returns>
     private async Task OpenOrynivoAlbumTracksAsync(ContentRow row)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         if (row.Id is not long albumId) return;
         var source = row.OrynivoServer ?? _activeOrynivoServer;
         if (source is null || !string.Equals(_activeOrynivoServer?.Id, source.Id, StringComparison.Ordinal)) return;
@@ -217,7 +219,9 @@ public partial class MainWindow : Window
         var server = (_settings.OrynivoServers ?? [])
             .FirstOrDefault(candidate => string.Equals(candidate.Id, target.ServerId, StringComparison.Ordinal));
         if (server is null) return;
-        bool CanRestore() => ReferenceEquals(_activeOrynivoServer, server) &&
+        var restoreRequest = _navigationRestores.Context;
+        bool CanRestore() => (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest)) &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
             string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
             (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
 
@@ -240,7 +244,7 @@ public partial class MainWindow : Window
         RestoreSelectionFromCurrentItems(null, verticalOffset, canRestore: CanRestoreDetail);
     }
 
-    /// <summary>Restores the filtered album list for a remote server artist.</summary>
+    /// <summary>Restores a remote artist list while its Back execution, overview and filtered load remain current.</summary>
     /// <param name="navigationTag">Remote server navigation tag to restore.</param>
     /// <param name="artistId">Remote server artist identifier.</param>
     /// <param name="artistName">Artist display name for the header.</param>
@@ -259,21 +263,29 @@ public partial class MainWindow : Window
         var server = (_settings.OrynivoServers ?? [])
             .FirstOrDefault(candidate => string.Equals(candidate.Id, target.ServerId, StringComparison.Ordinal));
         if (server is null) return;
-        bool CanRestore() => ReferenceEquals(_activeOrynivoServer, server) &&
+        var restoreRequest = _navigationRestores.Context;
+        bool CanRestore() => (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest)) &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
             string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
             (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
 
+        var generation = _unifiedLibraryLoads.Generation;
         SelectNavigationItem(navigationTag!);
-        await ShowTopLevelViewAsync(navigationTag!);
-        if (!CanRestore()) return;
+        var overviewToken = new CancellationToken(canceled: true);
+        await LoadTopLevelViewAsync(navigationTag!, admitted => overviewToken = admitted);
+        if (overviewToken.IsCancellationRequested || generation != _unifiedLibraryLoads.Generation || !CanRestore()) return;
 
         _currentTopLevelTag = navigationTag!;
         _activeOrynivoView = "Albums";
         _activeArtistFilterId = artistId;
         _activeArtistFilterName = artistName;
         ContentTitleTextBlock.Text = $"{server.Name} · {artistName}";
-        await LoadOrynivoViewAsync(filterArtistId: artistId);
-        RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset, canRestore: CanRestore);
+        var detail = LoadOrynivoViewAsync(filterArtistId: artistId);
+        var detailToken = _orynivoViewCts?.Token;
+        await detail;
+        RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset,
+            canRestore: () => CanRestore() && detailToken.HasValue && !detailToken.Value.IsCancellationRequested &&
+                generation == _unifiedLibraryLoads.Generation);
     }
 
     /// <summary>Queues playable rows and starts the selected occurrence, preserving playlist duplicates.</summary>
