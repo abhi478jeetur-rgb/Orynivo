@@ -1166,13 +1166,18 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   logical album parts and provider-bound album/artist routes. The decision owns
   no rows, provider or history; the window adapts its target into the existing
   Back state and retains selection, scroll and restore work. Window-free tests
-  cover source collisions and capture precedence. `ServerNavigationTarget`
-  parses the existing server tag grammar (including Root defaults) and binds
-  album origins to their owning server. Malformed or removed sources are
-  rejected before remote restore changes the view or requests data. Restore
-  adapters capture the configured server and check active identity, current tag
-  and configuration membership after awaits and before deferred scroll/selection
-  work; ambient server state cannot substitute for a rejected target.
+  cover source collisions and capture precedence. `NavigationRestoreDecision`
+  selects eligible source-specific restore adapters from scalar saved state.
+  Required detail identifiers, logical parts and unified artist names preserve
+  the existing top-level fallback for incomplete states. The window retains
+  payloads and loader execution; server adapters retain source validation. Tests
+  cover colliding IDs and incomplete states. `ServerNavigationTarget` parses the
+  existing server tag grammar (including Root defaults) and binds album origins
+  to their owning server. Malformed or removed sources are rejected before
+  remote restore changes the view or requests data. Restore adapters capture the
+  configured server and check active identity, current tag and configuration
+  membership after awaits and before deferred scroll/selection work; ambient
+  server state cannot substitute for a rejected target.
   `NavigationLoadOwnership` supplies dispatcher-owned remote view request
   versions without another history or row model. New request/token state is
   installed before cancelling old work; reentrant callbacks cannot reclaim it.

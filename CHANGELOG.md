@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Extracted Back restore route decisions into a tested UI-independent helper,
+  preserving source identity and incomplete-state fallback.
+
 - Logical album detail now owns artwork and track publication across navigation
   and configuration changes. Source parts and artist scope are captured before
   awaiting; obsolete responses cannot register playback metadata or update

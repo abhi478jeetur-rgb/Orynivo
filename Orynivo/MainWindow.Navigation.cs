@@ -320,6 +320,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Adapts a typed restore route to the existing source-specific loaders.</summary>
+    /// <param name="state">Saved window-owned history payload.</param>
+    /// <returns>A task completing after the selected loader and restoration adapter.</returns>
     private async Task RestoreNavigationStateCoreAsync(NavigationState state)
     {
         _activeArtistFilterId = state.ArtistFilterId;
@@ -328,11 +331,13 @@ public partial class MainWindow : Window
         _activeAlbumFilterTitle = null;
         HideAlbumDetailHeader();
 
-        switch (state.View)
+        switch (NavigationRestoreDecision.Select(new(state.View, state.SelectedId,
+                    state.ArtistFilterId, state.ArtistFilterName,
+                    state.LogicalAlbumParts is { Count: > 0 })))
         {
-            case "LogicalAlbumTracks" when
-                state.SelectedId is long logicalAlbumId &&
-                state.LogicalAlbumParts is { Count: > 0 } parts:
+            case NavigationRestoreKind.LogicalAlbum:
+                var logicalAlbumId = state.SelectedId!.Value;
+                var parts = state.LogicalAlbumParts!;
                 var representativePart = parts.First();
                 var logicalRow = new ContentRow
                 {
@@ -351,7 +356,8 @@ public partial class MainWindow : Window
                 await OpenLogicalAlbumTracksAsync(logicalRow);
                 return;
 
-            case "AlbumTracks" when state.SelectedId is long albumId:
+            case NavigationRestoreKind.LocalAlbum:
+                var albumId = state.SelectedId!.Value;
                 await ShowAlbumTracksAsync(
                     albumId,
                     string.IsNullOrWhiteSpace(state.SearchQuery)
@@ -362,7 +368,8 @@ public partial class MainWindow : Window
                     state.LogicalAlbumIds);
                 return;
 
-            case "ArtistAlbums" when state.ArtistFilterId is long artistId:
+            case NavigationRestoreKind.LocalArtist:
+                var artistId = state.ArtistFilterId!.Value;
                 await ShowArtistAlbumsAsync(
                     artistId,
                     string.IsNullOrWhiteSpace(state.SearchQuery)
@@ -374,15 +381,16 @@ public partial class MainWindow : Window
                     state.SelectedSourceKey);
                 return;
 
-            case "UnifiedArtistAlbums" when !string.IsNullOrWhiteSpace(state.ArtistFilterName):
-                await ShowUnifiedArtistAlbumsAsync(state.ArtistFilterName);
+            case NavigationRestoreKind.UnifiedArtist:
+                await ShowUnifiedArtistAlbumsAsync(state.ArtistFilterName!);
                 RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset, state.SelectedSourceKey);
                 return;
 
-            case "OrynivoAlbumTracks" when state.SelectedId is long albumId:
+            case NavigationRestoreKind.ServerAlbum:
+                var serverAlbumId = state.SelectedId!.Value;
                 await RestoreOrynivoAlbumTracksAsync(
                     state.NavigationTag,
-                    albumId,
+                    serverAlbumId,
                     state.SearchQuery,
                     state.ArtistFilterId,
                     state.ArtistFilterName,
@@ -390,16 +398,17 @@ public partial class MainWindow : Window
                     state.LogicalAlbumIds);
                 return;
 
-            case "OrynivoArtistAlbums" when state.ArtistFilterId is long artistId:
+            case NavigationRestoreKind.ServerArtist:
+                var serverArtistId = state.ArtistFilterId!.Value;
                 await RestoreOrynivoArtistAlbumsAsync(
                     state.NavigationTag,
-                    artistId,
+                    serverArtistId,
                     state.SearchQuery,
                     state.SelectedId,
                     state.VerticalOffset);
                 return;
 
-            case "Search":
+            case NavigationRestoreKind.Search:
                 SearchTextBox.Text = state.SearchQuery ?? string.Empty;
                 var searchRestore = ShowSearchResultsAsync(state.SearchQuery ?? string.Empty);
                 var searchVersion = _librarySearchVersion;
@@ -412,22 +421,12 @@ public partial class MainWindow : Window
                           searchGeneration == _unifiedLibraryLoads.Generation && SearchResultsScrollViewer.IsVisible);
                 return;
 
-            case "GenreCloud":
+            case NavigationRestoreKind.GenreCloud:
                 _genreCloudSelectedKey = state.GenreKey;
                 GenreAlbumRecommendationsRadioButton.IsChecked = state.GenreAlbums == true;
                 GenreTrackRecommendationsRadioButton.IsChecked = state.GenreAlbums != true;
                 SelectNavigationItem("GenreCloud");
                 await ShowTopLevelViewAsync("GenreCloud");
-                RestoreSelectionFromCurrentItems(
-                    state.SelectedId,
-                    state.VerticalOffset,
-                    state.SelectedSourceKey);
-                return;
-
-            case "Artists":
-            case "Albums":
-                SelectNavigationItem(state.View);
-                await ShowTopLevelViewAsync(state.View);
                 RestoreSelectionFromCurrentItems(
                     state.SelectedId,
                     state.VerticalOffset,

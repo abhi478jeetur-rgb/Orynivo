@@ -703,6 +703,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   state payloads, selection/scroll and restore adapters. Test decisions without
   a window and exercise the capture adapter with synthetic data before changing
   restore paths.
+- NavigationRestoreDecision selects eligible restore adapters from scalar saved
+  state. Preserve source discriminators, required detail identity and the
+  existing top-level fallback. MainWindow keeps payloads, history and loaders;
+  remote adapters retain source validation. Test colliding IDs and incomplete
+  states without constructing a window.
 - ServerNavigationTarget owns the existing server tag grammar and album-origin
   source matching without connection settings. Album capture retains an origin
   only for the owning server; otherwise use its Albums target. Remote restores
