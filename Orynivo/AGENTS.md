@@ -294,6 +294,21 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Save episode progress only after resume preparation; abandoning a pending seek
   preserves its previously saved position.
 
+- Radio monitor callbacks guard captured start intent, player, station identity
+  and cancellation on the dispatcher, including fallback metadata. The optional
+  probe adapter supports lifecycle checks without FFmpeg. Cross-device resume
+  lookup starts after source metadata assignment, owns a request version and
+  captured playback token/player/row, and rejects stale same-track responses.
+  Stop and gapless transitions cancel lookup and clear prompts. Accepted seeks
+  validate prompt ownership, observe errors, guard completion messages and hold
+  a preparation lease for full release. Advisory lookup owns no audio device and
+  is cancelled without delaying output release.
+
+- RefreshActiveGaplessQueueAsync awaits readiness with captured position and
+  initiallyPaused state; never apply Pause after awaiting the audible lifetime.
+  Obsolete rebuilding must not pause another player. Independent queue edits
+  retain their separate semantics and still require a queue-resolution audit.
+
 - `Audio.PlaybackReadiness` separates prepared-player publication from track
   completion. Apply initial seek and paused state before publication. Output
   switching and lock reacquisition await readiness; retain observation of later

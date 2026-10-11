@@ -485,6 +485,23 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   active-player identity on the dispatcher before advancing queue occurrences
   and closing/opening their history records.
 
+- Radio metadata monitoring captures start intent, player, station and token;
+  dispatcher publication checks all of them for successful and failed probes.
+  Cross-device resume lookup starts after current source metadata assignment,
+  captures player/row/start ownership and a request version, and passes linked
+  playback cancellation to the server. Old same-track responses cannot restore a
+  prompt. Stop and gapless transitions clear ownership and cancel lookup.
+  Accepted resume seeks retain a preparation lease until completion, observe
+  failures without stopping playback and guard subsequent UI messages. Full
+  release waits for admitted seeks; advisory lookup is cancelled but does not
+  delay device release.
+
+- `MainWindow.RefreshActiveGaplessQueueAsync` recreates the current source at
+  the captured audible position and passes paused state into readiness. It
+  returns after preparation; never pause whichever player is active after a
+  whole-track await. Pending independent append/next lookups remain a separate
+  queue-edit ownership concern.
+
 - `Orynivo/Audio/PlaybackPreparationTracker.cs`: dispatcher-owned cancellation
   and completion leases for lookup, creation and initial/resume seek. They end
   before waiting for track completion. Cancellation never removes an unresolved

@@ -408,6 +408,14 @@ Late results cannot change the queue or overwrite a newer refill indicator.
 Complete output release waits for pending refills, and starting an idle mix
 returns after player preparation.
 
+Gapless queue rebuilding also returns after preparation, preserving the audible
+position and paused state without waiting for the track to finish.
+
+Radio metadata and cross-device resume offers belong to the current playback
+only. Stop and gapless track changes remove stale resume offers. Resume seeks
+report failure without stopping playback, and complete output release waits for
+a pending accepted resume seek.
+
 Radio and podcast actions also complete after preparation. Podcasts apply saved
 progress when no nonzero initial position is requested; explicit resume
 positions retain precedence, including paused output switching and lock

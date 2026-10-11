@@ -376,48 +376,57 @@ public partial class MainWindow : Window
         _ = MonitorRadioMetadataAsync(station, _radioMetadataCts.Token);
     }
 
+    /// <summary>Publishes probe results only for the captured active radio session.</summary>
+    /// <param name="station">Owning station.</param>
+    /// <param name="cancellationToken">Monitor cancellation.</param>
+    /// <param name="probe">Optional probe adapter for isolated lifecycle verification.</param>
+    /// <returns>The cancellable monitoring lifetime.</returns>
     private async Task MonitorRadioMetadataAsync(
         RadioStationRecord station,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, CancellationToken, Task<RadioStreamMetadata?>>? probe = null)
     {
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player is null) return;
+        probe ??= _radioMetadataService.ProbeAsync;
+        bool IsCurrent() => !cancellationToken.IsCancellationRequested && !_playbackShuttingDown &&
+            _playbackStarts.IsCurrent(intent) && ReferenceEquals(_player, player) &&
+            ReferenceEquals(_currentRadioStation, station);
         string? previousSignature = null;
-        while (!cancellationToken.IsCancellationRequested)
+        while (IsCurrent())
         {
             try
             {
-                var metadata = await _radioMetadataService.ProbeAsync(
-                    station.StreamUrl,
-                    cancellationToken);
+                var metadata = await probe(station.StreamUrl, cancellationToken);
+                if (!IsCurrent()) return;
                 var signature = metadata is null
                     ? string.Empty
                     : $"{metadata.StreamTitle}\n{metadata.Description}\n{metadata.Genre}";
                 if (!string.Equals(signature, previousSignature, StringComparison.Ordinal))
                 {
                     previousSignature = signature;
-                    await Dispatcher.UIThread.InvokeAsync(() => UpdateRadioMetadata(station, metadata));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsCurrent()) UpdateRadioMetadata(station, metadata);
+                    });
                 }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            catch (OperationCanceledException) { break; }
             catch
             {
                 if (previousSignature is null)
                 {
                     previousSignature = string.Empty;
-                    await Dispatcher.UIThread.InvokeAsync(() => UpdateRadioMetadata(station, null));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsCurrent()) UpdateRadioMetadata(station, null);
+                    });
                 }
             }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            if (!IsCurrent()) return;
+            try { await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken); }
+            catch (OperationCanceledException) { break; }
         }
     }
 

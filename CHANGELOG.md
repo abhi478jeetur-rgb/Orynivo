@@ -21,6 +21,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Gapless queue rebuilding completes after player preparation and preserves the
+  paused position before publication. Obsolete rebuild completion cannot pause a
+  newer player.
+
+- Radio metadata and cross-device resume responses reject obsolete playback
+  sessions, including restarts of the same station or remote track. Resume
+  lookup starts after current track metadata is assigned; Stop and gapless
+  transitions clear stale prompts. Resume seeks observe failures and full output
+  release waits for admitted seeks before reporting completion.
+
 - Radio and podcast actions complete after player preparation while later
   playback errors remain observed. Obsolete preparation errors cannot stop a
   replacement. A nonzero requested podcast position takes precedence over saved

@@ -319,6 +319,8 @@ public partial class MainWindow : Window
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
         _podcastResumePrepared = false;
+        ClearRemoteResumePrompt();
+        _currentOrynivoTrackRow = null;
         if (invalidateStart)
             _playbackPreparations.CancelAll();
         CancelAndDispose(ref _radioMetadataCts);

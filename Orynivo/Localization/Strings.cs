@@ -1497,6 +1497,9 @@ public sealed record LocalizedStrings(
     public string ResumeOnThisDevice { get; init; } = "";
     public string ResumeOnThisDeviceTooltip { get; init; } = "";
     public string ResumeOnThisDeviceHint { get; init; } = "";
+
+    /// <summary>Shown when a saved-position seek fails while playback remains active.</summary>
+    public string ResumeOnThisDeviceFailed { get; init; } = "";
     public string TransportPrevious { get; init; } = "";
     public string TransportPlayPause { get; init; } = "";
     public string TransportNext { get; init; } = "";

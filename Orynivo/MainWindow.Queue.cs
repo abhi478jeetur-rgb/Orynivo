@@ -567,6 +567,8 @@ public partial class MainWindow : Window
             RefreshQueueRows();
     }
 
+    /// <summary>Rebuilds active gapless output at its position and paused state.</summary>
+    /// <returns>Player preparation without waiting for audible completion.</returns>
     private async Task RefreshActiveGaplessQueueAsync()
     {
         if (_player is not IGaplessAudioPlayer ||
@@ -578,9 +580,7 @@ public partial class MainWindow : Window
         var path = _currentFilePath;
         var position = _player.Position;
         var wasPaused = _player.IsPaused;
-        await StartPlaybackAsync(path, initialPosition: position);
-        if (wasPaused)
-            PausePlayback();
+        await StartReadyPlaybackAsync(path, initialPosition: position, initiallyPaused: wasPaused);
     }
 
     private async void SaveQueueAsPlaylistButton_OnClick(object? sender, RoutedEventArgs e)

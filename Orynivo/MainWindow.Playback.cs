@@ -334,8 +334,6 @@ public partial class MainWindow : Window
             return;
         _podcastResumePrepared = podcastPlayback is not null;
         _lastPodcastProgressSave = DateTimeOffset.UtcNow;
-        if (podcastPlayback is null && _currentOrynivoTrackRow is { } remoteResumeRow)
-            _ = OfferRemoteResumeAsync(remoteResumeRow, initialPosition.TotalSeconds);
         PlayButton.IsEnabled   = false;
         PlayButton.IsEnabled   = true;
         SetPlayPauseIcon(isPlaying: true);
@@ -516,6 +514,8 @@ public partial class MainWindow : Window
         }
         UpdateNowPlayingFavoriteButton();
         UpdateReplayGainBadge(usesNativeDsd);
+        if (podcastPlayback is null && _currentOrynivoTrackRow is { } remoteResumeRow)
+            _ = OfferRemoteResumeAsync(remoteResumeRow, initialPosition.TotalSeconds);
         RefreshWindowsMediaMetadata();
         _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Playing);
         _windowsMediaTransport?.UpdateTimeline(
@@ -1110,6 +1110,9 @@ public partial class MainWindow : Window
         return false;
     }
 
+    /// <summary>Advances queue/history and clears obsolete resume prompts for the active player.</summary>
+    /// <param name="sender">Owning gapless player.</param>
+    /// <param name="e">New audible track.</param>
     private void GaplessPlayer_OnTrackChanged(object? sender, GaplessTrackChangedEventArgs e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -1117,6 +1120,7 @@ public partial class MainWindow : Window
             if (!ReferenceEquals(sender, _player))
                 return;
 
+            ClearRemoteResumePrompt();
             RecordPlaybackEnd(completed: true, _currentPlaybackDuration.TotalSeconds);
             _currentFilePath = e.FilePath;
             _currentPlaybackDuration = e.Info.Duration;
