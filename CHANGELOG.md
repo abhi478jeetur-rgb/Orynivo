@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Provider album track loads now capture their server, artist scope and album
+  IDs before awaiting. Superseded requests reject rows, playback registration
+  and fades, release their loading contribution once, and receive cancellation
+  when navigation or catalog configuration changes.
+
 - Top-level loading and deferred fades now retain request ownership. Superseded
   navigation releases its counted loading scope exactly once and cannot replay a
   fade over the new view. Remote and outer loaders share an idempotent lease;

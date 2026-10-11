@@ -721,8 +721,17 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   cancellation or completion; marshal cancellation release to the dispatcher.
   Gate fade/status separately so balanced cleanup cannot leak loading depth.
   Never let an old completion hide a newer view's loading state. Test held local
-  navigation and same-tag replacement with fake HTTP; provider album detail
-  loaders require their own subsequent publication audit.
+  navigation and same-tag replacement with fake HTTP; separate detail loaders
+  must retain their own publication ownership.
+- Provider album track loaders reuse `NavigationLoadOwnership` and
+  `ContentLoadingLease`. Capture server, copied album IDs and artist scope
+  before awaits; pass cancellation and reject obsolete results before row
+  mapping or playback registration. Guard request, catalog generation, active
+  provider, album, tag and server identity. Navigation/reset/push/configuration
+  changes cancel the scope; completion and deferred fades retain ownership. Test
+  held same-album loads and source/configuration changes. The preceding album
+  metadata lookup and logical/local detail loaders remain separate audit
+  boundaries.
 - Top-level view loads reuse `NavigationLoadOwnership` for loading/fade
   publication and install replacement tokens before cancellation callbacks.
   Detail reset/push and configuration changes cancel their scope.

@@ -1191,8 +1191,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   opacity and in deferred render work. Overlay generations change at zero-depth
   transitions, preserving pending rendering across nested scopes. Tests exercise
   complete held top-level calls, same-tag overlap, deferred fade rejection and
-  nested overlay visibility. Provider-backed album detail publication remains a
-  separate audit boundary. Never restore a remote album detail through the local
+  nested overlay visibility. Provider-backed album track loads now capture their
+  server, copied album IDs and artist scope before awaiting. The same ownership
+  helper guards request, catalog generation, active provider/album, tag and
+  server. Cancellation reaches each provider call; results are checked before
+  mapping or playback registration. Counted release and deferred fades use the
+  shared lease and ownership guard. Held tests cover navigation/configuration
+  abandonment, ambient server changes and same-album replacement. Preceding
+  album metadata lookup and logical/local detail publication remain separate
+  audit boundaries. Never restore a remote album detail through the local
   `ShowAlbumTracksAsync` path because server and local album IDs can collide.
   Remote artist-info views must use the bound remote row/server profile data,
   not local `AudioDatabase.GetArtistById`, because server IDs can collide with

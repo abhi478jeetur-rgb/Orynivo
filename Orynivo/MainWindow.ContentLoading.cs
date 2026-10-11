@@ -63,6 +63,7 @@ public partial class MainWindow : Window
         _topLevelViewCts = new CancellationTokenSource();
         var token = _topLevelViewCts.Token;
         var request = _topLevelViewLoads.Begin(token);
+        CancelProviderAlbumLoad();
         CancelAndDispose(ref previousCancellation);
         CancelRemoteViewLoad();
         bool CanPublish() => _topLevelViewLoads.IsCurrent(request);

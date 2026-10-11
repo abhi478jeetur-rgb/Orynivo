@@ -309,6 +309,23 @@ public partial class MainWindow : Window
         }
     }
 
+    private readonly NavigationLoadOwnership _providerAlbumLoads = new();
+    private CancellationTokenSource? _providerAlbumCts;
+
+    /// <summary>Abandons provider album publication and releases its counted loading scope.</summary>
+    private void CancelProviderAlbumLoad()
+    {
+        _providerAlbumLoads.Invalidate();
+        CancelAndDispose(ref _providerAlbumCts);
+    }
+
+    /// <summary>Opens provider album detail using the existing window-owned state.</summary>
+    /// <param name="provider">Catalog owning the album.</param>
+    /// <param name="album">Album metadata to display.</param>
+    /// <param name="artistFilterId">Optional provider-local artist scope.</param>
+    /// <param name="artistFilterName">Optional artist scope display name.</param>
+    /// <param name="logicalAlbumIds">Optional album IDs belonging to the same provider.</param>
+    /// <returns>A task completing after loading or supersession.</returns>
     private async Task ShowProviderAlbumTracksAsync(
         ILibraryCatalogProvider provider,
         LibraryCatalogAlbum album,
@@ -350,6 +367,8 @@ public partial class MainWindow : Window
         await ReloadVisibleProviderAlbumTracksAsync();
     }
 
+    /// <summary>Loads captured provider album tracks only while their request remains current.</summary>
+    /// <returns>A task completing after publication or abandonment.</returns>
     private async Task ReloadVisibleProviderAlbumTracksAsync()
     {
         if (_activeAlbumCatalogProvider is not { } provider ||
@@ -358,18 +377,45 @@ public partial class MainWindow : Window
             return;
         }
 
+        var server = album.Source == LibraryCatalogSource.OrynivoServer ? _activeOrynivoServer : null;
+        if (album.Source == LibraryCatalogSource.OrynivoServer && server is null) return;
+        var tag = _currentTopLevelTag;
+        var generation = _unifiedLibraryLoads.Generation;
+        var artistId = _showAllAlbumTracks ? null : _activeArtistFilterId;
+        var albumIds = _activeLogicalAlbumIds is { Count: > 0 }
+            ? _activeLogicalAlbumIds.ToArray() : [album.Id];
+        var previousCancellation = _providerAlbumCts;
+        _providerAlbumCts = new CancellationTokenSource();
+        var token = _providerAlbumCts.Token;
+        var request = _providerAlbumLoads.Begin(token);
+        CancelAndDispose(ref previousCancellation);
+        bool CanPublish() => _providerAlbumLoads.IsCurrent(request) &&
+            generation == _unifiedLibraryLoads.Generation &&
+            ReferenceEquals(_activeAlbumCatalogProvider, provider) &&
+            ReferenceEquals(_activeCatalogAlbum, album) &&
+            string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal) &&
+            (server is null || ReferenceEquals(_activeOrynivoServer, server));
+        if (!CanPublish()) return;
         ShowContentLoadingSkeleton();
+        using var loading = new ContentLoadingLease(HideContentLoadingSkeleton);
+        using var loadingCancellation = token.Register(() =>
+        {
+            if (Dispatcher.UIThread.CheckAccess()) loading.Dispose();
+            else Dispatcher.UIThread.Post(loading.Dispose);
+        });
+        if (!CanPublish()) return;
         try
         {
-            var artistId = _showAllAlbumTracks ? null : _activeArtistFilterId;
-            var albumIds = _activeLogicalAlbumIds is { Count: > 0 }
-                ? _activeLogicalAlbumIds
-                : [album.Id];
             var catalogTracks = new List<LibraryCatalogTrack>();
             foreach (var albumId in albumIds)
-                catalogTracks.AddRange(await provider.GetTracksByAlbumAsync(albumId, artistId));
+            {
+                var tracks = await provider.GetTracksByAlbumAsync(albumId, artistId, token);
+                if (!CanPublish()) return;
+                catalogTracks.AddRange(tracks);
+            }
+            if (!CanPublish()) return;
             var rows = catalogTracks
-                .Select(track => ToCatalogTrackContentRow(track, album.Source == LibraryCatalogSource.OrynivoServer ? _activeOrynivoServer : null))
+                .Select(track => ToCatalogTrackContentRow(track, server))
                 .ToList();
             var groupedRows = rows
                 .GroupBy(row => (
@@ -418,10 +464,14 @@ public partial class MainWindow : Window
             if (groupedRows.Count > 1)
                 ShowAlbumFolderGroups(groupedRows);
         }
+        catch (Exception) when (!CanPublish())
+        {
+            // Abandoned failures must not escape into newer navigation.
+        }
         finally
         {
-            HideContentLoadingSkeleton();
-            FadeInVisibleContentSurface();
+            loading.Dispose();
+            if (CanPublish()) FadeInVisibleContentSurface(CanPublish);
         }
     }
 

@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     /// <param name="clearNavigationHistory">Whether saved Back states are also removed.</param>
     private void ResetDrilldownState(bool clearNavigationHistory = true)
     {
+        CancelProviderAlbumLoad();
         CancelTopLevelViewLoad();
         CancelRemoteViewLoad();
         CancelLibrarySearch();
@@ -71,6 +72,7 @@ public partial class MainWindow : Window
     /// <summary>Captures the current view before navigation and cancels its pending shared-library load.</summary>
     private void PushCurrentNavigationState()
     {
+        CancelProviderAlbumLoad();
         CancelTopLevelViewLoad();
         CancelRemoteViewLoad();
         CancelLibrarySearch();

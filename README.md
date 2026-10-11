@@ -912,7 +912,8 @@ byte-range streaming without FFmpeg.
   cannot reopen an album from another active server. Server overview loads
   reject late rows and status updates after leaving the view or starting a newer
   load. Superseded top-level loads release their loading scope without replaying
-  a fade over the new view
+  a fade over the new view. Provider album track loads also reject late tracks
+  after navigation, configuration changes or a newer album load
 - Conservative artist-name normalization for `feat.` credits and unambiguous
   case, accent, spacing, and punctuation variants, with a repair action for
   existing libraries
