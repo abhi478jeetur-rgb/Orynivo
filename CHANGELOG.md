@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist rename synchronization retains the original configured server set and
+  copied connections. Changed or removed sources cannot receive subsequent
+  renames or merge requests after delayed responses, and newly added servers do
+  not enter an accepted rename. Already admitted changes still complete when the
+  artist view is closed; merge survivor choices remain explicit.
+
 - Artist profile refresh retains its original displayed artist, source and
   playback identity while the lookup dialog is open. Confirmations after
   navigation, a newer profile or source changes cannot refresh a different

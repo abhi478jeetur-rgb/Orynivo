@@ -146,7 +146,7 @@ public partial class MainWindow : Window
     /// <see langword="false"/> to retain the existing target-name identity, or
     /// <see langword="null"/> when no merge decision was made.
     /// </param>
-    /// <returns><see langword="true"/> when every matching reachable identity was renamed.</returns>
+    /// <returns><see langword="true"/> when every original source remained valid and every matching identity was renamed.</returns>
     private async Task<bool> RenameMatchingOrynivoArtistsAsync(
         string? previousArtistName,
         string artistName,
@@ -156,20 +156,51 @@ public partial class MainWindow : Window
         if (comparisonKey.Length == 0)
             return true;
 
+        // Accepted renames outlive navigation, but must never move to another connection.
+        var sources = (_settings.OrynivoServers ?? []).Select(server => (
+            Server: new OrynivoServerSettings
+            {
+                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+                StreamingFormat = server.StreamingFormat,
+                StreamingBitrateKbps = server.StreamingBitrateKbps
+            },
+            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
         var succeeded = true;
-        foreach (var server in _settings.OrynivoServers)
+        foreach (var source in sources)
         {
+            if (!source.IsCurrent())
+            {
+                succeeded = false;
+                continue;
+            }
+            var server = source.Server;
             try
             {
                 var artists = await _orynivoClient.GetArtistsAsync(server);
+                if (!source.IsCurrent())
+                {
+                    succeeded = false;
+                    continue;
+                }
                 foreach (var artist in artists.Where(candidate =>
                              ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
                 {
+                    if (!source.IsCurrent())
+                    {
+                        succeeded = false;
+                        break;
+                    }
                     var response = await _orynivoClient.RenameArtistAsync(
                         server,
                         artist.Id,
                         artistName,
                         preferredArtistId: null);
+                    if (!source.IsCurrent())
+                    {
+                        succeeded = false;
+                        break;
+                    }
                     if (response?.Result is null &&
                         response?.MatchingArtist is { } matchingArtist &&
                         preferCurrentArtistOnMerge is bool preferCurrent)
@@ -180,10 +211,10 @@ public partial class MainWindow : Window
                             artistName,
                             preferCurrent ? artist.Id : matchingArtist.Id);
                     }
-                    if (response?.Result is null)
+                    if (response?.Result is null || !source.IsCurrent())
                         succeeded = false;
                 }
-                DeleteOrynivoArtistListCache(server);
+                if (source.IsCurrent()) DeleteOrynivoArtistListCache(server);
             }
             catch (Exception ex)
             {

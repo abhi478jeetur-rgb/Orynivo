@@ -1916,6 +1916,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 - Artist rename/merge dialogs must not be awaited while an `AudioDatabase`
   connection remains open. Resolve a possible collision first, dispose the
   connection, show the modal choice, then run the rename transaction.
+- Cross-server artist rename synchronization captures the original source set
+  and copied connection settings before its first await. Retain source ID, name,
+  URL, credentials and profile identity in memory only; recheck configured
+  membership before lookup, after responses and before every rename/merge.
+  Changed or removed sources report incomplete synchronization; newly added
+  servers are excluded. Accepted data changes complete independently of view
+  navigation. Do not roll back admitted writes or delete a changed source's
+  artist-list cache. Equivalent configuration objects remain eligible.
 - Manual artist renames persist exactly one `artist_aliases` comparison-key
   mapping from the original tag name to the surviving artist ID. The new
   canonical name must never be written as an alias because it is already the

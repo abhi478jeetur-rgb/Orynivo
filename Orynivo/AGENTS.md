@@ -638,9 +638,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   library and on reachable Orynivo Servers; target-name collisions remain
   unresolved until the user explicitly chooses a merge. A local merge's survivor
   choice must be mapped by identity role (current versus existing target) to
-  equivalent collisions on every matching server. Album and artist detail
-  upload/delete actions route through the owning local or remote artwork
-  provider and use localized labels/tooltips. Plex identities remain separate.
+  equivalent collisions on every matching server. Artist rename synchronization
+  captures the original server set and copied connections before its first
+  await. Check configured source identity before lookup, after responses and
+  before every rename or merge. Changed or removed sources report incomplete
+  synchronization; added servers are excluded. Keep accepted data changes
+  independent of view navigation. Do not roll back admitted writes or delete a
+  changed source's artist-list cache. Album and artist detail upload/delete
+  actions route through the owning local or remote artwork provider and use
+  localized labels/tooltips. Plex identities remain separate.
 - Unified artist and logical-album details reconcile artwork for equivalent
   local/server identities with a bounded best-effort request. Copy only into
   missing destinations, preserve manual artist images, invalidate unified and
