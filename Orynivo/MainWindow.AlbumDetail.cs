@@ -312,9 +312,10 @@ public partial class MainWindow : Window
     private readonly NavigationLoadOwnership _providerAlbumLoads = new();
     private CancellationTokenSource? _providerAlbumCts;
 
-    /// <summary>Abandons provider album publication and releases its counted loading scope.</summary>
+    /// <summary>Abandons album metadata/detail publication and releases its counted loading scope.</summary>
     private void CancelProviderAlbumLoad()
     {
+        CancelRemoteAlbumOpen();
         _providerAlbumLoads.Invalidate();
         CancelAndDispose(ref _providerAlbumCts);
     }

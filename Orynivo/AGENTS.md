@@ -729,9 +729,21 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   mapping or playback registration. Guard request, catalog generation, active
   provider, album, tag and server identity. Navigation/reset/push/configuration
   changes cancel the scope; completion and deferred fades retain ownership. Test
-  held same-album loads and source/configuration changes. The preceding album
-  metadata lookup and logical/local detail loaders remain separate audit
-  boundaries.
+  held same-album loads and source/configuration changes. Logical/local detail
+  loaders remain separate audit boundaries.
+- Remote album metadata opens reuse `NavigationLoadOwnership` with a separate
+  window-owned token. Cancel them with provider detail abandonment. Capture
+  server, fallback metadata, artist scope and copied IDs before awaiting; reject
+  conflicting row sources before HTTP. Resolve copied catalog connection objects
+  by exact source ID to the current configured server before admission; never
+  require reference identity between a copied row source and settings. Guard
+  request, generation, tag, active server and configuration membership before
+  admitting detail. Install a new request before old cancellation callbacks.
+  Back restore captures its exact overview token at admission, then keeps
+  metadata request ownership through deferred selection/scroll. Never infer
+  ownership from a matching tag alone. Test held metadata, same-album/tag
+  overlap, captured fallback/scope and source conflicts; preserve the existing
+  top-level wrapper and Back stack.
 - Top-level view loads reuse `NavigationLoadOwnership` for loading/fade
   publication and install replacement tokens before cancellation callbacks.
   Detail reset/push and configuration changes cancel their scope.

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Remote album metadata lookups now retain request/source ownership before
+  starting detail loads. Both open routes capture artist scope and fallback
+  metadata, reject conflicting row sources, and cancel abandoned lookups. Back
+  restores retain the exact overview token and metadata request so newer
+  same-tag navigation cannot reopen obsolete detail or restore its scroll.
+
 - Provider album track loads now capture their server, artist scope and album
   IDs before awaiting. Superseded requests reject rows, playback registration
   and fades, release their loading contribution once, and receive cancellation

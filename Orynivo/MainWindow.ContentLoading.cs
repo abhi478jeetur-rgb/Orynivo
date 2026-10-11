@@ -57,12 +57,19 @@ public partial class MainWindow : Window
     /// <summary>Loads a top-level view while retaining ownership of its loading and fade publication.</summary>
     /// <param name="tag">Existing sidebar view identity.</param>
     /// <returns>A task completing after loading or abandonment by newer navigation.</returns>
-    private async Task ShowTopLevelViewAsync(string tag)
+    private Task ShowTopLevelViewAsync(string tag) => LoadTopLevelViewAsync(tag);
+
+    /// <summary>Admits a top-level request and exposes its token before cancellation callbacks run.</summary>
+    /// <param name="tag">Existing sidebar view identity.</param>
+    /// <param name="onAdmitted">Optional adapter capturing this request's exact cancellation token.</param>
+    /// <returns>A task completing after loading or abandonment.</returns>
+    private async Task LoadTopLevelViewAsync(string tag, Action<CancellationToken>? onAdmitted = null)
     {
         var previousCancellation = _topLevelViewCts;
         _topLevelViewCts = new CancellationTokenSource();
         var token = _topLevelViewCts.Token;
         var request = _topLevelViewLoads.Begin(token);
+        onAdmitted?.Invoke(token);
         CancelProviderAlbumLoad();
         CancelAndDispose(ref previousCancellation);
         CancelRemoteViewLoad();
