@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Local album workers now retain copied album IDs and artist scope. Navigation,
+  configuration changes and same-album replacement reject obsolete rows,
+  headers, rating-refresh admission, fades and Back-button publication, while
+  releasing the counted loading contribution exactly once.
+
 - Remote album metadata lookups now retain request/source ownership before
   starting detail loads. Both open routes capture artist scope and fallback
   metadata, reject conflicting row sources, and cancel abandoned lookups. Back

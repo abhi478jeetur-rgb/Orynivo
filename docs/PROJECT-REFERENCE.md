@@ -1208,11 +1208,19 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   token before cancellation callbacks via `LoadTopLevelViewAsync`; the existing
   `ShowTopLevelViewAsync` wrapper stays unchanged for callers. Metadata request
   ownership also guards deferred restoration. Held tests cover same-tag overview
-  and metadata replacement, scope/fallback capture and source rejection.
-  Logical/local detail publication remains a separate audit boundary. Never
-  restore a remote album detail through the local `ShowAlbumTracksAsync` path
-  because server and local album IDs can collide. Remote artist-info views must
-  use the bound remote row/server profile data, not local
+  and metadata replacement, scope/fallback capture and source rejection. Local
+  album workers also reuse request ownership and the counted lease. Copy IDs and
+  artist scope before `Task.Run`, which must not reread window fields. The token
+  prevents cancelled work starting; running SQLite reads may complete but
+  publication requires current request, generation, tag, album ID and local
+  detail kind. Check before rows/header/rating refresh admission and gate fades
+  separately. Return ownership to guard the opening caller's Back-button update.
+  Held dispatcher tests cover reset, top-level navigation, configuration,
+  same-album overlap and input/window ID mutation. Logical detail publication
+  and its cross-source artwork synchronization remain separate audit boundaries.
+  Never restore a remote album detail through the local `ShowAlbumTracksAsync`
+  path because server and local album IDs can collide. Remote artist-info views
+  must use the bound remote row/server profile data, not local
   `AudioDatabase.GetArtistById`, because server IDs can collide with local
   artist IDs. The remote artist-info rename/merge and Wikimedia image actions
   must call the Orynivo Server API (`RenameArtistAsync`,

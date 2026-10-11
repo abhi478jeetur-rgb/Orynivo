@@ -177,6 +177,23 @@ public partial class MainWindow : Window
         }
     }
 
+    private readonly NavigationLoadOwnership _localAlbumLoads = new();
+    private CancellationTokenSource? _localAlbumCts;
+
+    /// <summary>Abandons local album publication and releases its loading contribution.</summary>
+    private void CancelLocalAlbumLoad()
+    {
+        _localAlbumLoads.Invalidate();
+        CancelAndDispose(ref _localAlbumCts);
+    }
+
+    /// <summary>Opens local album tracks with the existing navigation state.</summary>
+    /// <param name="albumId">Local album identifier.</param>
+    /// <param name="albumTitle">Title shown for the album.</param>
+    /// <param name="artistFilterId">Optional local artist scope.</param>
+    /// <param name="artistFilterName">Optional artist display name.</param>
+    /// <param name="logicalAlbumIds">Optional local album IDs copied at admission.</param>
+    /// <returns>A task completing after loading or abandonment.</returns>
     private async Task ShowAlbumTracksAsync(
         long albumId,
         string albumTitle,
@@ -192,7 +209,7 @@ public partial class MainWindow : Window
         _activeAlbumCatalogProvider = null;
         _activeCatalogAlbum = null;
         _activeLogicalAlbumIds = logicalAlbumIds is { Count: > 0 }
-            ? logicalAlbumIds
+            ? logicalAlbumIds.ToArray()
             : [albumId];
         _activeLogicalAlbumParts = null;
         _activeLogicalAlbumRow = null;
@@ -216,25 +233,45 @@ public partial class MainWindow : Window
         PodcastView.IsVisible = false;
         UpdateAlphabetIndex(null, false);
 
-        await ReloadVisibleAlbumTracksAsync();
-        BackButton.IsVisible = true;
+        var request = await ReloadVisibleAlbumTracksAsync();
+        if (request is not null && _localAlbumLoads.IsCurrent(request))
+            BackButton.IsVisible = true;
     }
 
-    private async Task ReloadVisibleAlbumTracksAsync()
+    /// <summary>Loads copied local album scope without allowing old workers to publish into newer views.</summary>
+    /// <returns>Current ownership after publication, or null when abandoned.</returns>
+    private async Task<NavigationLoadOwnership.Request?> ReloadVisibleAlbumTracksAsync()
     {
-        if (_activeAlbumFilterId is not long albumId)
-            return;
-
+        if (_activeAlbumFilterId is not long albumId || _activeAlbumCatalogProvider is not null ||
+            _activeLogicalAlbumParts is { Count: > 0 }) return null;
+        var albumIds = _activeLogicalAlbumIds is { Count: > 0 }
+            ? _activeLogicalAlbumIds.ToArray() : [albumId];
+        var artistId = _showAllAlbumTracks ? null : _activeArtistFilterId;
+        var tag = _currentTopLevelTag;
+        var generation = _unifiedLibraryLoads.Generation;
+        var previousCancellation = _localAlbumCts;
+        _localAlbumCts = new CancellationTokenSource();
+        var token = _localAlbumCts.Token;
+        var request = _localAlbumLoads.Begin(token);
+        CancelAndDispose(ref previousCancellation);
+        bool CanPublish() => _localAlbumLoads.IsCurrent(request) &&
+            generation == _unifiedLibraryLoads.Generation && _activeAlbumFilterId == albumId &&
+            _activeAlbumCatalogProvider is null && _activeLogicalAlbumParts is not { Count: > 0 } &&
+            string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal);
+        if (!CanPublish()) return null;
         ShowContentLoadingSkeleton();
+        using var loading = new ContentLoadingLease(HideContentLoadingSkeleton);
+        using var loadingCancellation = token.Register(() =>
+        {
+            if (Dispatcher.UIThread.CheckAccess()) loading.Dispose();
+            else Dispatcher.UIThread.Post(loading.Dispose);
+        });
+        if (!CanPublish()) return null;
         try
         {
-            var artistId = _showAllAlbumTracks ? null : _activeArtistFilterId;
             var result = await Task.Run(() =>
             {
                 using var db = AudioDatabase.OpenDefault();
-                var albumIds = _activeLogicalAlbumIds is { Count: > 0 }
-                    ? _activeLogicalAlbumIds
-                    : [albumId];
                 var tracks = albumIds
                     .SelectMany(id => db.GetTrackListByAlbum(id, artistId))
                     .ToList();
@@ -248,7 +285,8 @@ public partial class MainWindow : Window
                     Album: db.GetAlbumById(albumId),
                     Tracks: tracks,
                     Directories: directories);
-            });
+            }, token);
+            if (!CanPublish()) return null;
             var groupedRows = result.Tracks
                 .GroupBy(
                     track => (
@@ -301,11 +339,16 @@ public partial class MainWindow : Window
             ApplyAlbumDetailHeader(result.Album);
             if (result.Album is not null && groupedRows.Count > 1)
                 ShowAlbumFolderGroups(groupedRows);
+            return request;
+        }
+        catch (Exception) when (!CanPublish())
+        {
+            return null;
         }
         finally
         {
-            HideContentLoadingSkeleton();
-            FadeInVisibleContentSurface();
+            loading.Dispose();
+            if (CanPublish()) FadeInVisibleContentSurface(CanPublish);
         }
     }
 
@@ -315,6 +358,7 @@ public partial class MainWindow : Window
     /// <summary>Abandons album metadata/detail publication and releases its counted loading scope.</summary>
     private void CancelProviderAlbumLoad()
     {
+        CancelLocalAlbumLoad();
         CancelRemoteAlbumOpen();
         _providerAlbumLoads.Invalidate();
         CancelAndDispose(ref _providerAlbumCts);
