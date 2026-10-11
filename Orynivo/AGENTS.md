@@ -656,6 +656,16 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   track/provider context and reject remote ID collisions. Final failure status
   retains exactly the edit's next profile admission, never a replacement
   admitted by cancellation callbacks.
+- Server artist edits retain displayed row identity/title, connection,
+  sidebar/detail/name, profile observation and outer Back before dialogs.
+  Resolve the row source without changing the active server, copy connection
+  settings in memory and guard the edit callback before HTTP. Recheck merge
+  admission and all post-await UI/metadata/profile work. Accepted writes still
+  synchronize local metadata and invalidate shared caches after navigation;
+  changed sources cannot admit further remote work or cache deletion. Playback
+  publication retains the original row/provider and complete server identity.
+  Refresh the retained detail directly; do not reload the server overview and
+  hide its hero. Final failure retains exactly its next profile admission.
 - Unified artist and logical-album details reconcile artwork for equivalent
   local/server identities with a bounded best-effort request. Copy only into
   missing destinations, preserve manual artist images, invalidate unified and

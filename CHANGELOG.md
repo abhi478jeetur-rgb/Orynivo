@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Server artist edits retain their original displayed row, connection and
+  navigation context across rename/merge dialogs and delayed responses. Changed
+  sources or abandoned views cannot admit new edits, reopen old details or
+  overwrite current status. Playback updates retain the original track/provider
+  and owning server instead of matching numeric artist IDs alone. Accepted
+  changes invalidate library caches and still synchronize local metadata after
+  navigation. Refreshing the renamed detail preserves its hero instead of
+  temporarily opening the server overview.
+
 - Local artist rename and merge flows retain their original detail across
   database reads, dialogs, synchronization and profile refresh. Obsolete merge
   choices cannot start a transaction, and delayed results cannot replace a newer

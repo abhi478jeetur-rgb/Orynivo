@@ -256,98 +256,131 @@ public partial class MainWindow : Window
         return succeeded;
     }
 
-    private async Task EditOrynivoArtistNameAsync(ContentRow row)
+    /// <summary>Shows the rename and merge dialogs for the original server artist.</summary>
+    /// <param name="row">The displayed source-owned artist row.</param>
+    /// <returns>A task completing accepted data work and current UI publication.</returns>
+    private Task EditOrynivoArtistNameAsync(ContentRow row) =>
+        EditDisplayedOrynivoArtistNameAsync(row,
+            dialog => dialog.ShowDialog<bool>(this),
+            dialog => dialog.ShowDialog<bool>(this));
+
+    /// <summary>Retains server and detail identity through edit/merge admission and publication.</summary>
+    /// <param name="row">The original source-owned artist row.</param>
+    /// <param name="showEdit">Shows the rename confirmation.</param>
+    /// <param name="showMerge">Shows the explicit merge survivor choice.</param>
+    /// <returns>A task completing accepted data changes and the retained detail refresh.</returns>
+    private async Task EditDisplayedOrynivoArtistNameAsync(ContentRow row,
+        Func<EditArtistNameDialog, Task<bool>> showEdit,
+        Func<ArtistMergeDialog, Task<bool>> showMerge)
     {
-        if (ResolveRowOrynivoServer(row) is not { } server ||
-            row.Id is not long artistId ||
-            row.EntityType != "OrynivoArtist")
+        var server = row.OrynivoServer ?? _activeOrynivoServer;
+        if (server is null || row.Id is not long artistId || row.EntityType != "OrynivoArtist") return;
+        var connection = new OrynivoServerSettings
         {
-            return;
-        }
-
-        var editDialog = new EditArtistNameDialog(
-            artistId,
-            row.Title ?? string.Empty,
-            (_, name) => CommitOrynivoArtistRenameAsync(server, artistId, name, preferredArtistId: null));
-        if (await editDialog.ShowDialog<bool>(this) == false)
-            return;
-
+            Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+            ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+            StreamingFormat = server.StreamingFormat, StreamingBitrateKbps = server.StreamingBitrateKbps
+        };
+        var sourceIsCurrent = CreateArtistProfileSourceGuard(server);
+        var previousArtistName = row.Title;
+        var rowId = row.Id;
+        var rowTitle = row.Title;
+        var displayedRow = row;
+        var displayedTitle = ArtistInfoTitleButton.Content as string;
+        var displayedId = _artistInfoDisplayedId;
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var observation = _artistProfileLoads.CaptureCurrent();
+        var restore = _navigationRestores.Context;
+        var track = _currentOrynivoTrackRow;
+        var provider = _currentNowPlayingProvider;
+        bool CanPublish() => ArtistInfoView.IsVisible && !_nowPlayingRemoteArtistInfo &&
+            ReferenceEquals(_artistInfoDisplayedRemoteRow, displayedRow) &&
+            _artistInfoDisplayedId == displayedId && ArtistInfoTitleButton.Content as string == displayedTitle &&
+            row.Id == rowId && row.Title == rowTitle && row.EntityType == "OrynivoArtist" &&
+            ReferenceEquals(row.OrynivoServer ?? _activeOrynivoServer, server) && sourceIsCurrent() &&
+            _currentTopLevelTag == tag && _artistDetailLoadVersion == detailVersion &&
+            _artistInfoUnifiedArtistName == unifiedName && _artistProfileLoads.IsCurrent(observation) &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
+        if (!CanPublish()) return;
+        var editDialog = new EditArtistNameDialog(artistId, previousArtistName ?? string.Empty,
+            (_, name) =>
+            {
+                if (!CanPublish()) throw new InvalidOperationException("The artist edit is no longer current.");
+                return CommitOrynivoArtistRenameAsync(connection, artistId, name, preferredArtistId: null);
+            });
+        if (!await showEdit(editDialog)) return;
         var result = editDialog.Result;
         long? matchingArtistId = null;
         if (result is null && editDialog.MatchingArtist is { } matchingArtist)
         {
+            if (!CanPublish()) return;
             matchingArtistId = matchingArtist.Id;
             var mergeDialog = new ArtistMergeDialog(
-                artistId,
-                row.Title ?? string.Empty,
-                matchingArtist.Id,
-                matchingArtist.Artist);
-            if (await mergeDialog.ShowDialog<bool>(this) == false)
-                return;
-
+                artistId, previousArtistName ?? string.Empty, matchingArtist.Id, matchingArtist.Artist);
+            if (!await showMerge(mergeDialog) || !CanPublish()) return;
             try
             {
                 (result, _) = await CommitOrynivoArtistRenameAsync(
-                    server,
-                    artistId,
-                    editDialog.ArtistName,
-                    mergeDialog.PreferredArtistId);
+                    connection, artistId, editDialog.ArtistName, mergeDialog.PreferredArtistId);
             }
             catch (Exception ex)
             {
                 CrashLogger.Log(ex, "Remote artist merge");
-                ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistRenameFailed;
-                ArtistInfoStatusTextBlock.IsVisible = true;
+                if (CanPublish())
+                {
+                    ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistRenameFailed;
+                    ArtistInfoStatusTextBlock.IsVisible = true;
+                }
                 return;
             }
         }
-
-        if (result is null)
-            return;
-
-        var previousArtistName = row.Title;
-        var localRenameSucceeded = await RenameMatchingLocalArtistAsync(
-            previousArtistName,
-            result.ArtistName);
-        var otherRemoteRenamesSucceeded = await RenameMatchingOrynivoArtistsAsync(
-            previousArtistName,
-            result.ArtistName);
-
-        row.ArtistId = result.ArtistId;
-        ArtistInfoTitleButton.Content = result.ArtistName;
-        ArtistInfoStatusTextBlock.IsVisible = false;
-
-        if (_currentOrynivoTrackRow is { } currentRemoteTrack &&
-            (currentRemoteTrack.ArtistId == artistId || currentRemoteTrack.ArtistId == matchingArtistId))
+        if (result is null) return;
+        // Finish accepted data work even if its originating view has been abandoned.
+        InvalidateUnifiedLibraryViewCache();
+        if (sourceIsCurrent()) DeleteOrynivoArtistListCache(connection);
+        var localRenameSucceeded = true;
+        try
         {
-            currentRemoteTrack.ArtistId = result.ArtistId;
+            localRenameSucceeded = await RenameMatchingLocalArtistAsync(previousArtistName, result.ArtistName);
+        }
+        catch (Exception ex)
+        {
+            CrashLogger.Log(ex, "Remote artist local rename synchronization");
+            localRenameSucceeded = false;
+        }
+        var otherRemoteRenamesSucceeded = sourceIsCurrent() &&
+            await RenameMatchingOrynivoArtistsAsync(previousArtistName, result.ArtistName);
+        if (!CanPublish()) return;
+        rowTitle = result.ArtistName;
+        row.ArtistId = result.ArtistId;
+        row.Title = rowTitle;
+        displayedTitle = result.ArtistName;
+        ArtistInfoTitleButton.Content = displayedTitle;
+        ArtistInfoStatusTextBlock.IsVisible = false;
+        if (track is not null && ReferenceEquals(_currentOrynivoTrackRow, track) &&
+            ReferenceEquals(_currentNowPlayingProvider, provider) &&
+            track.OrynivoServer is { } trackServer && trackServer.Id == connection.Id &&
+            trackServer.Name == connection.Name && trackServer.BaseUrl == connection.BaseUrl &&
+            trackServer.ApiKey == connection.ApiKey && trackServer.ProfileId == connection.ProfileId &&
+            (track.ArtistId == artistId || (matchingArtistId is long match && track.ArtistId == match)))
+        {
+            track.ArtistId = result.ArtistId;
             NowPlayingArtistBlock.Text = result.ArtistName;
         }
-
-        ContentRow detailRow;
-        var refreshed = await _orynivoClient.GetArtistAsync(server, result.ArtistId);
-        if (refreshed is not null)
+        var refreshed = await _orynivoClient.GetArtistAsync(connection, result.ArtistId);
+        if (!CanPublish()) return;
+        var detailRow = refreshed is not null ? ToOrynivoArtistContentRow(server, refreshed) : new ContentRow
         {
-            detailRow = ToOrynivoArtistContentRow(server, refreshed);
-        }
-        else
-        {
-            detailRow = new ContentRow
-            {
-                Id = result.ArtistId,
-                ArtistId = result.ArtistId,
-                Title = result.ArtistName,
-                EntityType = "OrynivoArtist",
-                ExternalId = result.ArtistId.ToString(CultureInfo.InvariantCulture),
-                OrynivoServer = server,
-                FilePath = string.Empty
-            };
-        }
-
-        if (_activeOrynivoView == "Artists")
-            await LoadOrynivoViewAsync();
+            Id = result.ArtistId, ArtistId = result.ArtistId, Title = result.ArtistName,
+            EntityType = "OrynivoArtist", ExternalId = result.ArtistId.ToString(CultureInfo.InvariantCulture),
+            OrynivoServer = server, FilePath = string.Empty
+        };
+        displayedRow = detailRow;
+        observation = observation with { Version = unchecked(observation.Version + 1) };
         await ShowOrynivoArtistInfoAsync(detailRow, forceRefresh: false);
-        if (!localRenameSucceeded || !otherRemoteRenamesSucceeded)
+        if (CanPublish() && (!localRenameSucceeded || !otherRemoteRenamesSucceeded))
         {
             ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
             ArtistInfoStatusTextBlock.IsVisible = true;
@@ -382,6 +415,12 @@ public partial class MainWindow : Window
         return true;
     });
 
+    /// <summary>Commits a rename or explicit merge to the captured server connection.</summary>
+    /// <param name="server">The transient connection snapshot.</param>
+    /// <param name="artistId">The original server artist identity.</param>
+    /// <param name="artistName">The requested canonical name.</param>
+    /// <param name="preferredArtistId">The chosen survivor, or null for collision detection.</param>
+    /// <returns>The accepted result or collision requiring an explicit choice.</returns>
     private async Task<(ArtistRenameResult? Result, ArtistInfo? MatchingArtist)> CommitOrynivoArtistRenameAsync(
         OrynivoServerSettings server,
         long artistId,

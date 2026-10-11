@@ -1116,6 +1116,9 @@ byte-range streaming without FFmpeg.
 - Local rename/merge dialogs retain their original artist view. Accepted changes
   update the search index after navigation without reopening old details or
   changing a newer playback artist or filter.
+- Server rename/merge dialogs also retain their source connection and reject
+  obsolete commits and detail updates. Playback artist changes require the
+  owning server as well as the original track/provider.
 - ZIP export and import for the managed library, playlists, personal radio
   stations, pinned podcasts, history, artwork, and configured library
   directories

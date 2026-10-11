@@ -1942,6 +1942,18 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   publication retains track/provider identity and rejects remote numeric ID
   collisions. Final synchronization failure retains exactly the edit's next
   profile admission, including cancellation callback replacements.
+- Server edits likewise retain displayed row identity/title, copied connection,
+  sidebar/detail/name, profile observation and outer Back before dialogs.
+  Resolve without activating another server; guard the edit commit callback
+  before HTTP and recheck before merge admission and after every awaited UI
+  operation. Accepted writes invalidate shared catalogs and still synchronize
+  local metadata after navigation. Changed sources cannot receive additional
+  remote synchronization or cache deletion. Playback updates require the
+  original track/provider and complete owning-server identity, preventing
+  collisions between numeric artist IDs on different servers. Refresh the
+  retained detail directly without opening the overview or hiding its hero;
+  reject obsolete metadata before row mapping/profile admission. Final failure
+  retains exactly the edit's next profile admission.
 - On large libraries, do not open `AudioDatabase` for collision lookup on the UI
   thread after the rename dialog. Collision lookup and a collision-free rename
   share one background connection; only an actual collision returns to the UI
