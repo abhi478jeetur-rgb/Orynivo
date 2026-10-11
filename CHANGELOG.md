@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Remote view loads now retain explicit request ownership. Navigation and
+  catalog configuration changes abandon earlier loads; late rows, track facets,
+  errors and loading cleanup cannot overwrite a newer local or same-tag server
+  view.
+
 - Remote Back navigation uses typed server targets. Invalid or removed source
   tags cannot borrow the currently active server; album capture repairs sidebar
   tags belonging to a different server. Restoration rechecks the owning source

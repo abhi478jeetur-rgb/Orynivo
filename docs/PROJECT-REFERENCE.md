@@ -1172,10 +1172,21 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   rejected before remote restore changes the view or requests data. Restore
   adapters capture the configured server and check active identity, current tag
   and configuration membership after awaits and before deferred scroll/selection
-  work; ambient server state cannot substitute for a rejected target. Never
-  restore a remote album detail through the local `ShowAlbumTracksAsync` path
-  because server and local album IDs can collide. Remote artist-info views must
-  use the bound remote row/server profile data, not local
+  work; ambient server state cannot substitute for a rejected target.
+  `NavigationLoadOwnership` supplies dispatcher-owned remote view request
+  versions without another history or row model. New request/token state is
+  installed before cancelling old work; reentrant callbacks cannot reclaim it.
+  Top-level navigation, detail reset/push and configuration changes abandon
+  remote view loads. Rows, facets, playback registration, errors, status and
+  finally cleanup require current request, tag, server and catalog generation.
+  Each remote request releases its counted loading contribution exactly once,
+  immediately on UI cancellation or via a dispatcher post for worker callbacks.
+  Completion balances the same contribution without an obsolete fade/status.
+  Held fake HTTP tests cover navigation to local Tracks and same-tag overlap.
+  Provider-backed album detail publication remains a separate audit boundary.
+  Never restore a remote album detail through the local `ShowAlbumTracksAsync`
+  path because server and local album IDs can collide. Remote artist-info views
+  must use the bound remote row/server profile data, not local
   `AudioDatabase.GetArtistById`, because server IDs can collide with local
   artist IDs. The remote artist-info rename/merge and Wikimedia image actions
   must call the Orynivo Server API (`RenameArtistAsync`,

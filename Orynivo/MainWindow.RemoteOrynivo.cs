@@ -226,16 +226,51 @@ public partial class MainWindow : Window
         await LoadOrynivoViewAsync();
     }
 
+    private readonly NavigationLoadOwnership _remoteViewLoads = new();
+
+    /// <summary>Abandons remote view publication before invoking cancellation callbacks.</summary>
+    private void CancelRemoteViewLoad()
+    {
+        _remoteViewLoads.Invalidate();
+        CancelAndDispose(ref _orynivoViewCts);
+    }
+
+    /// <summary>Loads a remote view and publishes only its current navigation and catalog request.</summary>
+    /// <param name="filterArtistId">Optional owning server artist scope.</param>
+    /// <param name="filterAlbumId">Optional owning server album scope.</param>
+    /// <returns>A task completing after publication or rejection of an abandoned request.</returns>
     private async Task LoadOrynivoViewAsync(long? filterArtistId = null, long? filterAlbumId = null)
     {
         if (_activeOrynivoServer is null)
             return;
 
-        ShowContentLoadingSkeleton();
-        CancelAndDispose(ref _orynivoViewCts);
+        var server = _activeOrynivoServer;
+        var tag = _currentTopLevelTag;
+        var generation = _unifiedLibraryLoads.Generation;
+        var previousCancellation = _orynivoViewCts;
         _orynivoViewCts = new CancellationTokenSource();
         var ct = _orynivoViewCts.Token;
-        var server = _activeOrynivoServer;
+        var request = _remoteViewLoads.Begin(ct);
+        CancelAndDispose(ref previousCancellation);
+        bool CanPublish() => _remoteViewLoads.IsCurrent(request) &&
+            generation == _unifiedLibraryLoads.Generation &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal);
+        if (!CanPublish()) return;
+        ShowContentLoadingSkeleton();
+        var loadingReleased = false;
+        void ReleaseLoading()
+        {
+            if (loadingReleased) return;
+            loadingReleased = true;
+            HideContentLoadingSkeleton();
+        }
+        using var loadingCancellation = ct.Register(() =>
+        {
+            if (Dispatcher.UIThread.CheckAccess()) ReleaseLoading();
+            else Dispatcher.UIThread.Post(ReleaseLoading);
+        });
+        if (!CanPublish()) { ReleaseLoading(); return; }
         var provider = CreateOrynivoCatalogProvider(server);
         var view = filterAlbumId.HasValue ? "AlbumTracks"
             : filterArtistId.HasValue ? "ArtistAlbums"
@@ -275,7 +310,7 @@ public partial class MainWindow : Window
                 {
                     ApplyColumns("Artists");
                     var artists = await provider.GetArtistsAsync(ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var rows = artists.Select(artist => ToCatalogArtistContentRow(artist, server))
                     .Where(row => !_trackFavoritesOnly || row.IsFavorite)
                     .ToList();
@@ -298,7 +333,7 @@ public partial class MainWindow : Window
                         filterArtistId!.Value,
                         includeArtwork: true,
                         cancellationToken: ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var rows = MergeLogicalAlbumRows(albums.Select(album => ToCatalogAlbumContentRow(album, server)))
                         .Where(row => !_trackFavoritesOnly || row.IsFavorite)
                         .ToList();
@@ -318,7 +353,7 @@ public partial class MainWindow : Window
                 {
                     ApplyColumns("Albums");
                     var albums = await provider.GetAlbumsAsync(includeArtwork: true, cancellationToken: ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var rows = MergeLogicalAlbumRows(albums.Select(album => ToCatalogAlbumContentRow(album, server)))
                         .Where(row => !_trackFavoritesOnly || row.IsFavorite)
                         .ToList();
@@ -345,17 +380,19 @@ public partial class MainWindow : Window
                     }
                     else
                     {
-                        _orynivoTrackFacets = (await _orynivoClient.GetTrackFacetsAsync(server, ct))
+                        var loadedFacets = await _orynivoClient.GetTrackFacetsAsync(server, ct);
+                        if (!CanPublish()) return;
+                        _orynivoTrackFacets = loadedFacets
                             .Select(f => f with
                             {
                                 IsFavorite = IsOrynivoFavorite(server, "Track", f.Id),
                                 SourceKey = GetServerSourceKey(server.Id)
                             })
                             .ToList();
-                        if (ct.IsCancellationRequested) return;
+                        if (!CanPublish()) return;
                         catalogTracks = await ResolveOrynivoTrackRowsAsync(server, provider, ct);
                     }
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     // Build the columns immediately before binding, mirroring the local
                     // Tracks view. Applying them before the long-running async load lets
                     // the DataGrid run layout passes while still empty; Avalonia then
@@ -377,9 +414,9 @@ public partial class MainWindow : Window
                     FolderTreeView.IsVisible = true;
                     ShowOrynivoFolderLoadingState();
                     var tracks = await LoadOrynivoFolderTracksAsync(server, ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var metadata = await LoadOrynivoFolderTrackMetadataAsync(server, tracks, ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     BuildOrynivoFolderTree(server, tracks, metadata);
                     ContentCountTextBlock.Text = LocalizationManager.FormatTrackCount(tracks.Count);
                     break;
@@ -389,16 +426,16 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch
         {
-            StatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
+            if (CanPublish()) StatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
             return;
         }
         finally
         {
-            HideContentLoadingSkeleton();
-            FadeInVisibleContentSurface();
+            ReleaseLoading();
+            if (CanPublish()) FadeInVisibleContentSurface();
         }
 
-        StatusTextBlock.Text = string.Empty;
+        if (CanPublish()) StatusTextBlock.Text = string.Empty;
     }
 
     private OrynivoServerLibraryCatalogProvider CreateOrynivoCatalogProvider(OrynivoServerSettings server)

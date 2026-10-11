@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     /// <param name="clearNavigationHistory">Whether saved Back states are also removed.</param>
     private void ResetDrilldownState(bool clearNavigationHistory = true)
     {
+        CancelRemoteViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         ClearUnifiedLibraryLoadNotice();
@@ -69,6 +70,7 @@ public partial class MainWindow : Window
     /// <summary>Captures the current view before navigation and cancels its pending shared-library load.</summary>
     private void PushCurrentNavigationState()
     {
+        CancelRemoteViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         ClearUnifiedLibraryLoadNotice();

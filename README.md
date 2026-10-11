@@ -909,7 +909,9 @@ byte-range streaming without FFmpeg.
   library views. Mixed local/Orynivo Server artist and album views remain
   unified when restored, including source-aware selection when IDs overlap.
   Remote details retain their owning server; invalid or removed source tags
-  cannot reopen an album from another active server
+  cannot reopen an album from another active server. Server overview loads
+  reject late rows and status updates after leaving the view or starting a newer
+  load
 - Conservative artist-name normalization for `feat.` credits and unambiguous
   case, accent, spacing, and punctuation variants, with a repair action for
   existing libraries

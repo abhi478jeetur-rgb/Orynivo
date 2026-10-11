@@ -46,6 +46,7 @@ public partial class MainWindow : Window
 {
     private async Task ShowTopLevelViewAsync(string tag)
     {
+        CancelRemoteViewLoad();
         var diagnosticStopwatch = Stopwatch.StartNew();
         LogUiDiagnostics($"ShowTopLevelViewAsync start tag={tag}");
         var showLoadingSkeleton = !tag.StartsWith("Radio:", StringComparison.Ordinal);

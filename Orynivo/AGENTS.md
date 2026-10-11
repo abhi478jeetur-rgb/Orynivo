@@ -711,6 +711,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   membership after awaits and in deferred selection/scroll callbacks. Never
   resolve a rejected source against ambient active-server state. Preserve legacy
   Root defaults and the one window-owned Back stack.
+- NavigationLoadOwnership guards remote view request publication without owning
+  history, rows or cancellation sources. Install new request/token before old
+  cancellation callbacks and recheck ownership afterward. Top-level navigation,
+  drill-down reset/push and catalog configuration changes abandon remote view
+  work. Guard rows, facets, metadata registration, errors, status and finally
+  cleanup by request, navigation tag, server identity and catalog generation.
+  Remote loads release their counted loading contribution exactly once on
+  cancellation or completion; marshal cancellation release to the dispatcher.
+  Gate fade/status separately so balanced cleanup cannot leak loading depth.
+  Never let an old completion hide a newer view's loading state. Test held local
+  navigation and same-tag replacement with fake HTTP; provider album detail
+  loaders require their own subsequent publication audit.
 - Navigation state must distinguish local, remote, Plex, and unified
   drill-downs; numeric IDs from different sources can collide. Back restoration
   of the top-level Artists and Albums views must use the normal unified loader
