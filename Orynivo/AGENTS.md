@@ -277,6 +277,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   and the one authoritative queue; ReplaceQueueFunc returns the prepared
   playable count. Preserve duplicates and keep the existing queue for entirely
   unresolved input.
+- Queue replacement captures queue generation alongside playback intent and
+  links both cancellation tokens during lookup. Clear must reject late metadata
+  and queue publication even when ordinary output remains active. Mobile
+  playlist Play links its queue cancellation token before loading. Append/Next
+  and playlist append recheck queue generation after gapless readiness;
+  destructive supersession cancels MCP acknowledgement or returns false to
+  Mobile. Ordinary starts preserve already accepted independent edits.
+
 - QueueEditOwnership is dispatcher-owned and independent of playback starts.
   Capture version/token before append/next or playlist-append lookup; guard
   registration and mutation. Wholesale clears and replacements invalidate old

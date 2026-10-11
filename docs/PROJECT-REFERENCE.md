@@ -473,6 +473,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   mobile clears return false. Ordinary single-track output needs no rebuild.
   Pending starts are cancelled when no player is active.
 
+- Queue replacement captures queue generation alongside playback intent and
+  links both cancellation tokens during lookup. Clear must reject late metadata
+  and queue publication even when ordinary output remains active. Mobile
+  playlist Play links its queue cancellation token before loading. Append/Next
+  and playlist append recheck queue generation after gapless readiness;
+  destructive supersession cancels MCP acknowledgement or returns false to
+  Mobile. Ordinary starts preserve already accepted independent edits.
+
 - QueueEditOwnership owns destructive queue-change generation/cancellation
   independently of playback. Wholesale clears invalidate it; replacement owns
   intent before lookup and shutdown closes it. MCP append/next forward original

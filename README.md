@@ -403,6 +403,10 @@ preserving the current track's position and pause state. Desktop, MCP and Mobile
 wait until that playback change is ready. Pending starts are cancelled when no
 track is active; ordinary single-track playback continues without rebuilding.
 
+Clear also cancels pending queue replacement while the current track continues.
+Append/Next and playlist append report success only if their queue change
+survives clearing or replacement while playback preparation is pending.
+
 Pending append/next and playlist-append lookups are discarded by Clear or
 wholesale queue replacement. Ordinary start/Stop preserves independent queue
 edits; shutdown rejects late lookup results.

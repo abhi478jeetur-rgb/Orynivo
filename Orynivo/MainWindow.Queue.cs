@@ -48,7 +48,7 @@ public partial class MainWindow : Window
     /// <summary>Owns original-reference resolution before an independent queue insertion.</summary>
     /// <param name="path">Local path or opaque remote reference.</param>
     /// <param name="playNext">Whether to insert after the current queue position.</param>
-    /// <returns>The resolved path, or null if unavailable; obsolete edits are cancelled.</returns>
+    /// <returns>The resolved path, or null if unavailable; destructive supersession cancels lookup and acknowledgement.</returns>
     private async Task<string?> InsertPlaybackQueueAsync(string path, bool playNext)
     {
         if (_playbackShuttingDown) throw new OperationCanceledException();
@@ -65,11 +65,13 @@ public partial class MainWindow : Window
         PersistPlaybackQueue();
         RefreshQueueRowsIfVisible();
         RefreshQueueNavigationButtons();
-        await RefreshActiveGaplessQueueAsync();
+        try { await RefreshActiveGaplessQueueAsync(); }
+        catch (Exception) when (!IsCurrent()) { throw new OperationCanceledException(); }
+        if (!IsCurrent()) throw new OperationCanceledException();
         return resolved;
     }
 
-    /// <summary>Owns source resolution before replacing the authoritative queue and preparing playback.</summary>
+    /// <summary>Owns queue generation and playback intent before resolution, replacement and player preparation.</summary>
     /// <param name="paths">Ordered local paths or opaque remote references.</param>
     /// <returns>The prepared queue size, or zero if no supplied track resolves.</returns>
     private async Task<int> ReplacePlaybackQueueAsync(IReadOnlyList<string> paths)
@@ -77,9 +79,12 @@ public partial class MainWindow : Window
         if (_playbackShuttingDown)
             throw new OperationCanceledException();
         _queueEdits.Invalidate();
+        var edit = _queueEdits.Capture();
         var intent = _playbackStarts.Begin();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version) && _playbackStarts.IsCurrent(intent);
         _playbackPreparations.CancelAll();
         using var preparation = _playbackPreparations.Begin();
+        using var lookupCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token, edit.Token);
         var requested = paths.ToArray();
         var resolved = new List<string>(requested.Length);
         try
@@ -87,17 +92,17 @@ public partial class MainWindow : Window
             foreach (var path in requested)
             {
                 var playable = await ResolveRemoteMcpTrackForPlaybackAsync(path,
-                    () => _playbackStarts.IsCurrent(intent), preparation.Token);
-                if (!_playbackStarts.IsCurrent(intent))
+                    IsCurrent, lookupCancellation.Token);
+                if (!IsCurrent())
                     throw new OperationCanceledException();
                 if (playable is not null) resolved.Add(playable);
             }
         }
-        catch (Exception) when (!_playbackStarts.IsCurrent(intent))
+        catch (Exception) when (!IsCurrent())
         {
             throw new OperationCanceledException();
         }
-        if (!_playbackStarts.IsCurrent(intent))
+        if (!IsCurrent())
             throw new OperationCanceledException();
         if (resolved.Count == 0) return 0;
         preparation.Dispose();

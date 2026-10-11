@@ -44,8 +44,9 @@ public partial class MainWindow
         var intent = action == "play" ? _playbackStarts.Begin() : _playbackStarts.Current;
         if (action == "play") _playbackPreparations.CancelAll();
         using var preparation = action == "play" ? _playbackPreparations.Begin() : null;
+        using var lookupCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation?.Token ?? CancellationToken.None, edit.Token);
         LibraryLoadResult<ContentRow> result;
-        try { result = await LoadStoredPlaylistAsync(id, preparation?.Token ?? edit.Token); }
+        try { result = await LoadStoredPlaylistAsync(id, lookupCancellation.Token); }
         catch (Exception) when (!_queueEdits.IsCurrent(edit.Version) || (action == "play" && !_playbackStarts.IsCurrent(intent))) { return false; }
         if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version) || generation != _unifiedLibraryViewCache.Generation ||
             (action == "play" && !_playbackStarts.IsCurrent(intent))) return false;
@@ -61,6 +62,7 @@ public partial class MainWindow
             var replacing = _mcpBridge.ReplaceQueueFunc(playable.Select(r => r.FilePath!).ToArray());
             var replacementIntent = _playbackStarts.Current;
             try { return await replacing > 0; }
+            catch (OperationCanceledException) { return false; }
             catch (Exception) when (!_playbackStarts.IsCurrent(replacementIntent)) { return false; }
         }
         else
@@ -70,7 +72,9 @@ public partial class MainWindow
             PersistPlaybackQueue();
             RefreshQueueRowsIfVisible();
             RefreshQueueNavigationButtons();
-            await RefreshActiveGaplessQueueAsync();
+            try { await RefreshActiveGaplessQueueAsync(); }
+            catch (Exception) when (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version)) { return false; }
+            if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version)) return false;
         }
         return true;
     }
@@ -327,11 +331,13 @@ public partial class MainWindow
             case "next":
                 if (_mcpBridge.PlayNextFunc is null)
                     return false;
-                return await _mcpBridge.PlayNextFunc(path) is not null;
+                try { return await _mcpBridge.PlayNextFunc(path) is not null; }
+                catch (Exception) when (!IsCurrent()) { return false; }
             case "append":
                 if (_mcpBridge.AppendToQueueFunc is null)
                     return false;
-                return await _mcpBridge.AppendToQueueFunc(path) is not null;
+                try { return await _mcpBridge.AppendToQueueFunc(path) is not null; }
+                catch (Exception) when (!IsCurrent()) { return false; }
             default:
                 return false;
         }

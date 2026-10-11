@@ -21,6 +21,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Clear rejects pending queue-replacement and playlist-play lookup even while
+  ordinary output remains active. Append/Next and playlist append reject stale
+  acknowledgements after a destructive queue change during gapless preparation.
+
 - Clear rebuilds active gapless output with only the current track, retaining
   position and pause state. Desktop, MCP and Mobile wait for preparation;
   superseded MCP clears cancel instead of reporting success.
