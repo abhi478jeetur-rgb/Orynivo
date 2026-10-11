@@ -744,7 +744,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   the exact selected row and vertical offset before loading, avoiding Plex
   numeric ID collisions. Plex Back owns cancellation and deferred layout through
   NavigationRestoreOwnership; check between cancellation adapters and retain
-  binding identity for deferred position restoration.
+  binding identity for deferred position restoration. Retain copied source,
+  credential, section and tag identity in each in-memory Plex child state;
+  validate it before rebinding rows and in deferred callbacks. Invalid child
+  state returns through the existing global origin, or Tracks when no origin
+  exists or its Plex source was removed. Never persist or log these snapshots.
 - NavigationLoadOwnership guards remote view request publication without owning
   history, rows or cancellation sources. Install new request/token before old
   cancellation callbacks and recheck ownership afterward. Top-level navigation,

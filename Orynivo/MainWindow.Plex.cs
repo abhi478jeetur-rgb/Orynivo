@@ -314,6 +314,16 @@ public partial class MainWindow : Window
         return row;
     }
 
+    /// <summary>Checks retained Plex Back inputs against the active and configured source.</summary>
+    /// <param name="state">In-memory parent state captured before child loading.</param>
+    /// <returns>Whether saved rows and position still belong to the current source.</returns>
+    private bool IsCurrentPlexNavigationSource(PlexNavigationState state) =>
+        _currentTopLevelTag == state.NavigationTag && _activePlexSectionKey == state.Section &&
+        _activePlexToken == state.Token && _activePlexServer?.Id == state.ServerId &&
+        _activePlexServer.Name == state.ServerName && _activePlexServer.BaseUrl == state.BaseUrl &&
+        (_settings.PlexServers ?? []).Any(server => server.Id == state.ServerId &&
+            server.Name == state.ServerName && server.BaseUrl == state.BaseUrl);
+
     /// <summary>Loads source-owned Plex children and retains the pre-load Back state.</summary>
     /// <param name="parent">Source-aware artist or album selected for drill-down.</param>
     /// <param name="captureParent">Whether intra-Plex Back should retain the parent view.</param>
@@ -327,7 +337,9 @@ public partial class MainWindow : Window
         var targetView = parent.EntityType == "PlexArtist" ? "Albums" : "Tracks";
         var previousState = new PlexNavigationState(ContentTitleTextBlock.Text ?? string.Empty,
             _activePlexView, (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? [],
-            GetSelectedContentRow(), CaptureCurrentVerticalOffset());
+            GetSelectedContentRow(), CaptureCurrentVerticalOffset(),
+            _activePlexServer.Id, _activePlexServer.Name, _activePlexServer.BaseUrl,
+            _activePlexToken, _activePlexSectionKey, _currentTopLevelTag);
         var context = BeginPlexLoad(null, allowSectionless: true);
         if (context is null) return;
         StatusTextBlock.Text = LocalizationManager.Current.PlexLoading;

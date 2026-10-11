@@ -1158,7 +1158,9 @@ byte-range streaming without FFmpeg.
   source changes. Back returns to the rows, title, selection and scroll position
   captured before drill-down and restores paging on the library overview. Plex
   links from playback history retain their source without requiring a library
-  section.
+  section. If the saved source changes or disappears, child Back returns to the
+  global origin. It falls back to Tracks when no origin exists or that origin
+  belongs to a removed Plex source.
 - Multiple Plex Media Server configurations with protected access tokens and
   music-library discovery, artist/album/track browsing, folder navigation, and
   playback, including an A–Z root-folder index and multi-part tracks decoded as

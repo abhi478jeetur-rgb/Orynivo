@@ -295,7 +295,7 @@ public partial class MainWindow : Window
 
         if (_plexNavigationStack.Count > 0)
         {
-            RestorePlexNavigationState();
+            await RestorePlexNavigationStateAsync();
             return;
         }
 
@@ -306,8 +306,9 @@ public partial class MainWindow : Window
         await RestoreNavigationStateAsync(state);
     }
 
-    /// <summary>Restores retained Plex rows and position while rejecting replacement navigation.</summary>
-    private void RestorePlexNavigationState()
+    /// <summary>Restores valid Plex state or its global origin while rejecting replacement navigation.</summary>
+    /// <returns>A task completing after restoration or source-safe fallback.</returns>
+    private async Task RestorePlexNavigationStateAsync()
     {
         var previousContext = _navigationRestores.Context;
         var request = _navigationRestores.Begin();
@@ -326,6 +327,23 @@ public partial class MainWindow : Window
             CancelAndDispose(ref _unifiedLibraryAppendCts);
             if (!CanRestore() || _plexNavigationStack.Count == 0) return;
             var plexState = _plexNavigationStack.Pop();
+            if (!IsCurrentPlexNavigationSource(plexState))
+            {
+                _plexNavigationStack.Clear();
+                var origin = _navigationStack.Count > 0
+                    ? _navigationStack.Pop()
+                    : new NavigationState("Tracks", null, null, null);
+                if (origin.View.StartsWith("PlexLibrary:", StringComparison.Ordinal))
+                {
+                    var sourceParts = origin.View.Split(':', 3);
+                    if (sourceParts.Length != 3 || string.IsNullOrWhiteSpace(sourceParts[2]) ||
+                        !(_settings.PlexServers ?? []).Any(server => server.Id == sourceParts[1]))
+                        origin = new NavigationState("Tracks", null, null, null);
+                }
+                await RestoreNavigationStateCoreAsync(origin, CanRestore);
+                if (CanRestore()) BackButton.IsVisible = _navigationStack.Count > 0;
+                return;
+            }
             _activePlexView = plexState.View;
             ContentTitleTextBlock.Text = plexState.Title;
             ApplyColumns("Plex" + plexState.View);
@@ -342,7 +360,8 @@ public partial class MainWindow : Window
             var selectedRow = plexState.Rows.FirstOrDefault(row => ReferenceEquals(row, plexState.SelectedRow));
             ContentDataGrid.SelectedItem = selectedRow;
             RestoreDataGridPositionAfterLayout(selectedRow, plexState.VerticalOffset,
-                () => CanRestore() && ReferenceEquals(ContentDataGrid.ItemsSource, plexState.Rows));
+                () => CanRestore() && IsCurrentPlexNavigationSource(plexState) &&
+                    ReferenceEquals(ContentDataGrid.ItemsSource, plexState.Rows));
         }
         finally
         {

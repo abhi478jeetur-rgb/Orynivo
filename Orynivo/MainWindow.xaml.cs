@@ -336,12 +336,24 @@ public partial class MainWindow : Window
     /// <param name="Rows">Parent rows retaining their source identity.</param>
     /// <param name="SelectedRow">Exact selected parent row, avoiding numeric ID collisions.</param>
     /// <param name="VerticalOffset">Parent table scroll position before loading.</param>
+    /// <param name="ServerId">Owning Plex source identifier.</param>
+    /// <param name="ServerName">Copied source name used to reject changed configuration.</param>
+    /// <param name="BaseUrl">Copied source connection, retained in memory only.</param>
+    /// <param name="Token">Transient credential identity, never persisted or logged.</param>
+    /// <param name="Section">Owning library section, or null for history detail.</param>
+    /// <param name="NavigationTag">Sidebar context captured before loading.</param>
     private sealed record PlexNavigationState(
         string Title,
         string View,
         IReadOnlyList<ContentRow> Rows,
         ContentRow? SelectedRow,
-        double? VerticalOffset);
+        double? VerticalOffset,
+        string ServerId,
+        string ServerName,
+        string BaseUrl,
+        string? Token,
+        string? Section,
+        string? NavigationTag);
     private sealed record PlaylistActionTag(ILibraryPlaylistProvider Provider, long PlaylistId, PlaylistSelection Selection);
     private sealed record NewPlaylistActionTag(ILibraryPlaylistProvider Provider, PlaylistSelection Selection);
     private sealed record OrynivoPlaylistMenuTag(OrynivoServerSettings Server, long PlaylistId, IReadOnlyList<long> TrackIds);

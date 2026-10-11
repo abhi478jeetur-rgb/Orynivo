@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Plex child Back rejects saved rows after source, connection, credential,
+  section or navigation changes. It returns to the global origin when available,
+  with Tracks as the fallback for a removed Plex origin. Deferred scroll work
+  also rejects a changed source.
+
 - Plex child Back now retains the exact selected row and scroll position before
   loading. Deferred layout and cancellation callbacks cannot overwrite a newer
   navigation action or consume its saved history.
