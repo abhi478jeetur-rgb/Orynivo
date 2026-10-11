@@ -62,8 +62,9 @@ the ability to reach that library from any device on the local network.
 - Shared Artists, Albums, and Tracks views retain available local/server results
   when a source is unavailable. Only complete loads are cached, so reopening a
   partial view retries missing sources. Overlapping reloads retain only the
-  latest request, including a reload triggered during cancellation. An
-  incomplete-load notice offers **Try again** without clearing usable rows;
+  latest request, including a reload triggered during cancellation. Each load
+  keeps its initial filters and server/profile settings throughout its queries.
+  An incomplete-load notice offers **Try again** without clearing usable rows;
   selection and scroll position survive the refresh, and navigating away cancels
   it.
 - Library search queries independent servers concurrently, keeps available

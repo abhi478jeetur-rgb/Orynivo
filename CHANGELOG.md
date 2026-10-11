@@ -54,6 +54,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Shared catalog loads retain copied filter, favorite, artwork and
+  server/profile inputs throughout local background work and remote follow-up
+  requests. Settings or profile changes can no longer alter an already admitted
+  request's context.
+
 - A catalog reload triggered synchronously by cancelling an older reload keeps
   its new request and cancellation ownership instead of being overwritten by the
   interrupted caller.

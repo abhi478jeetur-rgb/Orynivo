@@ -539,12 +539,16 @@ public partial class MainWindow : Window
     /// <summary>Loads remote artists without caching failures as a valid empty catalog.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
-    /// <returns>Complete artists with current client favorites.</returns>
+    /// <param name="favorites">Optional copied favorites for an isolated catalog load.</param>
+    /// <returns>Complete artists with captured favorites when supplied, otherwise current client favorites.</returns>
     private async Task<List<LibraryCatalogArtist>> LoadAllOrynivoArtistsAsync(
         OrynivoServerSettings server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? favorites = null)
     {
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = favorites is null ? CreateCompleteOrynivoCatalogProvider(server)
+            : new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+                (entity, id) => favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         var scanStatus = await _orynivoClient.GetScanStatusAsync(server, cancellationToken);
         var libraryChangedAt = scanStatus?.LibraryChangedAt;
         List<LibraryCatalogArtist>? artists = null;
@@ -570,19 +574,25 @@ public partial class MainWindow : Window
         }
 
         return artists
-            .Select(artist => artist with { IsFavorite = IsOrynivoFavorite(server, "Artist", artist.Id) })
+            .Select(artist => artist with { IsFavorite = favorites is null
+                ? IsOrynivoFavorite(server, "Artist", artist.Id)
+                : favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Artist", artist.Id)) })
             .ToList();
     }
 
     /// <summary>Loads remote albums without caching failures as a valid empty catalog.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
-    /// <returns>Complete albums with current client favorites.</returns>
+    /// <param name="favorites">Optional copied favorites for an isolated catalog load.</param>
+    /// <returns>Complete albums with captured favorites when supplied, otherwise current client favorites.</returns>
     private async Task<List<LibraryCatalogAlbum>> LoadAllOrynivoAlbumsAsync(
         OrynivoServerSettings server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? favorites = null)
     {
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = favorites is null ? CreateCompleteOrynivoCatalogProvider(server)
+            : new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+                (entity, id) => favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         var scanStatus = await _orynivoClient.GetScanStatusAsync(server, cancellationToken);
         var libraryChangedAt = scanStatus?.LibraryChangedAt;
         List<LibraryCatalogAlbum>? albums = null;
@@ -608,7 +618,9 @@ public partial class MainWindow : Window
         }
 
         return albums
-            .Select(album => album with { IsFavorite = IsOrynivoFavorite(server, "Album", album.Id) })
+            .Select(album => album with { IsFavorite = favorites is null
+                ? IsOrynivoFavorite(server, "Album", album.Id)
+                : favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Album", album.Id)) })
             .ToList();
     }
 

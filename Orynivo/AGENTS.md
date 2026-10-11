@@ -1078,33 +1078,40 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   three servers, ordered partial outcomes, invalidation and empty recovery.
   Independent local/remote loads combine in supplied order and reject obsolete
   or cancelled publication. The window retains source/filter adapters,
-  sort/merge, metadata registration and binding. Publish new request/token
-  ownership before cancelling old work and recheck after callbacks. Search,
-  playlists and Mobile read the same catalog generation through the coordinator;
-  they retain independent request ownership. Test overlap, invalidation,
-  recovery, eligibility and LRU behavior without a window. Navigation
-  cancellation and load versions reject stale publication; register remote
-  playback metadata only after that guard. Partial/failed shared views expose a
-  localized notice with an unavailable-source count and in-place retry. Keep
-  usable rows interactive while retrying, suppress duplicate retries, and retain
-  source-aware selection and scroll position at publication. Deferred restore
-  callbacks must reject abandoned loads; runtime language changes refresh the
-  notice. Successful empty catalogs and navigation cancellation show no failure
-  notice. Global and server-scoped library searches share cancellation/version
-  ownership, captured source/profile/favorite/filter context, strict full-search
-  reads, and at most three concurrent server loads. Source time budgets start
-  after admission. Text changes cancel before debounce; navigation, Settings,
-  imports, window close, and catalog/profile changes reject pending publication
-  and remote metadata registration. Keep available categories when a source
-  fails; show incomplete-search text instead of definitive no-match text for
-  empty categories, with an in-place retry. Deferred Back/retry scroll restores
-  must guard their owning search. Empty source selections are successful but
-  never eligible for source-backed catalog caching. Outcome metadata and
-  diagnostics contain no exception text, media paths, server names, URLs, or
-  credentials. A manual local scan launched from Settings must raise
-  `SettingsView.LocalLibraryChanged` after a successful catalog mutation so the
-  same Dashboard, Genre Cloud, and unified-library caches are invalidated as for
-  watcher-driven changes; never require an application restart to see new rows.
+  sort/merge, metadata registration and binding. LibraryCatalogLoadContext
+  copies track selections, entity favorite filters, local artwork/drilldown
+  choices, remote favorite identities and server settings before source work.
+  Remote follow-up requests and cached catalog favorite projection must use
+  those copies. Local profile identity flows through AudioDatabase's AsyncLocal
+  into Task.Run; never change the caller's profile to execute an old load.
+  Contexts are transient and must never be serialized or logged. Publish new
+  request/token ownership before cancelling old work and recheck after
+  callbacks. Search, playlists and Mobile read the same catalog generation
+  through the coordinator; they retain independent request ownership. Test
+  overlap, invalidation, recovery, eligibility and LRU behavior without a
+  window. Navigation cancellation and load versions reject stale publication;
+  register remote playback metadata only after that guard. Partial/failed shared
+  views expose a localized notice with an unavailable-source count and in-place
+  retry. Keep usable rows interactive while retrying, suppress duplicate
+  retries, and retain source-aware selection and scroll position at publication.
+  Deferred restore callbacks must reject abandoned loads; runtime language
+  changes refresh the notice. Successful empty catalogs and navigation
+  cancellation show no failure notice. Global and server-scoped library searches
+  share cancellation/version ownership, captured source/profile/favorite/filter
+  context, strict full-search reads, and at most three concurrent server loads.
+  Source time budgets start after admission. Text changes cancel before
+  debounce; navigation, Settings, imports, window close, and catalog/profile
+  changes reject pending publication and remote metadata registration. Keep
+  available categories when a source fails; show incomplete-search text instead
+  of definitive no-match text for empty categories, with an in-place retry.
+  Deferred Back/retry scroll restores must guard their owning search. Empty
+  source selections are successful but never eligible for source-backed catalog
+  caching. Outcome metadata and diagnostics contain no exception text, media
+  paths, server names, URLs, or credentials. A manual local scan launched from
+  Settings must raise `SettingsView.LocalLibraryChanged` after a successful
+  catalog mutation so the same Dashboard, Genre Cloud, and unified-library
+  caches are invalidated as for watcher-driven changes; never require an
+  application restart to see new rows.
 - A cached Genre Cloud level renders immediately and must not retain the
   first-load branch-transition delay.
 - `AppSettings.LastMainView` persists every selectable sidebar leaf tag, not a

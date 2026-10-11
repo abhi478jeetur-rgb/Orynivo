@@ -107,9 +107,10 @@ public partial class MainWindow : Window
     /// <param name="view">Requested local view.</param>
     /// <param name="searchQuery">Optional free-text search.</param>
     /// <param name="requireComplete">Whether database failures must propagate rather than resemble an empty catalog.</param>
+    /// <param name="context">Optional captured shared-view inputs; other callers retain current synchronous semantics.</param>
     /// <returns>Resolved local rows.</returns>
     private List<ContentRow> QueryRows(string view, string? searchQuery = null,
-        bool requireComplete = false)
+        bool requireComplete = false, LibraryCatalogLoadContext? context = null)
     {
         try
         {
@@ -123,19 +124,19 @@ public partial class MainWindow : Window
 
                 "Artists" => db.GetArtistsLite()
                     .Select(LocalLibraryCatalogProvider.ToCatalogArtist)
-                    .Where(a => !_artistFavoritesOnly || a.IsFavorite)
+                    .Where(a => !(context?.ArtistFavoritesOnly ?? _artistFavoritesOnly) || a.IsFavorite)
                     .Select(artist => ToCatalogArtistContentRow(artist))
                     .ToList(),
 
-                "Albums" => (_activeArtistFilterId is long artistId
-                        ? db.GetAlbumsByArtist(artistId, _showAlbumArtworkView)
-                        : db.GetAlbumsLite(_showAlbumArtworkView))
+                "Albums" => ((context is null ? _activeArtistFilterId : context.ArtistId) is long artistId
+                        ? db.GetAlbumsByArtist(artistId, (context?.AlbumArtwork ?? _showAlbumArtworkView))
+                        : db.GetAlbumsLite((context?.AlbumArtwork ?? _showAlbumArtworkView)))
                     .Select(LocalLibraryCatalogProvider.ToCatalogAlbum)
-                    .Where(a => !_albumFavoritesOnly || a.IsFavorite)
+                    .Where(a => !(context?.AlbumFavoritesOnly ?? _albumFavoritesOnly) || a.IsFavorite)
                     .Select(album => ToCatalogAlbumContentRow(album))
                     .ToList(),
 
-                _ => (_activeAlbumFilterId is long albumId
+                _ => ((context is null ? _activeAlbumFilterId : context.AlbumId) is long albumId
                         ? db.GetTrackListByAlbum(albumId)
                         : db.GetTrackList()) // "Tracks" and fallback
                     .Select(LocalLibraryCatalogProvider.ToCatalogTrack)
@@ -146,10 +147,19 @@ public partial class MainWindow : Window
         catch when (!requireComplete) { return []; }
     }
 
-    private List<ContentRow> GetFilteredTrackRows()
+    /// <summary>Captures live filter selections for existing local-only callers.</summary>
+    /// <returns>Local rows matching the copied selections.</returns>
+    private List<ContentRow> GetFilteredTrackRows() => GetFilteredTrackRows(
+        new TrackFacetFilterSnapshot(_trackFavoritesOnly, _selectedTrackGenres,
+            _selectedTrackFormats, _selectedTrackBitrates, _selectedTrackSources));
+
+    /// <summary>Queries local tracks using operation-owned selections.</summary>
+    /// <param name="filters">Copied selections captured before background work.</param>
+    /// <returns>Matching local track rows.</returns>
+    private List<ContentRow> GetFilteredTrackRows(TrackFacetFilterSnapshot filters)
     {
         using var db = AudioDatabase.OpenDefault();
-        if (!HasActiveFilters)
+        if (!filters.HasFilters)
         {
             return db.GetTrackList()
                 .Select(ToTrackContentRow)
@@ -158,7 +168,7 @@ public partial class MainWindow : Window
 
         var facets = db.GetTrackFacets();
         var ids = facets
-            .Where(f => MatchesTrackFilters(f))
+            .Where(filters.Matches)
             .Select(f => f.Id)
             .ToList();
         return db.GetTrackListFiltered(ids)
@@ -205,14 +215,19 @@ public partial class MainWindow : Window
                 $"BindLocalRowsAndStartRemoteAppendAsync cache hit tag={tag} count={cachedRows.Count} elapsed={diagnosticStopwatch.ElapsedMilliseconds}ms");
             return;
         }
-        var servers = (_settings.OrynivoServers ?? []).ToArray();
+        var context = new LibraryCatalogLoadContext(_settings.OrynivoServers ?? [],
+            ActiveUserProfile.OrynivoServerFavorites,
+            new TrackFacetFilterSnapshot(_trackFavoritesOnly, _selectedTrackGenres,
+                _selectedTrackFormats, _selectedTrackBitrates, _selectedTrackSources),
+            _artistFavoritesOnly, _albumFavoritesOnly, _showAlbumArtworkView,
+            _activeArtistFilterId, _activeAlbumFilterId);
         var result = await _unifiedLibraryLoads.LoadAsync(request,
         [
             captured => LibrarySourceLoader.LoadAsync<ContentRow>("local",
                 async token => await Task.Run(() => tag == "Tracks"
-                    ? GetFilteredTrackRows()
-                    : QueryRows(tag, requireComplete: true), token), captured),
-            captured => LoadRemoteUnifiedRowsAsync(tag, servers, captured)
+                    ? GetFilteredTrackRows(context.Filters)
+                    : QueryRows(tag, requireComplete: true, context: context), token), captured),
+            captured => LoadRemoteUnifiedRowsAsync(tag, context, captured)
         ]);
 
         if (result is null || !_unifiedLibraryLoads.IsCurrent(request) ||
@@ -255,41 +270,44 @@ public partial class MainWindow : Window
 
     /// <summary>Combines independent remote source outcomes in configured source order.</summary>
     /// <param name="tag">Shared library view.</param>
-    /// <param name="servers">Server snapshot captured before asynchronous loading.</param>
+    /// <param name="context">Copied source, profile, favorite and filter inputs.</param>
     /// <param name="cancellationToken">Owning navigation cancellation.</param>
     /// <returns>Available remote rows with explicit per-source outcomes.</returns>
     private Task<LibraryLoadResult<ContentRow>> LoadRemoteUnifiedRowsAsync(
         string tag,
-        IReadOnlyList<OrynivoServerSettings> servers,
+        LibraryCatalogLoadContext context,
         CancellationToken cancellationToken) =>
-        LibrarySourceBatchLoader.LoadAsync<OrynivoServerSettings, ContentRow>(servers,
+        LibrarySourceBatchLoader.LoadAsync<OrynivoServerSettings, ContentRow>(context.Servers,
             server => GetServerSourceKey(server.Id),
-            (server, token) => LoadRemoteUnifiedServerRowsAsync(tag, server, token),
-            cancellationToken, maximumConcurrency: Math.Max(1, servers.Count),
+            (server, token) => LoadRemoteUnifiedServerRowsAsync(tag, server, context, token),
+            cancellationToken, maximumConcurrency: Math.Max(1, context.Servers.Count),
             timeout: TimeSpan.FromSeconds(20));
 
     /// <summary>Maps one server's strict catalog request inside the shared scheduler's source budget.</summary>
     /// <param name="tag">Shared Artists, Albums, or Tracks view tag.</param>
     /// <param name="server">Owning Orynivo Server.</param>
+    /// <param name="context">Copied personal selections and connection context.</param>
     /// <param name="cancellationToken">Scheduler-owned navigation and budget cancellation.</param>
     /// <returns>Mapped rows; failures propagate to the scheduler's sanitized outcome.</returns>
     private async Task<IReadOnlyList<ContentRow>> LoadRemoteUnifiedServerRowsAsync(
         string tag,
         OrynivoServerSettings server,
+        LibraryCatalogLoadContext context,
         CancellationToken cancellationToken)
     {
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+            (entity, id) => context.Favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         return tag switch
         {
-            "Artists" => (await LoadAllOrynivoArtistsAsync(server, cancellationToken))
-                .Where(artist => !_artistFavoritesOnly || artist.IsFavorite)
+            "Artists" => (await LoadAllOrynivoArtistsAsync(server, cancellationToken, context.Favorites))
+                .Where(artist => !context.ArtistFavoritesOnly || artist.IsFavorite)
                 .Select(artist => ToCatalogArtistContentRow(artist, server))
                 .ToList(),
-            "Albums" => (await LoadAllOrynivoAlbumsAsync(server, cancellationToken))
-                .Where(album => !_albumFavoritesOnly || album.IsFavorite)
+            "Albums" => (await LoadAllOrynivoAlbumsAsync(server, cancellationToken, context.Favorites))
+                .Where(album => !context.AlbumFavoritesOnly || album.IsFavorite)
                 .Select(album => ToCatalogAlbumContentRow(album, server))
                 .ToList(),
-            "Tracks" => (await LoadRemoteTracksForUnifiedViewAsync(server, provider, cancellationToken))
+            "Tracks" => (await LoadRemoteTracksForUnifiedViewAsync(server, provider, context, cancellationToken))
                 .Select(track => ToCatalogTrackContentRow(track, server, registerRemoteMetadata: false))
                 .ToList(),
             _ => []
@@ -329,23 +347,25 @@ public partial class MainWindow : Window
     /// <summary>Resolves strict remote track or facet requests for the shared Tracks view.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="provider">Strict catalog provider used for filtered ID resolution.</param>
+    /// <param name="context">Copied filters and remote favorites.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
     /// <returns>Available tracks after the complete request succeeds.</returns>
     private async Task<IReadOnlyList<LibraryCatalogTrack>> LoadRemoteTracksForUnifiedViewAsync(
         OrynivoServerSettings server,
         ILibraryCatalogProvider provider,
+        LibraryCatalogLoadContext context,
         CancellationToken cancellationToken)
     {
-        if (HasActiveFilters)
+        if (context.Filters.HasFilters)
         {
             var facets = await _orynivoClient.GetTrackFacetsAsync(server, cancellationToken, requireComplete: true);
             var ids = facets
                 .Select(facet => facet with
                 {
-                    IsFavorite = IsOrynivoFavorite(server, "Track", facet.Id),
+                    IsFavorite = context.Favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Track", facet.Id)),
                     SourceKey = GetServerSourceKey(server.Id)
                 })
-                .Where(facet => MatchesTrackFilters(facet))
+                .Where(context.Filters.Matches)
                 .Select(facet => facet.Id)
                 .ToList();
             return ids.Count == 0
@@ -353,7 +373,7 @@ public partial class MainWindow : Window
                 : await provider.GetTracksByIdsAsync(ids, cancellationToken);
         }
 
-        return await LoadAllOrynivoTracksAsync(server, cancellationToken);
+        return await LoadAllOrynivoTracksAsync(server, cancellationToken, context.Favorites);
     }
 
     private void BindUnifiedRows(string tag, List<ContentRow> rows)
