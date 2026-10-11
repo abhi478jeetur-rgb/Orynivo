@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Local artist profiles reject obsolete database, image and row-refresh results
+  after navigation, hidden views, newer artist details or Back replacement.
+  Decoded images are discarded when publication is abandoned; old errors and
+  completion cannot change the current profile status or refresh button. Profile
+  admission and top-level cancellation retain replacements started by
+  cancellation callbacks.
+
 - Global Back now restores the opened Plex detail after switching views,
   including selection, scroll, playback metadata, existing parent views and
   library paging. Sectionless playback-history details retain their origin.

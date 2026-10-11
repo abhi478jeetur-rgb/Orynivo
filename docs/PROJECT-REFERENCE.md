@@ -1842,7 +1842,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   album-track scope, expose the existing show-all-tracks checkbox, and keep the
   artist detail visible until the album detail has finished loading. Back from
   that album must restore the same unified artist detail rather than a generic
-  Artists or Albums view.
+  Artists or Albums view. Local profile publication retains request/token,
+  sidebar tag, detail version/name, visibility and enclosing Back ownership.
+  Database, synchronization and image continuations reject abandoned work; old
+  errors/completion cannot change newer profile controls. Retained-row refresh
+  stages image decodes before guarded metadata assignment and disposes rejected
+  images. Profile admission installs new profile/background ownership before
+  cancellation; top-level cancellation detaches these alongside top/cloud/Plex
+  before callbacks so replacements remain admitted.
 - Artwork A-Z navigation indexes the complete lightweight artist/album result,
   but binds rows to the virtualized wrap panels in pages. A jump must append
   through the target row and defer `ScrollIntoView` until layout has processed

@@ -43,19 +43,34 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private readonly NavigationLoadOwnership _artistProfileLoads = new();
+
+    /// <summary>Loads a local artist profile while retaining navigation and decode publication ownership.</summary>
+    /// <param name="artistId">Local artist identifier.</param>
+    /// <param name="forceRefresh">Whether an external profile refresh is required.</param>
+    /// <param name="profileLookupName">Optional external lookup name.</param>
+    /// <returns>A task completing after profile publication or abandonment.</returns>
     private async Task ShowArtistInfoAsync(
         long artistId,
         bool forceRefresh,
         string? profileLookupName = null)
     {
+        var restore = _navigationRestores.Context;
+        if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var cts = BeginArtistProfileLoad(out var request);
+        bool CanPublish() => _artistProfileLoads.IsCurrent(request) &&
+            ReferenceEquals(_artistProfileCts, cts) && ArtistInfoView.IsVisible &&
+            _currentTopLevelTag == tag && detailVersion == _artistDetailLoadVersion &&
+            _artistInfoUnifiedArtistName == unifiedName &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
+        if (!CanPublish()) { cts.Dispose(); return; }
         _artistInfoDisplayedRemoteRow = null;
         _nowPlayingRemoteArtistInfo = false;
         _artistInfoDisplayedId = artistId;
-        if (string.IsNullOrWhiteSpace(_artistInfoUnifiedArtistName))
-            ResetArtistInfoAlbums();
-        CancelArtistProfileLoad();
-        var cts = new CancellationTokenSource();
-        _artistProfileCts = cts;
+        if (string.IsNullOrWhiteSpace(unifiedName)) ResetArtistInfoAlbums();
         EditArtistNameButton.IsVisible = true;
         SetArtistImageActionsVisible(true);
         RefreshArtistInfoButton.IsEnabled = false;
@@ -74,7 +89,8 @@ public partial class MainWindow : Window
             {
                 using var db = AudioDatabase.OpenDefault();
                 return db.GetArtistById(artistId);
-            }, cts.Token);
+            }, request.Token);
+            if (!CanPublish()) return;
             if (artist is null)
             {
                 ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoNotFound;
@@ -103,7 +119,7 @@ public partial class MainWindow : Window
                     downloadImage: !artist.ImageIsManual,
                     cancellationToken: cts.Token,
                     musicBrainzArtistId: artist.MusicBrainzArtistId);
-                cts.Token.ThrowIfCancellationRequested();
+                if (!CanPublish()) return;
                 artist = await Task.Run(() =>
                 {
                     using var db = AudioDatabase.OpenDefault();
@@ -114,13 +130,15 @@ public partial class MainWindow : Window
                         profile?.SourceUrl,
                         language);
                     return db.GetArtistById(artist.Id);
-                }, cts.Token);
+                }, request.Token);
+                if (!CanPublish()) return;
 
                 byte[]? imageData = null;
                 string? imageMimeType = null;
                 if (!string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
                 {
-                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, cts.Token);
+                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, request.Token);
+                    if (!CanPublish()) return;
                     imageMimeType = GuessImageMimeType(profile.ImagePath);
                 }
                 await SynchronizeUnifiedArtistProfileAsync(
@@ -130,16 +148,18 @@ public partial class MainWindow : Window
                     language,
                     imageData,
                     imageMimeType,
-                    cts.Token);
+                    request.Token);
+                if (!CanPublish()) return;
             }
 
             if (artist is null)
                 return;
 
             ArtistInfoBiographyTextBlock.Text = artist.Biography ?? string.Empty;
-            ArtistInfoImage.Source = await Task.Run(
-                () => CreateArtworkImage(artist.ImagePath, 1000, ignoreCache: true),
-                cts.Token);
+            var image = await Task.Run(
+                () => CreateArtworkImage(artist.ImagePath, 1000, ignoreCache: true), request.Token);
+            if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
+            ArtistInfoImage.Source = image;
             if (ArtistInfoImage.Source is null)
             {
                 ArtistInfoImagePlaceholder.IsVisible = true;
@@ -170,23 +190,25 @@ public partial class MainWindow : Window
             ArtistInfoSourceButton.IsVisible = !(string.IsNullOrWhiteSpace(_artistInfoSourceUrl));
             ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoNotFound;
             ArtistInfoStatusTextBlock.IsVisible = string.IsNullOrWhiteSpace(artist.Biography);
-            await RefreshVisibleArtistRowAsync(artist);
-            if (string.IsNullOrWhiteSpace(_artistInfoUnifiedArtistName))
-                await LoadArtistInfoAlbumsAsync(_localCatalogProvider, artistId, null, cts.Token);
+            await RefreshVisibleArtistRowAsync(artist, CanPublish);
+            if (!CanPublish()) return;
+            if (string.IsNullOrWhiteSpace(unifiedName))
+                await LoadArtistInfoAlbumsAsync(_localCatalogProvider, artistId, null, request.Token);
         }
         catch (OperationCanceledException)
         {
         }
         catch
         {
-            ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloadFailed;
+            if (CanPublish()) ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloadFailed;
         }
         finally
         {
             if (_artistProfileCts == cts)
             {
+                var canFinish = CanPublish();
                 _artistProfileCts = null;
-                RefreshArtistInfoButton.IsEnabled = true;
+                if (canFinish) RefreshArtistInfoButton.IsEnabled = true;
             }
             cts.Dispose();
         }
@@ -565,8 +587,13 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task RefreshVisibleArtistRowAsync(ArtistInfo artist)
+    /// <summary>Refreshes a retained artist row only after both image decodes remain admitted.</summary>
+    /// <param name="artist">Resolved local profile metadata.</param>
+    /// <param name="canPublish">Optional owning profile guard.</param>
+    /// <returns>A task completing after row publication or abandonment.</returns>
+    private async Task RefreshVisibleArtistRowAsync(ArtistInfo artist, Func<bool>? canPublish = null)
     {
+        if (canPublish is not null && !canPublish()) return;
         var rows = ContentDataGrid.ItemsSource as IEnumerable<ContentRow>
             ?? ArtistArtworkListBox.ItemsSource as IEnumerable<ContentRow>;
         var comparisonKey = ArtistNameNormalizer.CreateComparisonKey(artist.Artist);
@@ -577,6 +604,15 @@ public partial class MainWindow : Window
         if (row is null)
             return;
 
+        var artwork = await Task.Run(() => CreateArtworkImage(artist.ImagePath, 320, ignoreCache: true));
+        if (canPublish is not null && !canPublish()) { (artwork as IDisposable)?.Dispose(); return; }
+        var thumbnail = await Task.Run(() => CreateArtworkImage(artist.ImagePath, 96, ignoreCache: true));
+        if (canPublish is not null && !canPublish())
+        {
+            (artwork as IDisposable)?.Dispose();
+            (thumbnail as IDisposable)?.Dispose();
+            return;
+        }
         row.Biography = artist.Biography;
         row.SourceUrl = artist.SourceUrl;
         row.ProfileLanguage = artist.ProfileLanguage;
@@ -585,8 +621,8 @@ public partial class MainWindow : Window
         row.ArtworkPath = artist.ImagePath;
         row.ThumbnailPath = artist.ImagePath;
         row.ArtworkLoadCompleted = false;
-        row.Artwork = await Task.Run(() => CreateArtworkImage(artist.ImagePath, 320, ignoreCache: true));
-        row.Thumbnail = await Task.Run(() => CreateArtworkImage(artist.ImagePath, 96, ignoreCache: true));
+        row.Artwork = artwork;
+        row.Thumbnail = thumbnail;
         row.ArtworkLoadCompleted = true;
     }
 
@@ -601,11 +637,29 @@ public partial class MainWindow : Window
         _ => "en"
     };
 
-    /// <summary>Replaces background load ownership before invoking cancellation callbacks.</summary>
+    /// <summary>Installs local profile and background ownership before cancelling older work.</summary>
+    /// <param name="request">Publication identity of the newly installed profile.</param>
+    /// <returns>The cancellation source owned and disposed by the profile caller.</returns>
+    private CancellationTokenSource BeginArtistProfileLoad(out NavigationLoadOwnership.Request request)
+    {
+        var previousProfile = _artistProfileCts;
+        var previousBackground = _backgroundArtistLoadCts;
+        var cancellation = new CancellationTokenSource();
+        _artistProfileCts = cancellation;
+        _backgroundArtistLoadCts = new CancellationTokenSource();
+        request = _artistProfileLoads.Begin(cancellation.Token);
+        previousProfile?.Cancel();
+        previousBackground.Cancel();
+        return cancellation;
+    }
+
+    /// <summary>Detaches profile and replaces background ownership before cancellation callbacks.</summary>
     private void CancelArtistProfileLoad()
     {
         var profile = _artistProfileCts;
         var background = _backgroundArtistLoadCts;
+        _artistProfileCts = null;
+        _artistProfileLoads.Invalidate();
         _backgroundArtistLoadCts = new CancellationTokenSource();
         profile?.Cancel();
         background.Cancel();

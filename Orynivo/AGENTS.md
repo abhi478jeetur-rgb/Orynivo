@@ -694,7 +694,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   paint, and starts profile/image resolution last. Its load version discards
   superseded results. Synchronous local provider calls and bitmap decoding must
   run through `Task.Run`; `ShowArtistInfoAsync` must never reset albums while a
-  unified artist context is active.
+  unified artist context is active. Local profile loads additionally retain
+  request/token, sidebar tag, detail version/name and enclosing Back ownership.
+  Install profile/background ownership before cancelling older work; validate
+  after database, synchronization and decoding awaits and before errors/cleanup.
+  Stage retained-row images before guarded metadata assignment and dispose
+  rejected decodes. Top-level cancellation detaches artist-profile ownership
+  alongside top/cloud/Plex before invoking callbacks, preserving replacements.
 - NavigationCaptureDecision selects typed capture routes from scalar inputs
   without owning rows, providers, credentials or history. Preserve search/cloud,
   logical-album, provider-bound album and artist precedence. Server albums

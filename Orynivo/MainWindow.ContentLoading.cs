@@ -47,7 +47,7 @@ public partial class MainWindow : Window
     private readonly NavigationLoadOwnership _topLevelViewLoads = new();
     private CancellationTokenSource? _topLevelViewCts;
 
-    /// <summary>Abandons outer view and foreground cloud publication while releasing counted loading.</summary>
+    /// <summary>Detaches outer, cloud, Plex and artist-profile ownership before cancellation callbacks.</summary>
     private void CancelTopLevelViewLoad()
     {
         _topLevelViewLoads.Invalidate();
@@ -59,6 +59,13 @@ public partial class MainWindow : Window
         var previousPlexCancellation = _plexViewCts;
         _plexViewCts = null;
         _plexLoads.Invalidate();
+        var previousProfileCancellation = _artistProfileCts;
+        _artistProfileCts = null;
+        _artistProfileLoads.Invalidate();
+        var previousBackgroundCancellation = _backgroundArtistLoadCts;
+        _backgroundArtistLoadCts = new CancellationTokenSource();
+        previousProfileCancellation?.Cancel();
+        previousBackgroundCancellation.Cancel();
         CancelAndDispose(ref previousCloudCancellation);
         CancelAndDispose(ref previousPlexCancellation);
         CancelAndDispose(ref previousCancellation);

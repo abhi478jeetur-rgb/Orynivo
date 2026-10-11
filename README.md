@@ -1096,6 +1096,8 @@ byte-range streaming without FFmpeg.
 - Manual LRCLIB lyrics search with editable title and artist, result preview,
   and explicit replacement of the cached lyrics
 - Cached artist images and localized biographies from Wikipedia/Wikimedia
+- Local artist profile loading rejects outdated results after navigation or a
+  newer artist selection, including delayed image and visible-row updates.
 - Manual Wikimedia Commons artist-image search with editable search text
 - Manually selected artist images are retained across profile refreshes,
   renames, and artist merges
