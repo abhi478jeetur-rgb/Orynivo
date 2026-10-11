@@ -2,41 +2,14 @@ namespace Orynivo;
 
 public partial class MainWindow
 {
-    private readonly LibraryViewCache<ContentRow> _unifiedLibraryViewCache = new(3);
+    private readonly LibraryCatalogLoadCoordinator<ContentRow> _unifiedLibraryLoads = new(3);
     private LibraryLoadResult<ContentRow>? _unifiedLibraryLoadResult;
-
-    /// <summary>Returns a cached unfiltered Artists, Albums, or Tracks view when available.</summary>
-    /// <param name="tag">Shared library view tag.</param>
-    /// <param name="result">Complete cached rows and source outcomes when found.</param>
-    /// <returns><see langword="true"/> when a current entry exists.</returns>
-    private bool TryGetUnifiedLibraryViewCache(string tag, out LibraryLoadResult<ContentRow>? result)
-    {
-        result = null;
-        if (!CanCacheUnifiedLibraryView(tag))
-            return false;
-        var key = CreateUnifiedLibraryViewCacheKey(tag);
-        return _unifiedLibraryViewCache.TryGet(key, _unifiedLibraryViewCache.Generation, out result);
-    }
-
-    /// <summary>Stores one completed unfiltered shared-library view.</summary>
-    /// <param name="tag">Shared library view tag.</param>
-    /// <param name="key">View identity captured before starting the load.</param>
-    /// <param name="generation">Catalog generation captured before starting the load.</param>
-    /// <param name="result">Sorted and merged rows with explicit source outcomes.</param>
-    private void StoreUnifiedLibraryViewCache(string tag, string key, int generation, LibraryLoadResult<ContentRow> result)
-    {
-        if (!CanCacheUnifiedLibraryView(tag))
-            return;
-        if (!string.Equals(key, CreateUnifiedLibraryViewCacheKey(tag), StringComparison.Ordinal))
-            return;
-        _unifiedLibraryViewCache.TryStore(key, generation, result);
-    }
 
     /// <summary>Clears catalog snapshots and abandons pending searches while retaining published search failures.</summary>
     private void InvalidateUnifiedLibraryViewCache()
     {
         CancelLibrarySearch(clearResult: false);
-        _unifiedLibraryViewCache.Invalidate();
+        _unifiedLibraryLoads.Invalidate();
         InvalidateSimilarityFeatureCache();
     }
 

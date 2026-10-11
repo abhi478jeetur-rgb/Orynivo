@@ -131,7 +131,7 @@ public partial class MainWindow
         _playlistLoadCts = new CancellationTokenSource();
         var token = _playlistLoadCts.Token;
         var version = _playlistLoadVersion;
-        var generation = _unifiedLibraryViewCache.Generation;
+        var generation = _unifiedLibraryLoads.Generation;
         _playlistRetrying = isRetry;
         if (!isRetry) ContentDataGrid.ItemsSource = null;
         UpdateUnifiedLibraryLoadNotice();
@@ -139,7 +139,7 @@ public partial class MainWindow
         {
             var result = await LoadStoredPlaylistAsync(id, token);
             if (token.IsCancellationRequested || version != _playlistLoadVersion ||
-                generation != _unifiedLibraryViewCache.Generation || _activePlaylistId != id)
+                generation != _unifiedLibraryLoads.Generation || _activePlaylistId != id)
                 return;
             var selection = isRetry ? ContentDataGrid.SelectedItem as ContentRow : null;
             var offset = isRetry ? CaptureCurrentVerticalOffset() : null;
@@ -155,7 +155,7 @@ public partial class MainWindow
                     : row.Id == selection.Id && row.SourceKey == selection.SourceKey);
             if (offset.HasValue)
                 RestoreDataGridPositionAfterLayout(ContentDataGrid.SelectedItem as ContentRow, offset,
-                    () => version == _playlistLoadVersion && generation == _unifiedLibraryViewCache.Generation && _activePlaylistId == id);
+                    () => version == _playlistLoadVersion && generation == _unifiedLibraryLoads.Generation && _activePlaylistId == id);
             UpdateAlphabetIndex(result.Rows, false);
             ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(result.Rows.Count);
             UpdateUnifiedLibraryLoadNotice();
@@ -164,7 +164,7 @@ public partial class MainWindow
         catch
         {
             if (!token.IsCancellationRequested && version == _playlistLoadVersion &&
-                generation == _unifiedLibraryViewCache.Generation && _activePlaylistId == id)
+                generation == _unifiedLibraryLoads.Generation && _activePlaylistId == id)
             {
                 _unifiedLibraryLoadResult = new([], [new("local", LibrarySourceLoadStatus.Failed)]);
                 UpdateUnifiedLibraryLoadNotice();

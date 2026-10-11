@@ -44,7 +44,8 @@ public partial class MainWindow : Window
     internal const string LocalSourceKey = "local";
     private int _plexNavigationLoadVersion;
     private int _plexViewLoadVersion;
-    private int _unifiedLibraryLoadVersion;
+    /// <summary>Gets load ownership used by the shared view retry indicator.</summary>
+    private int _unifiedLibraryLoadVersion => _unifiedLibraryLoads.Version;
     private CancellationTokenSource? _unifiedLibraryAppendCts;
     private CancellationTokenSource? _folderViewCts;
     private const int PlexPageSize = 500;

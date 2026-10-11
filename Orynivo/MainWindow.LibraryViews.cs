@@ -185,13 +185,13 @@ public partial class MainWindow : Window
     {
         var diagnosticStopwatch = Stopwatch.StartNew();
         LogUiDiagnostics($"BindLocalRowsAndStartRemoteAppendAsync start tag={tag}");
-        CancelAndDispose(ref _unifiedLibraryAppendCts);
+        var previousCancellation = _unifiedLibraryAppendCts;
         _unifiedLibraryAppendCts = new CancellationTokenSource();
         var cancellationToken = _unifiedLibraryAppendCts.Token;
-        var version = ++_unifiedLibraryLoadVersion;
-        var generation = _unifiedLibraryViewCache.Generation;
-        var cacheKey = CreateUnifiedLibraryViewCacheKey(tag);
-        if (TryGetUnifiedLibraryViewCache(tag, out var cachedResult))
+        var request = _unifiedLibraryLoads.Begin(CreateUnifiedLibraryViewCacheKey(tag), cancellationToken);
+        CancelAndDispose(ref previousCancellation);
+        if (!_unifiedLibraryLoads.IsCurrent(request)) return;
+        if (_unifiedLibraryLoads.TryGet(request, CanCacheUnifiedLibraryView(tag), out var cachedResult))
         {
             var cachedRows = cachedResult!.Rows;
             _unifiedLibraryLoadResult = cachedResult;
@@ -206,19 +206,19 @@ public partial class MainWindow : Window
             return;
         }
         var servers = (_settings.OrynivoServers ?? []).ToArray();
-        var localTask = LibrarySourceLoader.LoadAsync<ContentRow>("local",
-            async token => await Task.Run(() => tag == "Tracks"
-                ? GetFilteredTrackRows()
-                : QueryRows(tag, requireComplete: true), token), cancellationToken);
-        var remoteTask = LoadRemoteUnifiedRowsAsync(tag, servers, cancellationToken);
-        await Task.WhenAll(localTask, remoteTask);
-        var result = LibraryLoadResult<ContentRow>.Combine([await localTask, await remoteTask]);
+        var result = await _unifiedLibraryLoads.LoadAsync(request,
+        [
+            captured => LibrarySourceLoader.LoadAsync<ContentRow>("local",
+                async token => await Task.Run(() => tag == "Tracks"
+                    ? GetFilteredTrackRows()
+                    : QueryRows(tag, requireComplete: true), token), captured),
+            captured => LoadRemoteUnifiedRowsAsync(tag, servers, captured)
+        ]);
 
-        if (cancellationToken.IsCancellationRequested || version != _unifiedLibraryLoadVersion ||
-            generation != _unifiedLibraryViewCache.Generation || result.Status == LibraryLoadStatus.Cancelled ||
+        if (result is null || !_unifiedLibraryLoads.IsCurrent(request) ||
             !string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal))
         {
-            LogUiDiagnostics($"BindLocalRowsAndStartRemoteAppendAsync canceled before combined bind tag={tag} version={version}");
+            LogUiDiagnostics($"BindLocalRowsAndStartRemoteAppendAsync canceled before combined bind tag={tag} version={request.Version}");
             return;
         }
 
@@ -232,7 +232,8 @@ public partial class MainWindow : Window
             if (row.OrynivoServer is not null && row.EntityType == "OrynivoTrack" && row.FilePath is { } path)
                 _orynivoTracksByUrl[path] = row;
         _unifiedLibraryLoadResult = result;
-        StoreUnifiedLibraryViewCache(tag, cacheKey, generation, result);
+        _unifiedLibraryLoads.TryStore(request, CreateUnifiedLibraryViewCacheKey(tag),
+            CanCacheUnifiedLibraryView(tag), result);
         LogUiDiagnostics($"Unified library outcome tag={tag} status={result.Status} sources={result.Sources.Count} failed={result.Sources.Count(source => source.Status != LibrarySourceLoadStatus.Success)}");
         LogUiDiagnostics(
             $"BindLocalRowsAndStartRemoteAppendAsync combined rows sorted tag={tag} count={sortedRows.Count} elapsed={diagnosticStopwatch.ElapsedMilliseconds}ms");
@@ -246,8 +247,7 @@ public partial class MainWindow : Window
         UpdateUnifiedLibraryLoadNotice();
         if (preservePosition)
             RestoreSelectionFromCurrentItems(selectedRow?.Id, verticalOffset, selectedRow?.SourceKey,
-                () => !cancellationToken.IsCancellationRequested && version == _unifiedLibraryLoadVersion &&
-                      generation == _unifiedLibraryViewCache.Generation &&
+                () => _unifiedLibraryLoads.IsCurrent(request) &&
                       string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal));
         LogUiDiagnostics(
             $"BindLocalRowsAndStartRemoteAppendAsync combined bind completed tag={tag} count={sortedRows.Count} elapsed={diagnosticStopwatch.ElapsedMilliseconds}ms");

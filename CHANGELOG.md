@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Shared catalog load ownership and the three-entry complete-result cache now
+  belong to a standalone coordinator. Source outcomes retain their configured
+  order; obsolete loads cannot publish or overwrite cache entries. Window-free
+  tests cover overlapping requests, invalidation, cancellation and recovery.
+
 - Playback session ownership now also guards initial/resume seeks and
   pause/resume readiness. System, slider and remote seeks participate in
   complete output release. Window-free composition tests cover held factories,
@@ -43,6 +48,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   stale rows and playback metadata.
 
 ### Fixed
+
+- A catalog reload triggered synchronously by cancelling an older reload keeps
+  its new request and cancellation ownership instead of being overwritten by the
+  interrupted caller.
 
 - A new playback start triggered synchronously by a cancellation or backend
   pause/resume callback can no longer lose its transport/source state to the

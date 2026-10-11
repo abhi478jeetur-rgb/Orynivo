@@ -16,9 +16,9 @@ public partial class MainWindow
     private async Task<int?> ResolveUnifiedSmartPlaylistCountAsync(
         SmartPlaylistCriteria criteria, CancellationToken cancellationToken)
     {
-        var generation = _unifiedLibraryViewCache.Generation;
+        var generation = _unifiedLibraryLoads.Generation;
         var resolved = await LoadUnifiedSmartPlaylistAsync(criteria, cancellationToken, composeRows: false);
-        return generation == _unifiedLibraryViewCache.Generation && resolved.Result.Status == LibraryLoadStatus.Complete
+        return generation == _unifiedLibraryLoads.Generation && resolved.Result.Status == LibraryLoadStatus.Complete
             ? resolved.Count : null;
     }
 

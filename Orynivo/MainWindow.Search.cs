@@ -110,7 +110,7 @@ public partial class MainWindow : Window
         _librarySearchCts = new CancellationTokenSource();
         var token = _librarySearchCts.Token;
         var version = ++_librarySearchVersion;
-        var generation = _unifiedLibraryViewCache.Generation;
+        var generation = _unifiedLibraryLoads.Generation;
         _librarySearchQuery = query;
         _librarySearchOnlyServer = onlyServer;
         _librarySearchLoadResult = previousResult;
@@ -150,7 +150,7 @@ public partial class MainWindow : Window
 
         UpdateUnifiedLibraryLoadNotice();
         bool IsCurrent() => !token.IsCancellationRequested && version == _librarySearchVersion &&
-                            generation == _unifiedLibraryViewCache.Generation && SearchResultsScrollViewer.IsVisible;
+                            generation == _unifiedLibraryLoads.Generation && SearchResultsScrollViewer.IsVisible;
         try
         {
             var localTask = onlyServer is null && filters.IncludesSource(LocalSourceKey)

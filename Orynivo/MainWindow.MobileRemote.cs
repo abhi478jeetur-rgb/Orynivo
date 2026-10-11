@@ -40,7 +40,7 @@ public partial class MainWindow
         if (_playbackShuttingDown) return false;
         if (action == "play") _queueEdits.Invalidate();
         var edit = _queueEdits.Capture();
-        var generation = _unifiedLibraryViewCache.Generation;
+        var generation = _unifiedLibraryLoads.Generation;
         var intent = action == "play" ? _playbackStarts.Begin() : _playbackStarts.Current;
         if (action == "play") _playbackPreparations.CancelAll();
         using var preparation = action == "play" ? _playbackPreparations.Begin() : null;
@@ -48,7 +48,7 @@ public partial class MainWindow
         LibraryLoadResult<ContentRow> result;
         try { result = await LoadStoredPlaylistAsync(id, lookupCancellation.Token); }
         catch (Exception) when (!_queueEdits.IsCurrent(edit.Version) || (action == "play" && !_playbackStarts.IsCurrent(intent))) { return false; }
-        if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version) || generation != _unifiedLibraryViewCache.Generation ||
+        if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version) || generation != _unifiedLibraryLoads.Generation ||
             (action == "play" && !_playbackStarts.IsCurrent(intent))) return false;
         var rows = result.Rows;
         var playable = rows.Where(r => r.Id.HasValue && !string.IsNullOrEmpty(r.FilePath)).ToList();

@@ -1067,7 +1067,16 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   `LibraryLoadResult` retains explicit per-source success, failure, timeout, and
   cancellation outcomes; a successful empty source is not a failure. Cache only
   complete results, capturing the catalog generation before loading and
-  rejecting late writes atomically in `LibraryViewCache`. Navigation
+  rejecting late writes atomically in `LibraryViewCache`.
+  LibraryCatalogLoadCoordinator owns the one bounded cache, load versions and
+  captured request generations. Its source adapters return typed outcomes;
+  independent local/remote loads combine in supplied order and reject obsolete
+  or cancelled publication. The window retains source/filter adapters,
+  sort/merge, metadata registration and binding. Publish new request/token
+  ownership before cancelling old work and recheck after callbacks. Search,
+  playlists and Mobile read the same catalog generation through the coordinator;
+  they retain independent request ownership. Test overlap, invalidation,
+  recovery, eligibility and LRU behavior without a window. Navigation
   cancellation and load versions reject stale publication; register remote
   playback metadata only after that guard. Partial/failed shared views expose a
   localized notice with an unavailable-source count and in-place retry. Keep

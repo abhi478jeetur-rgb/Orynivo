@@ -1953,17 +1953,29 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   cancelled requests independently of row count. The UI keeps successful rows
   when another source fails; only complete results enter `LibraryViewCache`.
   That cache atomically rejects results from an invalidated catalog generation.
-  Navigation cancellation and load versions also reject late publication, and
-  remote playback registration happens only after those checks. The current
-  source outcomes drive a localized incomplete-load notice and **Try again**
-  action. Retry keeps usable rows interactive until publication, then restores
-  source-aware selection and scroll position. Deferred restore callbacks reject
-  navigation, load-version, and catalog-generation changes. Full remote catalog
-  cache writers use the HTTP client's strict `requireComplete` mode, including
-  every 5,000-row track page. Track cache schema version 2 and new artist/album
-  filename identities discard older potentially incomplete snapshots. A request
-  failure never saves a partial catalog; a valid server library timestamp is
-  required before disk-cache reuse.
+  `LibraryCatalogLoadCoordinator` owns this single cache and shared-view load
+  versions. A request captures owner, credential-free key, generation, version
+  and navigation token before source work. Independent typed source adapters
+  start together and combine in input order; obsolete/cancelled requests return
+  no publishable result. Store checks current request, key and filter
+  eligibility before the existing complete-result/LRU policy. Search, playlists
+  and Mobile share this generation without sharing catalog request versions. The
+  window keeps source/filter adapters, sorting/merging, binding and remote
+  registration. New cancellation/request ownership is installed before
+  cancelling old work, so reentrant reloads retain the latest request.
+  Coordinator tests run without a window; isolated notice/search tests use
+  synthetic data and fake HTTP. Navigation cancellation and load versions also
+  reject late publication, and remote playback registration happens only after
+  those checks. The current source outcomes drive a localized incomplete-load
+  notice and **Try again** action. Retry keeps usable rows interactive until
+  publication, then restores source-aware selection and scroll position.
+  Deferred restore callbacks reject navigation, load-version, and
+  catalog-generation changes. Full remote catalog cache writers use the HTTP
+  client's strict `requireComplete` mode, including every 5,000-row track page.
+  Track cache schema version 2 and new artist/album filename identities discard
+  older potentially incomplete snapshots. A request failure never saves a
+  partial catalog; a valid server library timestamp is required before
+  disk-cache reuse.
 - `GetTracksByDirectory(dirPath)` uses an SQL prefix query plus a direct-child
   filter
 - `GetTrackPathsUnderDirectory(rootPath)` returns all recursive track paths

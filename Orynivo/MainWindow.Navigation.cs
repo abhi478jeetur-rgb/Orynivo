@@ -412,13 +412,13 @@ public partial class MainWindow : Window
                 SearchTextBox.Text = state.SearchQuery ?? string.Empty;
                 var searchRestore = ShowSearchResultsAsync(state.SearchQuery ?? string.Empty);
                 var searchVersion = _librarySearchVersion;
-                var searchGeneration = _unifiedLibraryViewCache.Generation;
+                var searchGeneration = _unifiedLibraryLoads.Generation;
                 var searchToken = _librarySearchCts?.Token;
                 await searchRestore;
                 RestoreSearchSelection(state.SelectedId, state.SelectedSourceKey, state.VerticalOffset,
                     () => searchToken.HasValue && !searchToken.Value.IsCancellationRequested &&
                           searchVersion == _librarySearchVersion &&
-                          searchGeneration == _unifiedLibraryViewCache.Generation && SearchResultsScrollViewer.IsVisible);
+                          searchGeneration == _unifiedLibraryLoads.Generation && SearchResultsScrollViewer.IsVisible);
                 return;
 
             case "GenreCloud":
