@@ -1183,13 +1183,21 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   immediately on UI cancellation or via a dispatcher post for worker callbacks.
   Completion balances the same contribution without an obsolete fade/status.
   Held fake HTTP tests cover navigation to local Tracks and same-tag overlap.
-  Provider-backed album detail publication remains a separate audit boundary.
-  Never restore a remote album detail through the local `ShowAlbumTracksAsync`
-  path because server and local album IDs can collide. Remote artist-info views
-  must use the bound remote row/server profile data, not local
-  `AudioDatabase.GetArtistById`, because server IDs can collide with local
-  artist IDs. The remote artist-info rename/merge and Wikimedia image actions
-  must call the Orynivo Server API (`RenameArtistAsync`,
+  Outer top-level calls also reuse `NavigationLoadOwnership` for counted loading
+  and fade publication. Navigation/detail/configuration abandonment cancels the
+  outer scope immediately. `ContentLoadingLease` releases each acquired loading
+  contribution once on cancellation or completion; radio views that acquire no
+  contribution must not decrement another scope. Fade guards run before changing
+  opacity and in deferred render work. Overlay generations change at zero-depth
+  transitions, preserving pending rendering across nested scopes. Tests exercise
+  complete held top-level calls, same-tag overlap, deferred fade rejection and
+  nested overlay visibility. Provider-backed album detail publication remains a
+  separate audit boundary. Never restore a remote album detail through the local
+  `ShowAlbumTracksAsync` path because server and local album IDs can collide.
+  Remote artist-info views must use the bound remote row/server profile data,
+  not local `AudioDatabase.GetArtistById`, because server IDs can collide with
+  local artist IDs. The remote artist-info rename/merge and Wikimedia image
+  actions must call the Orynivo Server API (`RenameArtistAsync`,
   `UploadArtistImageAsync`) and update the remote row/detail view rather than
   writing to the local database. Remote Tracks offers the same
   Genre/Audio-Type/Bitrate facet filters as local, reusing the client's

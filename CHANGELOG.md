@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Top-level loading and deferred fades now retain request ownership. Superseded
+  navigation releases its counted loading scope exactly once and cannot replay a
+  fade over the new view. Remote and outer loaders share an idempotent lease;
+  views without a loading scope no longer decrement another load's count.
+- Nested loading scopes preserve the overlay render generation until the final
+  release, preventing an invisible active loading overlay.
+
 - Remote view loads now retain explicit request ownership. Navigation and
   catalog configuration changes abandon earlier loads; late rows, track facets,
   errors and loading cleanup cannot overwrite a newer local or same-tag server

@@ -911,7 +911,8 @@ byte-range streaming without FFmpeg.
   Remote details retain their owning server; invalid or removed source tags
   cannot reopen an album from another active server. Server overview loads
   reject late rows and status updates after leaving the view or starting a newer
-  load
+  load. Superseded top-level loads release their loading scope without replaying
+  a fade over the new view
 - Conservative artist-name normalization for `feat.` credits and unambiguous
   case, accent, spacing, and punctuation variants, with a repair action for
   existing libraries

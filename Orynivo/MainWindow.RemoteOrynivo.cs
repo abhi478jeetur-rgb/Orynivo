@@ -258,19 +258,13 @@ public partial class MainWindow : Window
             string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal);
         if (!CanPublish()) return;
         ShowContentLoadingSkeleton();
-        var loadingReleased = false;
-        void ReleaseLoading()
-        {
-            if (loadingReleased) return;
-            loadingReleased = true;
-            HideContentLoadingSkeleton();
-        }
+        using var loading = new ContentLoadingLease(HideContentLoadingSkeleton);
         using var loadingCancellation = ct.Register(() =>
         {
-            if (Dispatcher.UIThread.CheckAccess()) ReleaseLoading();
-            else Dispatcher.UIThread.Post(ReleaseLoading);
+            if (Dispatcher.UIThread.CheckAccess()) loading.Dispose();
+            else Dispatcher.UIThread.Post(loading.Dispose);
         });
-        if (!CanPublish()) { ReleaseLoading(); return; }
+        if (!CanPublish()) return;
         var provider = CreateOrynivoCatalogProvider(server);
         var view = filterAlbumId.HasValue ? "AlbumTracks"
             : filterArtistId.HasValue ? "ArtistAlbums"
@@ -431,8 +425,8 @@ public partial class MainWindow : Window
         }
         finally
         {
-            ReleaseLoading();
-            if (CanPublish()) FadeInVisibleContentSurface();
+            loading.Dispose();
+            if (CanPublish()) FadeInVisibleContentSurface(CanPublish);
         }
 
         if (CanPublish()) StatusTextBlock.Text = string.Empty;

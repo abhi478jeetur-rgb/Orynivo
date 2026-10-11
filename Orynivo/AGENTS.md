@@ -723,6 +723,16 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Never let an old completion hide a newer view's loading state. Test held local
   navigation and same-tag replacement with fake HTTP; provider album detail
   loaders require their own subsequent publication audit.
+- Top-level view loads reuse `NavigationLoadOwnership` for loading/fade
+  publication and install replacement tokens before cancellation callbacks.
+  Detail reset/push and configuration changes cancel their scope.
+  `ContentLoadingLease` releases an acquired counted contribution exactly once;
+  UI release stays on the dispatcher. Views without an acquired scope must not
+  decrement loading depth. Deferred fades check the owning request again. Shared
+  overlay generation changes only when entering/leaving zero loading depth;
+  nested scopes must not invalidate the active render. Test held complete
+  top-level calls, same-tag replacement, deferred fades and nested rendering.
+  Nested row loaders remain responsible for their own publication guards.
 - Navigation state must distinguish local, remote, Plex, and unified
   drill-downs; numeric IDs from different sources can collide. Back restoration
   of the top-level Artists and Albums views must use the normal unified loader
