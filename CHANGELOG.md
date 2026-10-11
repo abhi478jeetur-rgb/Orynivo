@@ -54,6 +54,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- Both Settings library-root cleanup paths now notify shared catalog caches
+  after indexed tracks were successfully removed. A cleanup that changes no rows
+  does not invalidate views. Library import preparation also clears catalog
+  snapshots and cancels pending shared loads, rejecting late pre-import results.
+
 - Background library watcher changes no longer cancel searches/playlists or
   update their notices on a worker thread. Catalog snapshots invalidate
   immediately; one coalesced dispatcher pass abandons only the captured request

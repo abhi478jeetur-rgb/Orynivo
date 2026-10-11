@@ -69,6 +69,8 @@ the ability to reach that library from any device on the local network.
   **Try again** without clearing usable rows; selection and scroll position
   survive the refresh, and navigating away cancels it. Background library
   updates keep the current view in place and offer a controlled refresh.
+  Removing library roots from Settings invalidates cached results after indexed
+  rows are removed.
 - Library search queries independent servers concurrently, keeps available
   results when a source fails, and offers **Try again** for incomplete searches.
   New queries and navigation cancel the previous search; genuine empty results

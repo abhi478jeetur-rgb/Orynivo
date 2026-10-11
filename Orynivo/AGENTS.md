@@ -1124,7 +1124,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   hints on the dispatcher. Capture independent request versions before
   invalidation; only cancel each captured version if still current. Never let a
   delayed notification cancel a newer search or playlist. Test background bursts
-  and newer admission independently.
+  and newer admission independently. Both Settings root-change paths use
+  CleanupLibraryRootsAsync: copy roots before worker admission, run removal off
+  UI, and notify OnWatchedLibraryChanged only after a successful nonzero
+  removal. No-op/failed cleanup must not report a catalog mutation. Import
+  preparation invalidates all shared catalog configuration caches, cancels
+  shared-load tokens and clears their outcome/retry notice before archive
+  replacement, in addition to existing search/playlist and playback abandonment.
+  Test held pre-cleanup and pre-import loads with synthetic SQLite and HTTP.
 - A cached Genre Cloud level renders immediately and must not retain the
   first-load branch-transition delay.
 - `AppSettings.LastMainView` persists every selectable sidebar leaf tag, not a

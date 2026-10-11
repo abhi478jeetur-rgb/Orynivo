@@ -245,6 +245,29 @@ public partial class MainWindow : Window
     // Einstellungen
     // ------------------------------------------------------------------
 
+    /// <summary>Removes indexed rows outside copied roots off the dispatcher and invalidates only after a successful mutation.</summary>
+    /// <param name="paths">Current configured roots, copied before worker admission.</param>
+    /// <returns>The number of removed rows, or zero when cleanup fails or changes nothing.</returns>
+    private Task<int> CleanupLibraryRootsAsync(IReadOnlyCollection<string> paths)
+    {
+        var capturedPaths = paths.ToArray();
+        return Task.Run(() =>
+        {
+            try
+            {
+                var removed = LibraryScanner.RemoveTracksOutsideRoots(capturedPaths);
+                if (removed > 0)
+                    OnWatchedLibraryChanged();
+                return removed;
+            }
+            catch (Exception ex)
+            {
+                CrashLogger.Log(ex, "Library root cleanup");
+                return 0;
+            }
+        });
+    }
+
     /// <summary>Opens embedded Settings after abandoning pending library search work.</summary>
     /// <param name="sender">Settings action source.</param>
     /// <param name="e">Button activation event.</param>
@@ -259,12 +282,7 @@ public partial class MainWindow : Window
             _settings.LibraryPaths = paths;
             _settingsStore.Save(_settings);
             _libraryWatcher?.UpdatePaths(paths);
-            var cleanupPaths = paths.ToList();
-            _ = Task.Run(() =>
-            {
-                try { LibraryScanner.RemoveTracksOutsideRoots(cleanupPaths); }
-                catch (Exception ex) { CrashLogger.Log(ex, "Library root cleanup"); }
-            });
+            _ = CleanupLibraryRootsAsync(paths);
             // Show/hide the Local section and the empty-library hint immediately
             // when directories are added or removed while Settings is open.
             ApplySidebarNavigationSettings();
@@ -829,20 +847,7 @@ public partial class MainWindow : Window
             _libraryWatcher?.UpdateReplayGainAnalysis(_settings.CalculateMissingReplayGainDuringScan);
             _libraryWatcher?.UpdatePaths(_settings.LibraryPaths);
             if (libraryPathsChanged)
-            {
-                var cleanupPaths = _settings.LibraryPaths.ToList();
-                _ = Task.Run(() =>
-                {
-                    try
-                    {
-                        LibraryScanner.RemoveTracksOutsideRoots(cleanupPaths);
-                    }
-                    catch (Exception ex)
-                    {
-                        CrashLogger.Log(ex, "Library root cleanup");
-                    }
-                });
-            }
+                _ = CleanupLibraryRootsAsync(_settings.LibraryPaths);
             _settings.Theme                  = window.SelectedTheme;
             _settings.Language               = window.SelectedLanguage;
             _settings.GenreCloudBackground   = window.SelectedGenreCloudBackground;

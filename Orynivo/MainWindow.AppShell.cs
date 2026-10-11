@@ -65,10 +65,13 @@ public partial class MainWindow : Window
                    string.Equals(pair.First.BaseUrl, pair.Second.BaseUrl, StringComparison.Ordinal));
     }
 
-    /// <summary>Abandons pending searches and playback before replacing the local library.</summary>
+    /// <summary>Invalidates catalog snapshots and abandons pending catalog, search, playlist and playback work before replacing the local library.</summary>
     internal void PrepareForLibraryImport()
     {
         CancelLibrarySearch();
+        InvalidateCatalogConfiguration();
+        CancelAndDispose(ref _unifiedLibraryAppendCts);
+        ClearUnifiedLibraryLoadNotice();
         _libraryWatcher?.Dispose();
         _libraryWatcher = null;
         _visualizerWindow?.Close();
