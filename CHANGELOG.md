@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Automatic unified artist-profile synchronization shares write ordering with
+  manual artist-detail image changes. A later manual upload or deletion waits
+  through an admitted automatic file/SQLite/server batch and then writes last.
+  Waiting profile work rechecks its enclosing ownership before any writes and
+  retains the original destination set.
+
 - Automatic Wikipedia/Last.fm artist-image downloads use the shared serialized
   cache writer. Complete streams are staged before replacement; cancelled,
   failed or empty transfers preserve the existing image and clean temporary

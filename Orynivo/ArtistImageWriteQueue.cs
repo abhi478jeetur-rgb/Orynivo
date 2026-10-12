@@ -1,6 +1,6 @@
 namespace Orynivo;
 
-/// <summary>Orders complete manual image writes per normalized artist within one window.</summary>
+/// <summary>Orders complete manual image and automatic profile synchronization writes per artist within one window.</summary>
 internal sealed class ArtistImageWriteQueue
 {
     private readonly object _sync = new();

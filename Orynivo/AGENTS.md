@@ -677,8 +677,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   and exclude newly added sources. Rejected, failed and cancelled batches
   release later work; remove idle entries. Unrelated artist names remain
   independent. UI publication remains separately guarded after queued data work.
-  Context-menu, Settings, automatic profile/row writes, cross-window and
-  cross-client ordering remain separate acceptance work.
+  Unified automatic profile synchronization shares this queue across its
+  complete local file/SQLite and remote batch. Capture source snapshots before
+  waiting and recheck enclosing profile/image ownership before admission and
+  between writes. A later admitted manual batch writes after the automatic batch
+  finishes. Direct profile downloads, primary profile uploads, automatic row
+  jobs, Settings and context-menu writers, cross-window/client ordering remain
+  separate acceptance work.
 - Foreground profiles observe admitted manual-image changes separately from
   dialog/action admission. Advance manual-image write ownership only after an
   accepted selection or at deletion admission; cancelled selection must not

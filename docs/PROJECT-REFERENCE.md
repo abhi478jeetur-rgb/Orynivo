@@ -1951,8 +1951,13 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Owning-server search uploads share the queue. Capture destination connections
   before waiting; new servers are excluded. Idle entries are removed and failed
   or obsolete batches release successors. The caller synchronization context
-  remains intact for ownership checks. This does not coordinate automatic jobs,
-  Settings/context-menu writers, other windows/clients or provide a transaction.
+  remains intact for ownership checks. Unified automatic profile synchronization
+  shares this queue through its local file/SQLite and remote batch, rechecking
+  enclosing profile/image ownership after waiting and between operations. A
+  later manual batch writes last. Direct profile downloads, primary profile
+  uploads, automatic row jobs, Settings/context-menu writers and other
+  windows/clients still require coordination. This ordering does not provide a
+  transaction.
 - Foreground profiles separately observe admitted manual-image changes. Advance
   manual-image write ownership after accepted selection or at deletion
   admission; cancelled selection keeps profile images admitted. Older profiles

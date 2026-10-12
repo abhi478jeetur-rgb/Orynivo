@@ -643,6 +643,30 @@ public partial class MainWindow : Window
         if (comparisonKey.Length == 0)
             return;
 
+        await _artistImageWriteQueue.RunAsync(comparisonKey, IsCurrent, async () =>
+        {
+            await SynchronizeUnifiedArtistProfileCoreAsync(biography, sourceUrl, language,
+                imageData, imageMimeType, cancellationToken, comparisonKey, servers, IsCurrent);
+            return true;
+        });
+    }
+
+    /// <summary>Completes admitted automatic profile writes before a later manual batch may write.</summary>
+    /// <param name="biography">Downloaded biography.</param>
+    /// <param name="sourceUrl">Biography source URL.</param>
+    /// <param name="language">Profile language.</param>
+    /// <param name="imageData">Optional downloaded image bytes.</param>
+    /// <param name="imageMimeType">Optional image MIME type.</param>
+    /// <param name="cancellationToken">Cancellation between operations.</param>
+    /// <param name="comparisonKey">Captured normalized artist identity.</param>
+    /// <param name="servers">Original copied source connections and ownership guards.</param>
+    /// <param name="isCurrent">Enclosing profile/image ownership checked between operations.</param>
+    /// <returns>A task completing the admitted synchronization batch.</returns>
+    private async Task SynchronizeUnifiedArtistProfileCoreAsync(string? biography, string? sourceUrl,
+        string language, byte[]? imageData, string? imageMimeType, CancellationToken cancellationToken,
+        string comparisonKey, (OrynivoServerSettings Server, Func<bool> IsCurrent)[] servers,
+        Func<bool> isCurrent)
+    {
         var localArtists = await Task.Run(() =>
         {
             using var db = AudioDatabase.OpenDefault();
@@ -650,10 +674,10 @@ public partial class MainWindow : Window
                 .Where(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist) == comparisonKey)
                 .ToList();
         }, cancellationToken);
-        if (!IsCurrent()) return;
+        if (!isCurrent()) return;
         foreach (var artist in localArtists)
         {
-            if (!IsCurrent()) return;
+            if (!isCurrent()) return;
             string? imagePath = null;
             if (imageData is { Length: > 0 } && !artist.ImageIsManual)
             {
@@ -662,7 +686,7 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cancellationToken);
-                if (!IsCurrent()) return;
+                if (!isCurrent()) return;
             }
             await Task.Run(() =>
             {
@@ -670,23 +694,23 @@ public partial class MainWindow : Window
                 cancellationToken.ThrowIfCancellationRequested();
                 db.UpdateArtistProfile(artist.Id, biography, imagePath, sourceUrl, language);
             }, cancellationToken);
-            if (!IsCurrent()) return;
+            if (!isCurrent()) return;
         }
 
         foreach (var source in servers)
         {
-            if (!IsCurrent()) return;
+            if (!isCurrent()) return;
             if (!source.IsCurrent()) continue;
             var server = source.Server;
             try
             {
                 var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
-                if (!IsCurrent()) return;
+                if (!isCurrent()) return;
                 if (!source.IsCurrent()) continue;
                 foreach (var artist in artists.Where(candidate =>
                              ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
                 {
-                    if (!IsCurrent()) return;
+                    if (!isCurrent()) return;
                     if (!source.IsCurrent()) break;
                     var synchronizedImageData = artist.ImageIsManual ? null : imageData;
                     await _orynivoClient.UpdateArtistProfileAsync(
@@ -698,7 +722,7 @@ public partial class MainWindow : Window
                         synchronizedImageData,
                         synchronizedImageData is null ? null : imageMimeType,
                         cancellationToken);
-                    if (!IsCurrent()) return;
+                    if (!isCurrent()) return;
                 }
                 if (source.IsCurrent()) DeleteOrynivoArtistListCache(server);
             }
@@ -711,7 +735,7 @@ public partial class MainWindow : Window
                 // Profile synchronization is best-effort for temporarily unavailable servers.
             }
         }
-        if (IsCurrent()) InvalidateUnifiedLibraryViewCache();
+        if (isCurrent()) InvalidateUnifiedLibraryViewCache();
     }
 
     private async Task ReloadAlbumRowsAsync(
