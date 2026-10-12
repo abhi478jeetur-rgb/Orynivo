@@ -50,7 +50,10 @@ the ability to reach that library from any device on the local network.
 - Empty-library guidance opens Directories, Orynivo servers or Output device in
   Settings, with localized, wrapped and keyboard-focusable setup actions. Tab
   and Shift+Tab reach each sidebar setup action; Enter activates it. Keyboard
-  focus highlights setup and output-profile actions in both themes.
+  focus highlights setup and output-profile actions in both themes. Setup hints
+  use readable secondary text and avoid duplicate focus outlines.
+- Play is disabled before a source is selected; remembered tracks retain their
+  resume/retry action.
 - Output Settings keeps the profile selector full-width and wraps its actions
   below it so longer translations remain visible in narrow layouts.
 - Adding the first local music folder expands Library so Artists, Albums and

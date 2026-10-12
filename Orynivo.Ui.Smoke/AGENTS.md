@@ -6,6 +6,9 @@ affect the pure desktop unit tests.
 
 - Seed a unique temporary data root and legacy-migration marker before creating
   the application or MainWindow. Never use a personal catalog or credentials.
+- Seed valid synthetic output settings before the application too, so Settings
+  normalization cannot discover the real default endpoint. Empty-output checks
+  modify in-memory settings only. No production default migration is disabled.
 - Never show MainWindow, invoke its startup handlers, start playback or
   enumerate output devices. An isolated headless control host may perform
   bounded layout.
@@ -62,3 +65,9 @@ affect the pure desktop unit tests.
   actual compiled ListBox. This avoids activating unrelated radio/provider
   navigation. Restore all items/parent placement and deactivate Settings. Label
   this as headless key dispatch, not native OS or full-sidebar traversal proof.
+- Idle transport checks may call StopPlaybackCore only with no attached player;
+  assert null detachment and never invoke factory, startup, resume or playback.
+- Scaling checks use Headless SetRenderScaling at 1/2 with bounded controls.
+  ORYNIVO_SMOKE_RENDER_DIR optionally exports synthetic frames outside ordinary
+  CI. Keep them uncommitted. Contrast assertions apply only to opaque theme
+  colors, not physical monitors or accessibility certification.

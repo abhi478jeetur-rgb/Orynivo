@@ -117,6 +117,8 @@ and move those entries into a dated version section when preparing a release.
 - `docs/PROJECT-REFERENCE.md`: library, database, audio, UI, server, and build
   contracts, with repository-relative source paths.
 - `docs/WORKFLOW-TEST-COVERAGE.md`: automated workflow evidence and scope.
+- `docs/FIRST-PLAYBACK-ACCEPTANCE.md`: first-run software and hardware
+  acceptance.
 - `docs/VISUALIZER-CONTRACTS.md`: detailed Core and desktop rendering contracts.
 - `docs/VISUALIZER-STATUS.md`: current rendering paths, evidence, and limits.
 - `DEPENDENCY-MIGRATION.md`: dependency policy and deliberate migration steps.

@@ -6,6 +6,7 @@ using Avalonia.Interactivity;
 using Avalonia.Headless;
 using Avalonia.Input;
 using Avalonia.Media;
+using Avalonia.Media.Imaging;
 using Avalonia.VisualTree;
 using Avalonia.Threading;
 using Orynivo.Localization;
@@ -24,6 +25,11 @@ internal static class EmptyLibraryWorkflows
     {
         var window = new MainWindow();
         var settings = (AppSettings)typeof(MainWindow).GetField("_settings", Private)!.GetValue(window)!;
+        Check(settings.SelectedWasapiDeviceId == "synthetic-endpoint",
+            "Smoke setup did not retain its isolated synthetic output selection.");
+        var play = window.FindControl<Button>("PlayButton")!;
+        Check(!play.IsEnabled && !window.FindControl<Button>("PreviousButton")!.IsEnabled &&
+            !window.FindControl<Button>("NextButton")!.IsEnabled, "Fresh transport exposed unavailable commands.");
         var hint = window.FindControl<ListBoxItem>("LibraryEmptyHintItem")!;
         var folders = window.FindControl<Button>("LibrarySetupButton")!;
         var servers = window.FindControl<Button>("LibraryServerSetupButton")!;
@@ -51,16 +57,21 @@ internal static class EmptyLibraryWorkflows
         var index = sidebar.Items.IndexOf(hint);
         sidebar.Items.Remove(hint);
         var host = new Window { Width = 230, Height = 700, Content = hint };
+        var originalMotion = settings.ReduceMotion;
+        settings.ReduceMotion = true;
         try
         {
             host.Show();
             foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
             foreach (var language in Enum.GetValues<Language>())
             foreach (var width in new[] { 180d, 230d })
+            foreach (var scaling in new[] { 1d, 2d })
             {
                 ThemeManager.Apply(theme);
                 LocalizationManager.Apply(language);
+                host.SetRenderScaling(scaling);
                 host.Width = width;
+                host.Background = (IBrush)Application.Current!.Resources["AppSidebarBrush"]!;
                 Dispatcher.UIThread.RunJobs();
                 hint.Measure(new Size(width, 700));
                 hint.Arrange(new Rect(0, 0, width, hint.DesiredSize.Height));
@@ -83,12 +94,16 @@ internal static class EmptyLibraryWorkflows
                         "Setup action lacks its localized accessible name.");
                 }
                 var hintText = ((StackPanel)hint.Content!).Children.OfType<TextBlock>().Single();
+                Check((hint.Transitions?.Count ?? 0) == 0, "Reduced-motion setup retained row transitions.");
+                Check(Contrast(((ISolidColorBrush)hintText.Foreground!).Color,
+                    ((ISolidColorBrush)host.Background).Color) >= 4.5, "Setup text contrast is too low.");
                 Check(hintText.Text == LocalizationManager.Current.LibraryEmptyHint,
                     "Setup hint failed runtime language refresh.");
                 Check(((TextBlock)folders.Content!).Text == LocalizationManager.Current.Directories &&
                     ((TextBlock)servers.Content!).Text == LocalizationManager.Current.OrynivoServersSettings &&
                     ((TextBlock)output.Content!).Text == LocalizationManager.Current.OutputDevice,
                     "Setup actions failed runtime language refresh.");
+                ExportSetupFrame(host, $"library-{theme}-{language}-{(int)width}-{(int)(scaling * 100)}");
             }
             Console.WriteLine("PASS: compiled setup actions wrap and focus in seven languages, two themes and two widths");
         }
@@ -97,6 +112,7 @@ internal static class EmptyLibraryWorkflows
             host.Content = null;
             host.Close();
             sidebar.Items.Insert(index, hint);
+            settings.ReduceMotion = originalMotion;
             LocalizationManager.Apply(Language.English);
             ThemeManager.Apply(AppTheme.Dark);
         }
@@ -148,6 +164,27 @@ internal static class EmptyLibraryWorkflows
         CheckFirstLocalSource(window, settings, root);
         CheckEmptyViewNotice(window, settings, root);
         CheckEmptyViewLoadOwnership(window, settings);
+        CheckIdleTransport(window, root);
+    }
+
+    /// <summary>Checks no-player stop presentation without starting or preparing any output.</summary>
+    /// <param name="window">The unshown synthetic window with no active player.</param>
+    /// <param name="root">Process-owned synthetic source identity root.</param>
+    private static void CheckIdleTransport(MainWindow window, string root)
+    {
+        var source = typeof(MainWindow).GetField("_currentFilePath", Private)!;
+        var stop = typeof(MainWindow).GetMethod("StopPlaybackCore", Private)!;
+        var play = window.FindControl<Button>("PlayButton")!;
+        source.SetValue(window, string.Empty);
+        Check(stop.Invoke(window, [true]) is null && !play.IsEnabled,
+            "Stopping an empty transport enabled unavailable playback.");
+        source.SetValue(window, Path.Combine(root, "synthetic-remembered-source.wav"));
+        Check(stop.Invoke(window, [true]) is null && play.IsEnabled,
+            "Stopping a remembered source disabled its retry/resume action.");
+        source.SetValue(window, string.Empty);
+        stop.Invoke(window, [true]);
+        Check(!play.IsEnabled, "Transport did not return to empty availability.");
+        Console.WriteLine("PASS: fresh and idle no-player transport disables unavailable Play while retaining remembered-source resume");
     }
 
     /// <summary>Checks headless key dispatch through the compiled sidebar with only the setup item admitted.</summary>
@@ -392,10 +429,13 @@ internal static class EmptyLibraryWorkflows
             foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
             foreach (var language in Enum.GetValues<Language>())
             foreach (var width in new[] { 240d, 640d })
+            foreach (var scaling in new[] { 1d, 2d })
             {
                 ThemeManager.Apply(theme);
                 LocalizationManager.Apply(language);
+                host.SetRenderScaling(scaling);
                 host.Width = width;
+                host.Background = (IBrush)Application.Current!.Resources["AppContentBrush"]!;
                 Dispatcher.UIThread.RunJobs();
                 panel.Measure(new Size(width, 500));
                 panel.Arrange(new Rect(0, 0, width, panel.DesiredSize.Height));
@@ -422,6 +462,7 @@ internal static class EmptyLibraryWorkflows
                 Check(create.Focus(NavigationMethod.Tab), "Output create action cannot receive keyboard focus.");
                 Dispatcher.UIThread.RunJobs(); CheckSetupFocusVisual(create);
                 Check(create.Bounds == bounds, "Keyboard focus changed output action layout.");
+                ExportSetupFrame(host, $"output-{theme}-{language}-{(int)width}-{(int)(scaling * 100)}");
             }
             Console.WriteLine("PASS: output selector and translated actions fit narrow and wide Settings layouts");
         }
@@ -445,6 +486,38 @@ internal static class EmptyLibraryWorkflows
         Check(border.BorderBrush is ISolidColorBrush stroke && stroke.Color == accent.Color &&
             border.Background is ISolidColorBrush background && background.Color == fill.Color,
             "Keyboard-focused setup action lacks its themed border and fill.");
+        Check(Contrast(((ISolidColorBrush)button.Foreground!).Color, fill.Color) >= 4.5 &&
+            Contrast(accent.Color, fill.Color) >= 3, "Setup focus text or border contrast is too low.");
+        Check((border.Transitions?.Count ?? 0) == 0, "Setup keyboard focus retained animated transitions.");
+        Check(button.FocusAdorner is null, "Setup action retained a duplicate focus outline.");
+    }
+
+    /// <summary>Computes opaque sRGB contrast from relative luminance.</summary>
+    /// <param name="first">First opaque color.</param>
+    /// <param name="second">Second opaque color.</param>
+    /// <returns>The lighter-to-darker contrast ratio.</returns>
+    private static double Contrast(Color first, Color second)
+    {
+        double Linear(byte value) { var channel = value / 255d; return channel <= .04045 ? channel / 12.92 : Math.Pow((channel + .055) / 1.055, 2.4); }
+        double Luminance(Color color) => .2126 * Linear(color.R) + .7152 * Linear(color.G) + .0722 * Linear(color.B);
+        Check(first.A == 255 && second.A == 255, "Contrast fixture requires opaque colors.");
+        var a = Luminance(first); var b = Luminance(second);
+        return (Math.Max(a, b) + .05) / (Math.Min(a, b) + .05);
+    }
+
+    /// <summary>Optionally exports synthetic setup frames for local visual inspection, never during ordinary CI.</summary>
+    /// <param name="host">The isolated compiled-control host.</param>
+    /// <param name="name">Fixed locale/theme/width/scaling identity with no source metadata.</param>
+    private static void ExportSetupFrame(Window host, string name)
+    {
+        var directory = Environment.GetEnvironmentVariable("ORYNIVO_SMOKE_RENDER_DIR");
+        if (string.IsNullOrWhiteSpace(directory)) return;
+        Directory.CreateDirectory(directory);
+        Dispatcher.UIThread.RunJobs();
+        using var bitmap = host.CaptureRenderedFrame();
+        Check(bitmap is not null, "Synthetic setup frame was not rendered.");
+        using var file = File.Create(Path.Combine(directory, name + ".png"));
+        bitmap!.Save(file, PngBitmapEncoderOptions.Default);
     }
 
     /// <summary>Invokes the original library visibility adapter.</summary>

@@ -302,7 +302,7 @@ public partial class MainWindow : Window
             _audioPlayerRetirement, _playbackPreparations);
     }
 
-    /// <summary>Clears owned playback state and hands its unique player to disposal, abandoning cleanup after reentrant supersession.</summary>
+    /// <summary>Clears owned playback, retains Play only for a remembered source and abandons cleanup after supersession.</summary>
     /// <param name="invalidateStart">Whether pending starts are abandoned by this stop.</param>
     /// <returns>The detached player, or null when playback was already detached.</returns>
     private IAudioPlayer? StopPlaybackCore(bool invalidateStart = true)
@@ -337,7 +337,7 @@ public partial class MainWindow : Window
         _currentPlaybackDuration = TimeSpan.Zero;
         UpdateNowPlayingRowHighlights();
 
-        PlayButton.IsEnabled   = true;
+        PlayButton.IsEnabled   = !string.IsNullOrWhiteSpace(_currentFilePath);
         SetPlayPauseIcon(isPlaying: false);
         RefreshQueueNavigationButtons();
         _isSeekingWithSlider = false;

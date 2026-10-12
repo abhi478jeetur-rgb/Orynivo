@@ -450,6 +450,9 @@
                 <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
                 <Setter Property="Background" Value="{DynamicResource AppAccentSoftBrush}"/>
             </Style>
+            <Style Selector="^.setupAction">
+                <Setter Property="FocusAdorner" Value="{x:Null}"/>
+            </Style>
             <Style Selector="^:disabled /template/ Border#Bd">
                 <Setter Property="Opacity" Value="0.38"/>
             </Style>
@@ -1067,7 +1070,7 @@
                         <TextBlock Text="{DynamicResource L_LibraryEmptyHint}"
                                    TextWrapping="Wrap"
                                    FontSize="{DynamicResource FontSizeMeta}"
-                                   Foreground="{DynamicResource AppMutedTextBrush}"/>
+                                   Foreground="{DynamicResource AppSecondaryTextBrush}"/>
                         <Button x:Name="LibrarySetupButton"
                                 Classes="setupAction"
                                 AutomationProperties.Name="{DynamicResource L_Directories}"
@@ -3663,6 +3666,7 @@
                                 </Grid>
                             </Button>
                             <Button x:Name="PlayButton"
+                                    IsEnabled="False"
                                     AutomationProperties.Name="{DynamicResource L_TransportPlayPause}"
                                     Theme="{StaticResource PlayBtnTheme}"
                                     Margin="6,0"

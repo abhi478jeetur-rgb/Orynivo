@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Improve setup hint contrast and use one themed keyboard-focus outline. Check
+  simulated 100/200% scaling, reduced motion and opaque theme contrast.
+- Disable Play before a track is available, including after an empty stop;
+  retain resume/retry for a remembered source.
+- Isolate UI smoke output configuration from default-device discovery. Add
+  opt-in setup frame export and manual first-playback profile preparation.
+
 - Give library setup and output-profile actions a themed keyboard-focus border
   and highlighted fill without changing their size or introducing animation.
 

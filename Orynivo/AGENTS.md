@@ -39,6 +39,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Fresh transport keeps Play disabled until a source is known. Idle Stop must
+  preserve this condition while retaining remembered-source retry/resume;
+  restoration failure disables Play. Do not duplicate playback ownership.
+- Setup hints use secondary text with sufficient theme contrast. setupAction
+  owns its focus marker and suppresses the duplicate default adorner. Keep
+  text/focus contrast checks and simulated scaling distinct from physical DPI.
+
 - Setup-action keyboard focus uses the shared accent border and soft fill in
   existing button templates, scoped by setupAction. Keep it immediate and
   geometry-preserving; do not add focus animations or shift button bounds.

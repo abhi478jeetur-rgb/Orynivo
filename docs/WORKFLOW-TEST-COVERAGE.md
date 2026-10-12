@@ -6,7 +6,7 @@ number of unit tests in the repository.
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 55 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 56 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -32,7 +32,7 @@ other-platform UI runtime behavior and portable end-to-end latency need separate
 opt-in evidence. Fresh-profile first-playback usability remains a separate
 follow-up. Keep these boundaries when adding features or reporting verification.
 
-Fresh-profile setup adds nine Windows UI groups: source visibility (empty, local
+Fresh-profile setup adds ten Windows UI groups: source visibility (empty, local
 and server-only), compiled layout/focus/automation names across seven languages,
 two themes and 180/230 DIP row widths, and routed Button.Click activation of the
 original embedded Settings sections, and output setup without profiles (Create
@@ -75,3 +75,11 @@ headless Tab dispatch in both themes, and Create output in the localized 240/640
 DIP layout loops. The output action bounds must remain unchanged by focus. Group
 count remains 55. This proves template properties, not physical screen contrast,
 native input, or assistive-technology behavior.
+
+The tenth setup group checks fresh transport availability and no-player Stop
+with empty/remembered source identities. No player is created or prepared.
+Layout groups also simulate render scaling 1/2, reduced-motion setup transitions
+and opaque theme contrast (text >= 4.5, focus stroke/fill >= 3). Optional local
+frame export is disabled by default. Pre-seeded synthetic output settings avoid
+first-run default endpoint discovery. See FIRST-PLAYBACK-ACCEPTANCE.md for
+manual sound acceptance and isolated profile preparation.

@@ -817,7 +817,12 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   default single-entry tab policy. The setupAction class adds focus-visible
   accent border/fill in the existing header/Settings button templates. It
   changes no geometry and adds no motion; the empty-view Settings and
-  output-profile actions share that marker.
+  output-profile actions share that marker. setupAction suppresses the duplicate
+  default focus adorner. Small sidebar and folder-scan hints use secondary text.
+  Headless checks simulate 100/200% scaling and assert opaque text/focus
+  contrast; physical display evidence is separate. Fresh transport disables Play
+  until it knows a source, and empty Stop/failed restoration preserve that state
+  without changing output lifetime.
 - Both live Settings root changes and accepted Settings use
   `SetConfiguredLibraryPaths` in `MainWindow.Settings.cs`. It copies the roots,
   expands Library when the first local root is added, and retains collapsed

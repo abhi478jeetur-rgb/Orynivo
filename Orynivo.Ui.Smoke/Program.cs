@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Headless;
@@ -9,6 +10,7 @@ using Avalonia.Interactivity;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
 using Orynivo;
+using Orynivo.Audio;
 using Orynivo.Library;
 using Orynivo.Localization;
 using Orynivo.Streaming;
@@ -33,6 +35,13 @@ internal static class Program
         File.WriteAllText(Path.Combine(root, ".legacy-data-migrated"), "isolated synthetic fixture");
         Environment.SetEnvironmentVariable("ORYNIVO_DATA_DIR", root);
         Environment.SetEnvironmentVariable("FANART_TV_API_KEY", null);
+        // Keep first-run normalization away from the real default endpoint.
+        File.WriteAllText(Path.Combine(root, "settings.json"), JsonSerializer.Serialize(new AppSettings
+        {
+            OutputProfiles = [new OutputProfile { Name = "Synthetic output", Backend = OutputBackend.Wasapi,
+                SelectedWasapiDeviceId = "synthetic-endpoint", SelectedWasapiDeviceName = "Synthetic output" }],
+            SelectedOutputProfileName = "Synthetic output"
+        }));
         try
         {
             DenyExternalRequests.Install();

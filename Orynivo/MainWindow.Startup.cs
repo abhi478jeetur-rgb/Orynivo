@@ -419,6 +419,7 @@ public partial class MainWindow : Window
         return true;
     }
 
+    /// <summary>Restores a usable local track and keeps Play disabled after failed restoration.</summary>
     private void RestoreLastTrackState()
     {
         var path = _settings.LastTrackPath;
@@ -460,6 +461,7 @@ public partial class MainWindow : Window
         catch
         {
             _currentFilePath = string.Empty;
+            PlayButton.IsEnabled = false;
             NowPlayingTitleBlock.Text = string.Empty;
             NowPlayingArtistBlock.Text = string.Empty;
             ClearNowPlayingAlbum();

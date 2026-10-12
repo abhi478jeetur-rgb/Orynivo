@@ -70,6 +70,9 @@
                 <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
                 <Setter Property="Background" Value="{DynamicResource AppAccentSoftBrush}"/>
             </Style>
+            <Style Selector="^.setupAction">
+                <Setter Property="FocusAdorner" Value="{x:Null}"/>
+            </Style>
             <Style Selector="^:disabled">
                 <Setter Property="Opacity" Value="0.55"/>
             </Style>
@@ -928,7 +931,7 @@
                     <TextBlock Text="{DynamicResource L_LibraryScanHint}"
                                TextWrapping="Wrap"
                                FontSize="{DynamicResource FontSizeMeta}"
-                               Foreground="{DynamicResource AppMutedTextBrush}"
+                               Foreground="{DynamicResource AppSecondaryTextBrush}"
                                Margin="0,8,0,0"/>
 
                     <Button x:Name="AddDirectoryButton"
