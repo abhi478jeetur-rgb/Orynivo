@@ -3183,3 +3183,17 @@ acceptance; provider search and review remain sequential and outside write
 admission. Catalog invalidation follows admitted mutations, including
 cancellation after local file publication. This is window-scoped ordering, not a
 transaction or cross-client lock.
+
+### Missing artist artwork synchronization ownership
+
+`SynchronizeMissingArtistArtworkAsync` reserves the shared artist write queue
+through authoritative source refresh, bounded byte capture and local/remote
+mutations. Original copied source connections and enclosing artist-detail
+ownership are retained before waiting. Recheck donor availability and source
+identity; re-read each target before writing, skipping manual, populated,
+renamed or unavailable identities. Preserve the target biography from current
+metadata. Manual donor propagation notifies image intent and renews this
+operation's own observation; later user changes still reject subsequent writes.
+Catalog invalidation runs in finally after admitted changes, including
+cancellation after file publication. This is window-scoped ordering, not a
+transaction or cross-client lock.

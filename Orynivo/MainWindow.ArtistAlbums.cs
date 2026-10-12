@@ -195,7 +195,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                await SynchronizeMissingArtistArtworkAsync(artistName, artistSources, artworkSyncCts.Token);
+                await SynchronizeMissingArtistArtworkAsync(artistName, artistSources, artworkSyncCts.Token, CanPublish);
                 albumSources = await SynchronizeMissingAlbumArtworkAsync(albumSources, artworkSyncCts.Token);
             }
             catch (OperationCanceledException)

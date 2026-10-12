@@ -1120,6 +1120,10 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Cross-library artist artwork copying checks current donor and target metadata
+  within shared artist write ordering. It preserves populated/manual targets and
+  current biography, rejects abandoned navigation or superseded image requests,
+  and keeps later manual upload/deletion authoritative.
 - Settings checks missing-artist-image eligibility again after preview and
   ordered admission, preserving manual or automatic images added meanwhile.
   Accepted remote images target only their original server/profile. Settings

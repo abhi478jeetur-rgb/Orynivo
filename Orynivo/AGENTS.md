@@ -39,6 +39,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Missing artist artwork synchronization captures original copied sources and
+  enclosing detail ownership before artist write admission. Hold admission
+  through authoritative donor/target reads, image capture and mutations. Skip
+  renamed, unavailable, populated or manual targets; preserve fresh biography.
+  Recheck source/image/navigation ownership between awaits and before writes.
+  Manual donor propagation notifies image intent and renews only its own
+  observation. Invalidate catalogs in finally after admitted mutations.
+
 - Settings missing-artist-image acceptance uses MissingArtistImageWriter with
   the window artist write queue and image-intent notification. Standalone
   Settings owns a separate queue. Recheck authoritative missing/manual state,

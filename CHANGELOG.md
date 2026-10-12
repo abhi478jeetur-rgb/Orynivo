@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Missing artist artwork synchronization now shares artist write admission
+  through current metadata reads, image capture and local/server writes. Recheck
+  donor availability and target image/manual state, retain current biography and
+  original server connections, and reject abandoned detail or superseded image
+  work. Later manual changes retain the final state.
+
 - Settings missing-artist-image acceptance now shares artist write ordering with
   profile and manual image work. Recheck current image/artist/source state after
   waiting and preserve images added during search or preview. Remote acceptance
