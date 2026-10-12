@@ -1079,6 +1079,13 @@
                                 Click="LibraryServerSetupButton_OnClick">
                             <TextBlock Text="{DynamicResource L_OrynivoServersSettings}" TextWrapping="Wrap"/>
                         </Button>
+                        <Button x:Name="LibraryOutputSetupButton"
+                                AutomationProperties.Name="{DynamicResource L_OutputDevice}"
+                                Theme="{StaticResource HeaderFilterButtonTheme}"
+                                HorizontalAlignment="Stretch"
+                                Click="OutputPickerSettingsButton_OnClick">
+                            <TextBlock Text="{DynamicResource L_OutputDevice}" TextWrapping="Wrap"/>
+                        </Button>
                     </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem x:Name="LocalLibraryRootItem"

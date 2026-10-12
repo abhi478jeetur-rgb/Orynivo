@@ -793,9 +793,10 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   entities reuse the same `ContentRow`-bound masks, local and remote share it.
   Set `DisplayName` (bound to the row `Title` or an element reference) and
   `FontSize` to scale the initials to the slot size.
-- The empty-library sidebar hint offers separate localized Directories and
-  Orynivo servers actions through `MainWindow.Settings.cs`. They open the
-  existing Library and OrynivoServers sections of embedded Settings. The row has
+- The empty-library sidebar hint offers localized Directories, Orynivo servers
+  and Output device actions through `MainWindow.Settings.cs`. They open the
+  existing Library, OrynivoServers and AudioDevice sections of embedded
+  Settings. The output entry shares the transport Settings action. The row has
   no height cap or transition; both captions wrap and provide explicit
   accessible names. Existing source visibility rules hide the hint when a local
   folder or Orynivo Server is configured.

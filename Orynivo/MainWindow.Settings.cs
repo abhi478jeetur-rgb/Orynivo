@@ -645,6 +645,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Opens existing output Settings from the transport or empty-library setup.</summary>
+    /// <param name="sender">The output Settings action.</param>
+    /// <param name="e">The button activation event.</param>
     private void OutputPickerSettingsButton_OnClick(object? sender, RoutedEventArgs e)
     {
         OutputPickerPopup.IsOpen = false;

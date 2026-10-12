@@ -23,6 +23,7 @@ internal static class EmptyLibraryWorkflows
         var hint = window.FindControl<ListBoxItem>("LibraryEmptyHintItem")!;
         var folders = window.FindControl<Button>("LibrarySetupButton")!;
         var servers = window.FindControl<Button>("LibraryServerSetupButton")!;
+        var output = window.FindControl<Button>("LibraryOutputSetupButton")!;
         settings.LibraryPaths.Clear();
         settings.OrynivoServers.Clear();
         settings.ShowLocalLibrarySection = true;
@@ -60,7 +61,7 @@ internal static class EmptyLibraryWorkflows
                 hint.Measure(new Size(width, 700));
                 hint.Arrange(new Rect(0, 0, width, hint.DesiredSize.Height));
                 Dispatcher.UIThread.RunJobs();
-                foreach (var button in new[] { folders, servers })
+                foreach (var button in new[] { folders, servers, output })
                 {
                     var text = (TextBlock)button.Content!;
                     Check(!string.IsNullOrWhiteSpace(text.Text) && text.Bounds.Height > 0 &&
@@ -81,7 +82,8 @@ internal static class EmptyLibraryWorkflows
                 Check(hintText.Text == LocalizationManager.Current.LibraryEmptyHint,
                     "Setup hint failed runtime language refresh.");
                 Check(((TextBlock)folders.Content!).Text == LocalizationManager.Current.Directories &&
-                    ((TextBlock)servers.Content!).Text == LocalizationManager.Current.OrynivoServersSettings,
+                    ((TextBlock)servers.Content!).Text == LocalizationManager.Current.OrynivoServersSettings &&
+                    ((TextBlock)output.Content!).Text == LocalizationManager.Current.OutputDevice,
                     "Setup actions failed runtime language refresh.");
             }
             Console.WriteLine("PASS: compiled setup actions wrap and focus in seven languages, two themes and two widths");
@@ -97,7 +99,8 @@ internal static class EmptyLibraryWorkflows
 
         try
         {
-            foreach (var entry in new[] { (folders, "LibraryPanel"), (servers, "OrynivoServersSettingsPanel") })
+            foreach (var entry in new[] { (folders, "LibraryPanel"), (servers, "OrynivoServersSettingsPanel"),
+                         (output, "AudioDevicePanel") })
             {
                 entry.Item1.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 var settingsHost = window.FindControl<ContentControl>("SettingsViewHost")!;
@@ -108,7 +111,28 @@ internal static class EmptyLibraryWorkflows
                     "Setup action opened the wrong Settings section.");
                 typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
             }
-            Console.WriteLine("PASS: folder and server setup actions open their existing Settings sections");
+            Console.WriteLine("PASS: folder, server and output setup actions open their existing Settings sections");
+            var originalProfiles = settings.OutputProfiles;
+            var originalSelection = settings.SelectedOutputProfileName;
+            try
+            {
+                settings.OutputProfiles = [];
+                settings.SelectedOutputProfileName = null;
+                output.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                var view = (SettingsView)window.FindControl<ContentControl>("SettingsViewHost")!.Content!;
+                Check(view.FindControl<Control>("AudioDevicePanel")!.IsVisible &&
+                    view.FindControl<ComboBox>("OutputProfileComboBox")!.SelectedItem is null &&
+                    view.FindControl<Button>("CreateOutputProfileButton")!.IsEnabled &&
+                    !view.FindControl<Button>("ConfigureOutputProfileButton")!.IsEnabled &&
+                    !view.FindControl<Button>("DeleteOutputProfileButton")!.IsEnabled,
+                    "Empty output setup does not expose a usable create action.");
+                Console.WriteLine("PASS: output setup without profiles permits creation and disables selection-only actions");
+            }
+            finally
+            {
+                settings.OutputProfiles = originalProfiles;
+                settings.SelectedOutputProfileName = originalSelection;
+            }
         }
         finally
         {

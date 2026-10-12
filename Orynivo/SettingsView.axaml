@@ -466,7 +466,7 @@
                                 Theme="{StaticResource SettingsButtonTheme}"
                                 Content="{DynamicResource L_OutputProfileConfigure}"
                                 Click="ConfigureOutputProfileButton_OnClick"/>
-                        <Button Grid.Column="2"
+                        <Button x:Name="CreateOutputProfileButton" Grid.Column="2"
                                 Height="30"
                                 MinWidth="140"
                                 Margin="8,0,0,0"

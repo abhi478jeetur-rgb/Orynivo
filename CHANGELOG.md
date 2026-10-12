@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add an Output device entry to empty-library setup, reusing existing audio
+  Settings. Verify that profiles without outputs can create one while
+  selection-only actions remain disabled.
+
 - Add distinct Directories and Orynivo servers actions to empty-library setup,
   opening each existing Settings section with wrapped localized captions and
   explicit accessible names. Remove hint clipping and track fresh-profile layout
