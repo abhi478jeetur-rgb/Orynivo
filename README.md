@@ -1120,6 +1120,8 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Primary server artist-detail profile uploads also share image write ordering;
+  obsolete image payloads are dropped while current biography updates continue.
 - Automatic unified profile synchronization uses the same write ordering as
   manual artist-detail image changes, so later manual changes finish last.
 - Artist-detail search, upload and deletion order complete manual changes per

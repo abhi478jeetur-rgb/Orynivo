@@ -681,9 +681,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   complete local file/SQLite and remote batch. Capture source snapshots before
   waiting and recheck enclosing profile/image ownership before admission and
   between writes. A later admitted manual batch writes after the automatic batch
-  finishes. Direct profile downloads, primary profile uploads, automatic row
-  jobs, Settings and context-menu writers, cross-window/client ordering remain
-  separate acceptance work.
+  finishes. The server artist-detail primary profile upload also joins this
+  queue through UpdateArtistProfileInWriteOrderAsync. Recheck view/source and
+  cancellation after waiting; form the image payload only after checking current
+  image ownership. Biography-only uploads remain admitted for a current view
+  after manual image supersession. Later manual writes finish last; hero/row and
+  loading publication retain their separate guards. Direct profile downloads,
+  Now Playing provider uploads, automatic row jobs, Settings/context-menu and
+  cross-window/client ordering remain separate acceptance work.
 - Foreground profiles observe admitted manual-image changes separately from
   dialog/action admission. Advance manual-image write ownership only after an
   accepted selection or at deletion admission; cancelled selection must not

@@ -1954,10 +1954,13 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   remains intact for ownership checks. Unified automatic profile synchronization
   shares this queue through its local file/SQLite and remote batch, rechecking
   enclosing profile/image ownership after waiting and between operations. A
-  later manual batch writes last. Direct profile downloads, primary profile
-  uploads, automatic row jobs, Settings/context-menu writers and other
-  windows/clients still require coordination. This ordering does not provide a
-  transaction.
+  later manual batch writes last. Primary server artist-detail uploads also join
+  via UpdateArtistProfileInWriteOrderAsync. Recheck view/source/cancellation
+  after waiting and form image payloads only after image ownership validation;
+  current biography-only uploads remain admitted after manual image
+  supersession. Direct profile downloads, Now Playing provider uploads,
+  automatic row jobs, Settings/ context-menu writers and other windows/clients
+  still require coordination. This ordering does not provide a transaction.
 - Foreground profiles separately observe admitted manual-image changes. Advance
   manual-image write ownership after accepted selection or at deletion
   admission; cancelled selection keeps profile images admitted. Older profiles

@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Primary profile uploads from the server artist-detail view share write
+  ordering with manual image changes. Waiting uploads recheck view/source
+  ownership and discard obsolete image bytes while retaining current biography
+  updates. Later manual uploads or deletions finish after an already admitted
+  profile upload.
+
 - Automatic unified artist-profile synchronization shares write ordering with
   manual artist-detail image changes. A later manual upload or deletion waits
   through an admitted automatic file/SQLite/server batch and then writes last.

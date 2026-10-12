@@ -352,16 +352,11 @@ public partial class MainWindow : Window
                     imageMimeType = GuessImageMimeType(profile.ImagePath);
                 }
 
+                var refreshed = await UpdateArtistProfileInWriteOrderAsync(
+                    server, artistId, row.Title, profile?.Biography, profile?.SourceUrl,
+                    profile?.Language ?? language, imageData, imageMimeType, cts.Token,
+                    CanPublish, CanPublishImage);
                 if (!CanPublishImage()) { imageData = null; imageMimeType = null; }
-                var refreshed = await _orynivoClient.UpdateArtistProfileAsync(
-                    server,
-                    artistId,
-                    profile?.Biography,
-                    profile?.SourceUrl,
-                    profile?.Language ?? language,
-                    imageData,
-                    imageMimeType,
-                    cts.Token);
                 if (!CanPublish()) return;
                 if (refreshed is null)
                 {
@@ -644,6 +639,37 @@ public partial class MainWindow : Window
             candidate.Id == id && candidate.Name == name && candidate.BaseUrl == url &&
             candidate.ApiKey == key && candidate.ProfileId == profile;
         return () => Matches(server) && (_settings.OrynivoServers ?? []).Any(Matches);
+    }
+
+    /// <summary>Orders a primary server profile upload with complete manual artist-image batches.</summary>
+    /// <param name="server">The retained source connection.</param>
+    /// <param name="artistId">Source-local artist identifier.</param>
+    /// <param name="artistName">Canonical name used for shared mutation ordering.</param>
+    /// <param name="biography">Downloaded biography.</param>
+    /// <param name="sourceUrl">Biography source URL.</param>
+    /// <param name="language">Profile language.</param>
+    /// <param name="imageData">Optional downloaded image bytes.</param>
+    /// <param name="imageMimeType">Optional image MIME type.</param>
+    /// <param name="cancellationToken">Cancellation for the admitted request.</param>
+    /// <param name="canPublish">Retained view and source guard checked after waiting.</param>
+    /// <param name="canPublishImage">Additional image guard checked before forming the payload.</param>
+    /// <returns>The uploaded profile, or null when admission was abandoned or the request failed.</returns>
+    private async Task<OrynivoArtistInfo?> UpdateArtistProfileInWriteOrderAsync(
+        OrynivoServerSettings server, long artistId, string? artistName, string? biography,
+        string? sourceUrl, string language, byte[]? imageData, string? imageMimeType,
+        CancellationToken cancellationToken, Func<bool> canPublish, Func<bool> canPublishImage)
+    {
+        OrynivoArtistInfo? result = null;
+        await _artistImageWriteQueue.RunAsync(ArtistNameNormalizer.CreateComparisonKey(artistName),
+            () => !cancellationToken.IsCancellationRequested && canPublish(), async () =>
+            {
+                var admittedImage = canPublishImage() ? imageData : null;
+                result = await _orynivoClient.UpdateArtistProfileAsync(server, artistId, biography,
+                    sourceUrl, language, admittedImage, admittedImage is null ? null : imageMimeType,
+                    cancellationToken);
+                return result is not null;
+            });
+        return result;
     }
 
     /// <summary>Refreshes a bound artist row while retaining its background request and row identity.</summary>
