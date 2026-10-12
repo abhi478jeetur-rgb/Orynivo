@@ -187,3 +187,9 @@ areas.
   disposed. Preserve authentication/profile middleware and SQLite paging.
   TestServer integration must use explicit temporary databases without startup
   scans/watchers/FFmpeg or process-wide data-directory changes.
+
+- Playlist routes map through MapPlaylistCatalogEndpoints, called by the normal
+  library mapper. Preserve shared playlist definitions and per-request profile
+  state for their tracks, ordered duplicate entries, current HTTP statuses and
+  client favorite overrides. Smart resolution and count must retain the shared
+  vector resolver. Isolated TestServer factories own one connection per request.

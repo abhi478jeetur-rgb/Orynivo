@@ -3304,3 +3304,17 @@ legacy fallback. Four synthetic Core profile cases check standard, alpha, beta
 and uninitialized profiles across all readers, including album artist filtering,
 duplicate/missing path or ID input and existing page/order semantics. Other DTO
 and entity query paths are outside this compact-track regression scope.
+
+### Playlist endpoint integration
+
+MapLibraryEndpoints delegates existing playlist routes to
+MapPlaylistCatalogEndpoints. Its optional connection factory follows the same
+per-request ownership and production OpenDefault contract as track mapping.
+Seven TestServer cases verify regular order/duplicates and missing input IDs,
+append/entry removal/deletion, shared playlists with request-profile track
+favorites/ratings, client favorite overrides and matching resolve counts,
+similarity vector resolution, invalid criteria/names and rejected mutations
+before database access. Playlist definitions remain shared; personal track state
+follows the request profile. Synthetic databases, fixed test keys and disabled
+host logging only; no startup services or TCP listener. HTTP stream ranges and
+client-abort/transcoder integration remain open.

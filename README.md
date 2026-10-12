@@ -1575,6 +1575,10 @@ also cover full lists, album/artist selections and path/ID/page resolution:
 explicit false favorites and zero ratings override legacy shared values, while
 absent personal state retains compatibility fallback.
 
+Seven playlist endpoint cases also check ordered duplicate entries,
+append/remove and deletion, per-profile track state, smart favorites/similarity
+resolution and validation/authentication through the same isolated host.
+
 ### Windows headless workflow smoke
 
 ```bash

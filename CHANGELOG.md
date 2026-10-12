@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add seven in-memory playlist endpoint integration cases for ordered duplicate
+  entries, regular mutations, per-profile track state, smart favorite overrides,
+  similarity/count resolution and rejection of invalid or unauthenticated
+  writes.
+
 - Complete active-profile favorites/rating handling for compact full-track,
   album-track and path-resolved lists. Explicit false favorites and zero ratings
   now override legacy shared values consistently with paging and ID resolution.
