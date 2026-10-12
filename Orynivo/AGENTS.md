@@ -39,6 +39,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Empty-view guidance requires a complete, source-backed zero-row result in a
+  normal Artists/Albums/Tracks view with configured media sources. Reuse the
+  existing detail/search/playlist exclusion guard; never present unavailable or
+  partial catalogs as empty. Clear it with navigation and route server-only
+  Settings to OrynivoServers, otherwise Library.
+
 - Local folder scan guidance stays beside Directories and uses all seven
   languages. It points to existing per-folder scan/progress and normal Tracks
   playback; it must not imply that a configured folder already contains tracks.

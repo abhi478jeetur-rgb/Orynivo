@@ -1619,6 +1619,25 @@
                                            FontSize="{DynamicResource FontSizeBody}"/>
                             </DockPanel>
                         </Border>
+                        <Border x:Name="LibraryEmptyNotice" Grid.Row="2"
+                                Grid.ColumnSpan="8" Margin="0,12,0,0" Padding="12"
+                                IsVisible="False" CornerRadius="8"
+                                Background="{DynamicResource AppInputBrush}"
+                                BorderBrush="{DynamicResource AppHeaderBorderBrush}"
+                                BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="LibraryEmptyNoticeMessage"
+                                           AutomationProperties.LiveSetting="Polite"
+                                           Text="{DynamicResource L_LibraryViewEmptyHint}"
+                                           TextWrapping="Wrap" FontSize="{DynamicResource FontSizeBody}"/>
+                                <Button x:Name="LibraryEmptySettingsButton"
+                                        Content="{DynamicResource L_Settings}"
+                                        AutomationProperties.Name="{DynamicResource L_Settings}"
+                                        HorizontalAlignment="Left" Padding="12,5"
+                                        Theme="{StaticResource HeaderFilterButtonTheme}"
+                                        Click="LibraryEmptySettingsButton_OnClick"/>
+                            </StackPanel>
+                        </Border>
                 </Grid>
             </Border>
 

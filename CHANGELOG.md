@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Show source/filter guidance and a Settings action for successfully loaded
+  empty Artists, Albums and Tracks views. Failed or incomplete sources retain
+  their separate retry notice; search and detail surfaces are excluded.
+
 - Add localized folder scan guidance in Settings, explaining progress, saving
   Settings after completion and opening Tracks for first playback.
 

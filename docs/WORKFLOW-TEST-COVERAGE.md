@@ -6,7 +6,7 @@ number of unit tests in the repository.
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 52 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 53 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -32,19 +32,26 @@ other-platform UI runtime behavior and portable end-to-end latency need separate
 opt-in evidence. Fresh-profile first-playback usability remains a separate
 follow-up. Keep these boundaries when adding features or reporting verification.
 
-Fresh-profile setup adds six Windows UI groups: source visibility (empty, local
-and server-only), compiled layout/focus/automation names across seven languages,
-two themes and 180/230 DIP row widths, and routed Button.Click activation of the
-original embedded Settings sections, and output setup without profiles (Create
-output enabled; Configure output and Delete output disabled). A fifth group
-checks the detached output selector/actions at 240/640 DIP widths across seven
-languages and both themes, including caption bounds and automation names. The
-sixth checks the shared root setter and original visibility adapter: the first
-local source reveals Artists/Albums/Tracks, roots are copied, and later changes
-retain a collapsed Library. It does not invoke Save, a watcher or catalog
-cleanup. MainWindow stays unshown; only the detached compiled hint is hosted for
-bounded layout. This checks focus admission, not Tab traversal or native
-pointer/key dispatch. Settings opens without device enumeration or playback. No
-folder picker, server authentication, actual scan, physical display scaling or
-audible first-playback evidence is inferred. Full interactive onboarding
-acceptance remains open.
+Fresh-profile setup adds seven Windows UI groups: source visibility (empty,
+local and server-only), compiled layout/focus/automation names across seven
+languages, two themes and 180/230 DIP row widths, and routed Button.Click
+activation of the original embedded Settings sections, and output setup without
+profiles (Create output enabled; Configure output and Delete output disabled). A
+fifth group checks the detached output selector/actions at 240/640 DIP widths
+across seven languages and both themes, including caption bounds and automation
+names. The sixth checks the shared root setter and original visibility adapter:
+the first local source reveals Artists/Albums/Tracks, roots are copied, and
+later changes retain a collapsed Library. It does not invoke Save, a watcher or
+catalog cleanup. MainWindow stays unshown; only the detached compiled hint is
+hosted for bounded layout. This checks focus admission, not Tab traversal or
+native pointer/key dispatch. Settings opens without device enumeration or
+playback. No folder picker, server authentication, actual scan, physical display
+scaling or audible first-playback evidence is inferred. Full interactive
+onboarding acceptance remains open.
+
+The seventh setup group invokes original notice publication with explicit source
+outcomes: complete empty views show guidance; failed, timed-out, cancelled,
+partial, source-free and populated outcomes do not. Search, playlist and detail
+guards suppress it; seven-language refresh and actual local/server Settings
+routing are checked. Server routing reuses an open synthetic view to avoid
+server probing. This is adapter/UI evidence, not a scan or playback run.

@@ -141,6 +141,80 @@ internal static class EmptyLibraryWorkflows
             Dispatcher.UIThread.RunJobs();
         }
         CheckFirstLocalSource(window, settings, root);
+        CheckEmptyViewNotice(window, settings, root);
+    }
+
+    /// <summary>Checks original notice publication and Settings routing without loading real sources.</summary>
+    /// <param name="window">The unshown synthetic window.</param>
+    /// <param name="settings">Its isolated configuration.</param>
+    /// <param name="root">Configured synthetic local root.</param>
+    private static void CheckEmptyViewNotice(MainWindow window, AppSettings settings, string root)
+    {
+        void Set(string name, object? value) => typeof(MainWindow).GetField(name, Private)!.SetValue(window, value);
+        void Update() => typeof(MainWindow).GetMethod("UpdateUnifiedLibraryLoadNotice", Private)!.Invoke(window, null);
+        var notice = window.FindControl<Border>("LibraryEmptyNotice")!;
+        var search = window.FindControl<ScrollViewer>("SearchResultsScrollViewer")!;
+        search.IsVisible = false;
+        foreach (var name in new[] { "LyricsView", "ArtistInfoView", "PodcastInfoView" })
+            window.FindControl<Control>(name)!.IsVisible = false;
+        var success = new LibraryLoadResult<ContentRow>([], [new("local", LibrarySourceLoadStatus.Success)]);
+        foreach (var tag in new[] { "Artists", "Albums", "Tracks" })
+        {
+            Set("_currentTopLevelTag", tag); Set("_unifiedLibraryLoadResult", success); Update();
+            Check(notice.IsVisible && !window.FindControl<Border>("LibraryLoadNotice")!.IsVisible,
+                "Successful empty catalog did not show separate setup guidance.");
+        }
+        foreach (var status in new[] { LibrarySourceLoadStatus.Failed, LibrarySourceLoadStatus.TimedOut,
+                     LibrarySourceLoadStatus.Cancelled })
+        {
+            Set("_unifiedLibraryLoadResult", new LibraryLoadResult<ContentRow>([], [new("local", status)]));
+            Update(); Check(!notice.IsVisible, "Unavailable catalog was presented as empty.");
+        }
+        Set("_unifiedLibraryLoadResult", new LibraryLoadResult<ContentRow>([],
+            [new("local", LibrarySourceLoadStatus.Success), new("remote", LibrarySourceLoadStatus.Failed)]));
+        Update(); Check(!notice.IsVisible, "Partial catalog was presented as empty.");
+        Set("_unifiedLibraryLoadResult", new LibraryLoadResult<ContentRow>([], []));
+        Update(); Check(!notice.IsVisible, "A source-free selection was presented as an empty catalog.");
+        Set("_unifiedLibraryLoadResult", new LibraryLoadResult<ContentRow>([new() { Title = "Synthetic row" }], success.Sources));
+        Update(); Check(!notice.IsVisible, "Populated catalog retained empty guidance.");
+        Set("_unifiedLibraryLoadResult", success); search.IsVisible = true; Update();
+        Check(!notice.IsVisible, "Library guidance leaked into search."); search.IsVisible = false;
+        Set("_activePlaylistId", 1L); Update();
+        Check(!notice.IsVisible, "Library guidance leaked into a playlist."); Set("_activePlaylistId", null);
+        window.FindControl<Control>("ArtistInfoView")!.IsVisible = true; Update();
+        Check(!notice.IsVisible, "Library guidance leaked into artist detail.");
+        window.FindControl<Control>("ArtistInfoView")!.IsVisible = false;
+        foreach (var language in Enum.GetValues<Language>())
+        {
+            LocalizationManager.Apply(language); Update();
+            Check(notice.IsVisible && window.FindControl<TextBlock>("LibraryEmptyNoticeMessage")!.Text ==
+                LocalizationManager.Current.LibraryViewEmptyHint, "Empty guidance failed language refresh.");
+        }
+        LocalizationManager.Apply(Language.English);
+        var button = window.FindControl<Button>("LibraryEmptySettingsButton")!;
+        try
+        {
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            var host = window.FindControl<ContentControl>("SettingsViewHost")!;
+            var view = (SettingsView)host.Content!;
+            Check(view.FindControl<Control>("LibraryPanel")!.IsVisible, "Local empty setup opened the wrong Settings section.");
+            settings.LibraryPaths = [];
+            settings.OrynivoServers = [new OrynivoServerSettings { Id = "empty", Name = "Synthetic source" }];
+            // Reuse the already open synthetic view so no server probe is constructed.
+            button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(view.FindControl<Control>("OrynivoServersSettingsPanel")!.IsVisible,
+                "Server-only empty setup opened local folders.");
+            settings.OrynivoServers.Clear(); Update();
+            Check(!notice.IsVisible, "Unconfigured source retained catalog guidance.");
+        }
+        finally
+        {
+            settings.LibraryPaths = [root]; settings.OrynivoServers.Clear();
+            typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
+            typeof(MainWindow).GetMethod("ClearUnifiedLibraryLoadNotice", Private)!.Invoke(window, null);
+        }
+        Check(!notice.IsVisible, "Abandoned navigation retained empty guidance.");
+        Console.WriteLine("PASS: empty-view guidance distinguishes catalog outcomes and routes local/server Settings");
     }
 
     /// <summary>Checks the shared production root setter without scanning or removing catalog rows.</summary>

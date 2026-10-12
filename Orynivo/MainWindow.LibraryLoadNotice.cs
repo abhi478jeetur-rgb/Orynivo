@@ -3,7 +3,7 @@ using Orynivo.Localization;
 
 namespace Orynivo;
 
-/// <summary>Incomplete shared-library and search presentation with in-place retry for the existing navigation owner.</summary>
+/// <summary>Shared-library empty guidance and incomplete library/search retry for the existing navigation owner.</summary>
 public partial class MainWindow
 {
     private int? _unifiedLibraryRetryVersion;
@@ -16,7 +16,7 @@ public partial class MainWindow
         UpdateUnifiedLibraryLoadNotice();
     }
 
-    /// <summary>Refreshes the current notice and keyboard-accessible retry action in the selected language.</summary>
+    /// <summary>Refreshes failure/retry and successful empty-view guidance in the selected language.</summary>
     private void UpdateUnifiedLibraryLoadNotice()
     {
         var result = _unifiedLibraryLoadResult;
@@ -27,12 +27,24 @@ public partial class MainWindow
             text = GetLibrarySearchNoticeText();
         LibraryLoadNotice.IsVisible = text.Length > 0;
         LibraryLoadNoticeMessage.Text = text;
+        LibraryEmptyNotice.IsVisible = result is { Status: LibraryLoadStatus.Complete, Rows.Count: 0 } &&
+            result.Sources.Count > 0 &&
+            ((_settings.LibraryPaths?.Count ?? 0) > 0 || (_settings.OrynivoServers?.Count ?? 0) > 0) &&
+            _currentTopLevelTag is "Artists" or "Albums" or "Tracks" &&
+            CanReloadCurrentViewAfterLibraryChange();
         var busy = _unifiedLibraryRetryVersion.HasValue || _librarySearchRetryVersion.HasValue || _playlistRetrying;
         LibraryLoadRetryButton.IsEnabled = !busy;
         LibraryLoadRetryButton.Content = busy
             ? LocalizationManager.Current.LibraryLoadRetrying
             : LocalizationManager.Current.LibraryLoadRetry;
     }
+
+    /// <summary>Opens source Settings for a successfully loaded empty library view.</summary>
+    /// <param name="sender">The empty-view Settings action.</param>
+    /// <param name="e">The activation event.</param>
+    private void LibraryEmptySettingsButton_OnClick(object? sender, RoutedEventArgs e) =>
+        OpenSettingsAt((_settings.LibraryPaths?.Count ?? 0) == 0 &&
+            (_settings.OrynivoServers?.Count ?? 0) > 0 ? "OrynivoServers" : "Library");
 
     /// <summary>Retries the owning catalog or search without clearing usable rows or showing a loading overlay.</summary>
     /// <param name="sender">Retry button.</param>

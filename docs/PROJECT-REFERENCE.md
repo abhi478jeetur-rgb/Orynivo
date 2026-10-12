@@ -793,6 +793,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   entities reuse the same `ContentRow`-bound masks, local and remote share it.
   Set `DisplayName` (bound to the row `Title` or an element reference) and
   `FontSize` to scale the initials to the slot size.
+- Successfully loaded empty Artists/Albums/Tracks views use a separate
+  `LibraryEmptyNotice` in the existing header notice row. Publication requires
+  complete source outcomes, zero displayed rows, configured sources and the
+  original reload/detail exclusion guard. Its localized text refers to this view
+  and suggests filters/source setup, not a definitive empty catalog. Settings
+  routes server-only profiles to OrynivoServers and others to Library.
+  Navigation clearing hides both empty and failed-load notices.
+
 - The empty-library sidebar hint offers localized Directories, Orynivo servers
   and Output device actions through `MainWindow.Settings.cs`. They open the
   existing Library, OrynivoServers and AudioDevice sections of embedded

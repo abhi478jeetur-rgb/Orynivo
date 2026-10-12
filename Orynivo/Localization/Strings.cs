@@ -1202,6 +1202,8 @@ public sealed record LocalizedStrings(
     public string LibraryEmptyHint { get; init; } = "";
     /// <summary>Gets local folder scan and first-playback guidance shown in Settings.</summary>
     public string LibraryScanHint { get; init; } = "";
+    /// <summary>Gets guidance for a successful library view without displayed entries.</summary>
+    public string LibraryViewEmptyHint { get; init; } = "";
     /// <summary>Gets the incomplete catalog notice with an unavailable-source count.</summary>
     public string LibraryLoadPartial { get; init; } = "";
     /// <summary>Gets the failed catalog notice with an unavailable-source count.</summary>
