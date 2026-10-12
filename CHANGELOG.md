@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Extend tracked Windows UI smoke coverage with eight remote album cache cases:
+  failed/full/empty recovery, timestamp invalidation, current favorites, corrupt
+  cache rebuilding, malformed payload preservation and artwork invalidation.
+
 - Extend tracked Windows UI smoke coverage with local album publication guards
   and a populated search-to-remote-album-to-Back journey with colliding album
   IDs. Back restores the original search selection and source without extra

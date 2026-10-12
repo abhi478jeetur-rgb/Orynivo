@@ -3262,5 +3262,12 @@ latest same-album publication and copy caller-owned logical IDs. A separate
 populated synthetic journey searches for a remote album with a colliding local
 ID, opens it through the existing row adapter, checks remote tracks/detail, and
 uses the actual Back handler to restore search selection, source, surface and
-history. It does not simulate pointer double-click dispatch or playback. Broader
-recovery, server endpoint integration and Linux/macOS UI execution remain open.
+history. It does not simulate pointer double-click dispatch or playback. Eight
+album cache groups use the actual remote catalog adapter and process-owned disk
+cache. Failed loads create no valid empty cache; full and empty recovery remain
+distinct from failure. A valid snapshot avoids another catalog request while
+applying current favorites. Changed library timestamps reject stale data;
+corrupt files rebuild, missing payloads preserve validated bytes, and artwork
+invalidation deletes the album list cache. Synthetic server stamps/responses
+only. Unified catalog UI retry, server endpoint integration and Linux/macOS UI
+execution remain separate follow-ups.

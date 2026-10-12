@@ -40,3 +40,8 @@ affect the pure desktop unit tests.
   cleanup. A populated journey must use actual search/open/Back adapters, source
   collisions and existing history; state explicitly when pointer dispatch is not
   exercised.
+
+- Disk cache tests must use the process-owned temporary data root and a unique
+  synthetic source. Check actual persisted bytes and request counts; distinguish
+  failed loads from successful empty responses and reapply current favorites.
+  Never write a personal cache or forward synthetic requests to real HTTP.

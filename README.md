@@ -1582,11 +1582,13 @@ source-aware Back. Twelve remote album cases check late metadata, captured
 source/fallback identity and superseded opening/restoration. Five local album
 groups check abandoned publication and copied IDs. A populated remote album
 journey starts from search, collides with a local ID and uses the actual Back
-handler to restore source-aware selection/history. External profile/image
-transports fail closed. MainWindow stays unshown; only an isolated headless
-scroll host performs layout. No playback, hardware checks or real dialogs run.
-Windows CI executes the suite in Debug and Release; Linux/macOS runtime coverage
-remains a follow-up.
+handler to restore source-aware selection/history. Eight album cache cases check
+failed/full/empty recovery, timestamp invalidation, current favorites, corrupt
+cache rebuilding and preservation of the last validated snapshot. External
+profile/image transports fail closed. MainWindow stays unshown; only an isolated
+headless scroll host performs layout. No playback, hardware checks or real
+dialogs run. Windows CI executes the suite in Debug and Release; Linux/macOS
+runtime coverage remains a follow-up.
 
 ### Orynivo Server
 
