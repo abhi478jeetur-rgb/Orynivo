@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Automatic Wikipedia/Last.fm artist-image downloads use the shared serialized
+  cache writer. Complete streams are staged before replacement; cancelled,
+  failed or empty transfers preserve the existing image and clean temporary
+  files. Provider MIME and URL-extension fallback rules remain unchanged.
+
 - Artist-detail image search, upload and deletion order their complete manual
   write batches per normalized artist within the window. Later changes wait
   through earlier file, SQLite and server work; obsolete waiting actions perform

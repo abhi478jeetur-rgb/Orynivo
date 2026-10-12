@@ -316,9 +316,13 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
   old-format cleanup; remove idle gates after all active/waiting reservations
   leave. Cancelled waiters must not release another writer. Cancellation before
   publication and failed publication clean staging and preserve the prior image.
-  UI callers must await `DeleteImageAsync` or use a worker for legacy deletion.
-  File serialization does not order user intent or make SQLite metadata and
-  cache files transactional, and does not coordinate separate processes.
+  Wikipedia/Last.fm profile image downloads must use the same stream staging
+  path; never open the final cache file for direct provider streaming. Keep
+  caller-owned streams open, reject empty transfers before publication, and
+  preserve provider MIME/URL-extension fallback rules. UI callers must await
+  `DeleteImageAsync` or use a worker for legacy deletion. File serialization
+  does not order user intent or make SQLite metadata and cache files
+  transactional, and does not coordinate separate processes.
 - Web page fetching must retain SSRF protection, connect-time address checks,
   redirect and size limits, text-only responses, timeouts, and audit logging.
   The loopback/private/link-local/CGNAT/multicast/reserved address

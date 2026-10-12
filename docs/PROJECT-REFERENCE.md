@@ -1556,7 +1556,12 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   uses embedded MusicBrainz IDs or an unambiguous exact MusicBrainz match. The
   Fanart.tv key may only be persisted in `ApplicationCredentialStore`; it must
   never be written to JSON or caches, logged, sent to an Orynivo Server, or
-  exposed to a model.
+  exposed to a model. Wikipedia/Last.fm image content is saved through shared
+  serialized stream staging rather than opening the final cache file directly.
+  Transfer failure, cancellation and empty content preserve the previous file;
+  supported MIME and URL-extension fallback behavior remains unchanged. This
+  protects file publication, not the semantic order of older automatic requests
+  against later manual selections or SQLite metadata.
 - `Orynivo.Core/Library/ArtistImageSearchService.cs` and
   `Orynivo/ArtistImageSearchWindow.*`: manual artist-image search with an
   editable query; it tries Fanart.tv first when a key is configured and falls

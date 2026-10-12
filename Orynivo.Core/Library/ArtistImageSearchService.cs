@@ -155,6 +155,19 @@ public static class ArtistImageSearchService
         if (imageData.Length == 0)
             throw new ArgumentException("Image data is required.", nameof(imageData));
 
+        using var source = new MemoryStream(imageData, writable: false);
+        return await SaveImageStreamAsync(artistId, source, mimeType, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stages a caller-owned image stream under exclusive artist-cache mutation ownership.</summary>
+    /// <param name="artistId">Database artist ID used as the file-name stem.</param>
+    /// <param name="source">Readable image stream, left open for its owner.</param>
+    /// <param name="mimeType">MIME type used to select the cached extension.</param>
+    /// <param name="cancellationToken">Cancellation before publication, including staging copy.</param>
+    /// <returns>The published cache path after complete, nonempty staging.</returns>
+    internal static async Task<string> SaveImageStreamAsync(long artistId, Stream source, string? mimeType,
+        CancellationToken cancellationToken)
+    {
         var extension = mimeType?.ToLowerInvariant() switch
         {
             "image/png" => ".png",
@@ -171,7 +184,12 @@ public static class ArtistImageSearchService
         var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
-            await File.WriteAllBytesAsync(temporaryPath, imageData, cancellationToken).ConfigureAwait(false);
+            await using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, bufferSize: 81920, useAsync: true))
+            {
+                await source.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                if (output.Length == 0) throw new InvalidDataException("Image stream is empty.");
+            }
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporaryPath, targetPath, true);
             foreach (var existingPath in Directory.EnumerateFiles(directory, artistId + ".*"))

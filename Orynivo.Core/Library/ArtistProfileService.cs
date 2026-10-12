@@ -418,6 +418,11 @@ public static class ArtistProfileService
         return null;
     }
 
+    /// <summary>Downloads profile artwork without replacing the cached image until staging completes.</summary>
+    /// <param name="artistId">Artist identifier for the local cache.</param>
+    /// <param name="imageUrl">Provider image URL used only for this request.</param>
+    /// <param name="cancellationToken">Cancellation before publication.</param>
+    /// <returns>The complete cached image path, or null for unsupported or failed HTTP responses.</returns>
     private static async Task<string?> DownloadImageAsync(
         long artistId,
         string imageUrl,
@@ -432,7 +437,19 @@ public static class ArtistProfileService
             LastImageDiagnostic = $"Bild-Download HTTP {(int)response.StatusCode}: {imageUrl[..Math.Min(80, imageUrl.Length)]}";
             return null;
         }
-        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        return await SaveDownloadedImageAsync(artistId, response.Content, imageUrl, cancellationToken);
+    }
+
+    /// <summary>Preserves provider format fallback while using shared serialized image staging.</summary>
+    /// <param name="artistId">Artist identifier for the cache.</param>
+    /// <param name="content">Caller-owned downloaded content; its stream remains caller-owned.</param>
+    /// <param name="imageUrl">Transient URL used only for extension fallback.</param>
+    /// <param name="cancellationToken">Cancellation during admission or staging.</param>
+    /// <returns>The published path, or null when no supported image format can be resolved.</returns>
+    internal static async Task<string?> SaveDownloadedImageAsync(long artistId, HttpContent content,
+        string imageUrl, CancellationToken cancellationToken)
+    {
+        var mediaType = content.Headers.ContentType?.MediaType;
         string extension;
         if (mediaType == "image/png") extension = ".png";
         else if (mediaType == "image/webp") extension = ".webp";
@@ -450,12 +467,10 @@ public static class ArtistProfileService
                 return null;
             }
         }
-        var directory = AppPaths.GetDataPath("artist-images");
-        Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, artistId + extension);
-        await using var output = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
-        await response.Content.CopyToAsync(output, cancellationToken);
-        return path;
+        var mimeType = extension switch { ".png" => "image/png", ".webp" => "image/webp", _ => "image/jpeg" };
+        var source = await content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        return await ArtistImageSearchService.SaveImageStreamAsync(artistId, source, mimeType, cancellationToken)
+            .ConfigureAwait(false);
     }
 
     private static string? CleanLastFmBiography(string? raw)
