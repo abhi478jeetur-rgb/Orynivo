@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Local folder scan guidance stays beside Directories and uses all seven
+  languages. It points to existing per-folder scan/progress and normal Tracks
+  playback; it must not imply that a configured folder already contains tracks.
+
 - Both Settings root-change paths use SetConfiguredLibraryPaths to copy roots
   and expand Library on the first local source. Later changes preserve its
   collapsed state. Pass the returned roots to watchers and cleanup.

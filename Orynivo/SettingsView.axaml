@@ -918,6 +918,12 @@
                         <StackPanel x:Name="DirectoriesPanel"/>
                     </ScrollViewer>
 
+                    <TextBlock Text="{DynamicResource L_LibraryScanHint}"
+                               TextWrapping="Wrap"
+                               FontSize="{DynamicResource FontSizeMeta}"
+                               Foreground="{DynamicResource AppMutedTextBrush}"
+                               Margin="0,8,0,0"/>
+
                     <Button x:Name="AddDirectoryButton"
                             Width="180"
                             Height="30"

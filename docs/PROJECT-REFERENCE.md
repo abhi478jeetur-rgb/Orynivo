@@ -2606,6 +2606,10 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   language-specific title casing, not all caps.
 - All Settings buttons use the shared themed button style, including dynamic
   scan and remove buttons
+- Directories includes localized scan guidance below its folder list: use the
+  existing per-folder Scan action, follow row progress, save Settings after
+  completion, then open Tracks for normal double-click playback. This text
+  neither starts a scan nor implies that a configured source has indexed rows.
 - Settings ComboBoxes use fully themed templates, inputs should stretch to the
   available content width, and device information follows the active theme and
   title-bar color

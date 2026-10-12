@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add localized folder scan guidance in Settings, explaining progress, saving
+  Settings after completion and opening Tracks for first playback.
+
 - Expand the Library sidebar when its first local music folder is configured,
   matching first-server setup. Later folder changes retain the collapsed
   preference; configured roots are copied before watcher and cleanup handoff.

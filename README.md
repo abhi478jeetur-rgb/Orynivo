@@ -54,6 +54,8 @@ the ability to reach that library from any device on the local network.
 - Adding the first local music folder expands Library so Artists, Albums and
   Tracks are immediately reachable. Later folder changes keep a collapsed
   Library collapsed.
+- Directories Settings explains how to scan a folder, follow progress and open
+  Tracks after the scan for playback.
 - Unified artist detail pages with an album-style image-and-biography hero,
   synchronized favorites, image management, refreshable biographies, and
   combined local/Orynivo Server albums. Their cards include cover search,
