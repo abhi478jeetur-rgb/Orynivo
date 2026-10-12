@@ -64,8 +64,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   including the watcher's dispatcher pass.
 
 - Local folder scan guidance stays beside Directories and uses all seven
-  languages. It points to existing per-folder scan/progress and normal Tracks
-  playback; it must not imply that a configured folder already contains tracks.
+  languages. A newly selected folder starts the ordinary row scan after source
+  publication; existing folders and duplicate picker results do not auto-scan.
+  Preserve active rows when adding/removing folders and retain cancellation
+  ownership until completion. Share progress, errors and retry with manual Scan.
+  Guidance must not imply that a configured folder already contains tracks.
 
 - Both Settings root-change paths use SetConfiguredLibraryPaths to copy roots
   and expand Library on the first local source. Later changes preserve its
@@ -1475,7 +1478,7 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   Deferred Back/retry scroll restores must guard their owning search. Empty
   source selections are successful but never eligible for source-backed catalog
   caching. Outcome metadata and diagnostics contain no exception text, media
-  paths, server names, URLs, or credentials. A manual local scan launched from
+  paths, server names, URLs, or credentials. Any local scan launched from
   Settings must raise `SettingsView.LocalLibraryChanged` after a successful
   catalog mutation so the same Dashboard, Genre Cloud, and unified-library
   caches are invalidated as for watcher-driven changes; never require an

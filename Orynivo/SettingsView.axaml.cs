@@ -73,7 +73,8 @@ internal partial class SettingsView : UserControl
     private readonly List<PlexServerSettings> _plexServers = [];
     private readonly Dictionary<string, string> _plexTokens = [];
     private readonly List<OrynivoServerSettings> _orynivoServers = [];
-    private readonly Dictionary<string, CancellationTokenSource> _activeScans = [];
+    /// <summary>Owns active directory scans through completion, including cancellation after removal.</summary>
+    private readonly Dictionary<string, CancellationTokenSource> _activeScans = new(StringComparer.OrdinalIgnoreCase);
     private readonly Action<List<string>>? _onLibraryPathsChanged;
     private readonly Action<bool, EqualizerProfile?>? _onEqualizerPreviewChanged;
     private readonly Func<Task<string?>>? _onLastFmBeginAuthorization;
@@ -96,10 +97,14 @@ internal partial class SettingsView : UserControl
     private bool _profileSelectionUpdating;
 
     /// <summary>
-    /// Occurs after a manual local-library scan has added, updated, or removed
+    /// Occurs after a local-library scan has added, updated, or removed
     /// indexed tracks so catalog consumers can invalidate their session caches.
     /// </summary>
     internal event Action? LocalLibraryChanged;
+
+    /// <summary>Runs ordinary directory scans; isolated workflow checks may replace the transport.</summary>
+    internal Func<string, IProgress<ScanProgress>?, bool, CancellationToken, Task<ScanResult>> DirectoryScanner { get; set; }
+        = LibraryScanner.ScanAsync;
 
     /// <summary>Raised when the user asks to review and resolve duplicate files.</summary>
     internal event Action? DuplicateResolutionRequested;
@@ -2641,6 +2646,9 @@ internal partial class SettingsView : UserControl
     // Bibliothek
     // ------------------------------------------------------------------
 
+    /// <summary>Accepts a picker result and starts its initial scan through the existing row controls.</summary>
+    /// <param name="sender">Add-directory button.</param>
+    /// <param name="e">Click event.</param>
     private async void AddDirectoryButton_OnClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this)!;
@@ -2652,11 +2660,22 @@ internal partial class SettingsView : UserControl
         if (folders.Count == 0)
             return;
         var path = folders[0].TryGetLocalPath() ?? string.Empty;
-        if (string.IsNullOrEmpty(path) || _libraryPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
-            return;
+        await AddLibraryDirectoryAsync(path);
+    }
+
+    /// <summary>Adds a directory and awaits its initial scan without rebuilding active rows.</summary>
+    /// <param name="path">Selected local directory path.</param>
+    /// <returns>Whether a new directory was admitted, regardless of scan outcome.</returns>
+    internal async Task<bool> AddLibraryDirectoryAsync(string path)
+    {
+        if (_metadataDeactivated || string.IsNullOrWhiteSpace(path) ||
+            _libraryPaths.Contains(path, StringComparer.OrdinalIgnoreCase) || _activeScans.ContainsKey(path))
+            return false;
         _libraryPaths.Add(path);
-        RebuildDirectoryList();
+        DirectoriesPanel.Children.Add(BuildDirectoryRow(path, out var startScan));
         _onLibraryPathsChanged?.Invoke(_libraryPaths.ToList());
+        await startScan();
+        return true;
     }
 
     private void RebuildDirectoryList()
@@ -2683,7 +2702,16 @@ internal partial class SettingsView : UserControl
         }
     }
 
-    private Control BuildDirectoryRow(string path)
+    /// <summary>Builds an existing directory row without starting a scan.</summary>
+    /// <param name="path">Configured directory.</param>
+    /// <returns>The directory controls.</returns>
+    private Control BuildDirectoryRow(string path) => BuildDirectoryRow(path, out _);
+
+    /// <summary>Builds row controls and exposes their existing ordinary scan action.</summary>
+    /// <param name="path">Configured directory.</param>
+    /// <param name="startScan">Initial scan sharing progress, cancellation and completion handling.</param>
+    /// <returns>The directory controls.</returns>
+    private Control BuildDirectoryRow(string path, out Func<Task> startScan)
     {
         var outer = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
 
@@ -2778,7 +2806,7 @@ internal partial class SettingsView : UserControl
                         progress,
                         CalculateMissingReplayGainDuringScan,
                         cts.Token)
-                    : await LibraryScanner.ScanAsync(
+                    : await DirectoryScanner(
                         path,
                         progress,
                         CalculateMissingReplayGainDuringScan,
@@ -2813,6 +2841,8 @@ internal partial class SettingsView : UserControl
             }
         }
 
+        startScan = () => RunScanAsync(forceMetadataRefresh: false, scanBtn, refreshMetadataBtn);
+
         scanBtn.Click += async (_, _) =>
             await RunScanAsync(forceMetadataRefresh: false, scanBtn, refreshMetadataBtn);
         refreshMetadataBtn.Click += async (_, _) =>
@@ -2823,11 +2853,9 @@ internal partial class SettingsView : UserControl
             if (_activeScans.TryGetValue(path, out var cts))
             {
                 cts.Cancel();
-                _activeScans.Remove(path);
-                UpdateBackupButtonAvailability();
             }
             _libraryPaths.Remove(path);
-            RebuildDirectoryList();
+            DirectoriesPanel.Children.Remove(outer);
             _onLibraryPathsChanged?.Invoke(_libraryPaths.ToList());
         };
 

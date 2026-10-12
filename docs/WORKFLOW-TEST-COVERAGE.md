@@ -6,7 +6,7 @@ number of unit tests in the repository.
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 56 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 57 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -83,3 +83,10 @@ and opaque theme contrast (text >= 4.5, focus stroke/fill >= 3). Optional local
 frame export is disabled by default. Pre-seeded synthetic output settings avoid
 first-run default endpoint discovery. See FIRST-PLAYBACK-ACCEPTANCE.md for
 manual sound acceptance and isolated profile preparation.
+
+A separate directory-add group substitutes the ordinary Settings scanner with
+held/successful/failed synthetic tasks. It checks immediate scan admission after
+source publication, ReplayGain preference, progress, duplicate/empty rejection,
+active row identity across add/remove, cancellation ownership, backup-lock
+release, failure retry controls and rejected picker results after deactivation.
+No actual media scan or folder picker is invoked.

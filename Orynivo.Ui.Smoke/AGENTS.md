@@ -67,6 +67,10 @@ affect the pure desktop unit tests.
   this as headless key dispatch, not native OS or full-sidebar traversal proof.
 - Idle transport checks may call StopPlaybackCore only with no attached player;
   assert null detachment and never invoke factory, startup, resume or playback.
+- Directory-add checks replace Settings DirectoryScanner with deterministic
+  synthetic delegates before admission. Use only temporary empty folders; never
+  invoke the real scanner or picker. Check publication before scan, progress,
+  duplicate rejection, active-row identity, cancellation and failure recovery.
 - Scaling checks use Headless SetRenderScaling at 1/2 with bounded controls.
   ORYNIVO_SMOKE_RENDER_DIR optionally exports synthetic frames outside ordinary
   CI. Keep them uncommitted. Contrast assertions apply only to opaque theme

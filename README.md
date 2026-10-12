@@ -59,8 +59,9 @@ the ability to reach that library from any device on the local network.
 - Adding the first local music folder expands Library so Artists, Albums and
   Tracks are immediately reachable. Later folder changes keep a collapsed
   Library collapsed.
-- Directories Settings explains how to scan a folder, follow progress and open
-  Tracks after the scan for playback.
+- Adding a folder in Directories Settings starts its scan automatically. Follow
+  progress or cancel below that folder; Scan remains available for later scans.
+  After completion, save Settings and open Tracks for playback.
 - Successfully loaded empty library views offer source/filter guidance and a
   Settings action; server-only profiles open their server settings directly. The
   guidance disappears when reloading or when library changes invalidate that

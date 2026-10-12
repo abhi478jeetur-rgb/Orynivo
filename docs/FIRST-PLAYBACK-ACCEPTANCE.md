@@ -65,16 +65,21 @@ Build the Windows Release app first; ApplicationPath can select another local
 build. The child alone receives ORYNIVO_DATA_DIR. The launch path has not been
 claimed as an automated native UI or sound test.
 
-For Local, use Directories to add the returned MusicFolder, select its Scan
-action, wait for completion, save Settings, then double-click the test track in
-Tracks. Verify audible output and normal Play/Pause/Stop behavior. Output device
-opens the normal output settings if the default endpoint is unavailable.
+For Local, use Directories to add the returned MusicFolder. Its scan starts
+automatically; wait for completion, save Settings, then double-click the track
+in Tracks. Verify audible output and normal Play/Pause/Stop behavior. Output
+device opens the normal output settings if the default endpoint is unavailable.
 
 For Server, configure the server in Orynivo servers, save Settings and play a
 known track through Tracks with no local folder configured. Enter credentials
 only in the app. Check unavailable-source retry and output selection there.
 Record pass/failure and the failing step, without credentials, private URLs or
 personal media metadata.
+
+Adding a directory now starts its scan automatically. The previous human
+confirmation predates this follow-up. Synthetic workflow checks verify initial
+scan admission, progress, cancellation and recovery; they do not scan real
+media.
 
 ## Optional local rendering
 

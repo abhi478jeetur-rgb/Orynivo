@@ -834,6 +834,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   `SetConfiguredLibraryPaths` in `MainWindow.Settings.cs`. It copies the roots,
   expands Library when the first local root is added, and retains collapsed
   state on later changes. Watcher and cleanup receive that copied root set.
+- Settings folder-picker admission adds a new row, publishes the copied root
+  list, then awaits that row's ordinary scan action. Automatic and manual scans
+  share progress, cancellation, error handling, ReplayGain preference and
+  catalog invalidation. Existing folders are not scanned just by opening
+  Settings; duplicate selections are ignored. Adding/removing another folder
+  preserves active rows. Removed scans retain ownership until cancellation
+  completes. DirectoryScanner defaults to LibraryScanner.ScanAsync and permits
+  synthetic transport substitution in the isolated workflow fixture.
 - Settings output-profile setup uses a full-width ComboBox above a WrapPanel of
   the existing create/configure/delete actions. Their captions wrap with bounded
   widths and flexible heights; selection and callbacks are unchanged.

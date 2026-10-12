@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Scan newly added local directories immediately in Settings, using the existing
+  progress, cancellation and retry controls. Preserve active directory rows when
+  other folders are added or removed; duplicate folders do not start new scans.
+
 - Keep explicit ORYNIVO_DATA_DIR profiles isolated from legacy Player settings
   and caches. Preserve destination files created during legacy migration without
   crashing startup; other copy failures remain retryable.
