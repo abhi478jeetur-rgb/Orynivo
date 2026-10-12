@@ -8,6 +8,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Give library setup and output-profile actions a themed keyboard-focus border
+  and highlighted fill without changing their size or introducing animation.
+
 - Keep every empty-library setup action reachable with Tab and Shift+Tab in the
   sidebar. Continue tab traversal through its child buttons instead of skipping
   the remaining actions after the first; Enter opens normal Settings.

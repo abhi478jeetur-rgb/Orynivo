@@ -814,7 +814,10 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   folder or Orynivo Server is configured. The navigation ListBox uses Continue
   tab traversal so all nested setup buttons are reachable with Tab/Shift+Tab and
   activate through normal Enter handling rather than being skipped by the
-  default single-entry tab policy.
+  default single-entry tab policy. The setupAction class adds focus-visible
+  accent border/fill in the existing header/Settings button templates. It
+  changes no geometry and adds no motion; the empty-view Settings and
+  output-profile actions share that marker.
 - Both live Settings root changes and accepted Settings use
   `SetConfiguredLibraryPaths` in `MainWindow.Settings.cs`. It copies the roots,
   expands Library when the first local root is added, and retains collapsed

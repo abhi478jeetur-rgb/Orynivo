@@ -446,6 +446,10 @@
             <Style Selector="^:pressed /template/ Border#Bd">
                 <Setter Property="Background" Value="{DynamicResource AppButtonPressedBrush}"/>
             </Style>
+            <Style Selector="^.setupAction:focus-visible /template/ Border#Bd">
+                <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource AppAccentSoftBrush}"/>
+            </Style>
             <Style Selector="^:disabled /template/ Border#Bd">
                 <Setter Property="Opacity" Value="0.38"/>
             </Style>
@@ -1065,6 +1069,7 @@
                                    FontSize="{DynamicResource FontSizeMeta}"
                                    Foreground="{DynamicResource AppMutedTextBrush}"/>
                         <Button x:Name="LibrarySetupButton"
+                                Classes="setupAction"
                                 AutomationProperties.Name="{DynamicResource L_Directories}"
                                 Theme="{StaticResource HeaderFilterButtonTheme}"
                                 HorizontalAlignment="Stretch"
@@ -1073,6 +1078,7 @@
                             <TextBlock Text="{DynamicResource L_Directories}" TextWrapping="Wrap"/>
                         </Button>
                         <Button x:Name="LibraryServerSetupButton"
+                                Classes="setupAction"
                                 AutomationProperties.Name="{DynamicResource L_OrynivoServersSettings}"
                                 Theme="{StaticResource HeaderFilterButtonTheme}"
                                 HorizontalAlignment="Stretch"
@@ -1081,6 +1087,7 @@
                             <TextBlock Text="{DynamicResource L_OrynivoServersSettings}" TextWrapping="Wrap"/>
                         </Button>
                         <Button x:Name="LibraryOutputSetupButton"
+                                Classes="setupAction"
                                 AutomationProperties.Name="{DynamicResource L_OutputDevice}"
                                 Theme="{StaticResource HeaderFilterButtonTheme}"
                                 HorizontalAlignment="Stretch"
@@ -1632,6 +1639,7 @@
                                            Text="{DynamicResource L_LibraryViewEmptyHint}"
                                            TextWrapping="Wrap" FontSize="{DynamicResource FontSizeBody}"/>
                                 <Button x:Name="LibraryEmptySettingsButton"
+                                        Classes="setupAction"
                                         Content="{DynamicResource L_Settings}"
                                         AutomationProperties.Name="{DynamicResource L_Settings}"
                                         HorizontalAlignment="Left" Padding="12,5"

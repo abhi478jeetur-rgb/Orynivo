@@ -66,6 +66,10 @@
             <Style Selector="^:pressed /template/ Border#Bd">
                 <Setter Property="Background" Value="{DynamicResource AppButtonPressedBrush}"/>
             </Style>
+            <Style Selector="^.setupAction:focus-visible /template/ Border#Bd">
+                <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource AppAccentSoftBrush}"/>
+            </Style>
             <Style Selector="^:disabled">
                 <Setter Property="Opacity" Value="0.55"/>
             </Style>
@@ -452,6 +456,7 @@
                                   SelectionChanged="OutputProfileComboBox_OnSelectionChanged"/>
                         <WrapPanel x:Name="OutputProfileActionsPanel">
                             <Button x:Name="ConfigureOutputProfileButton"
+                                    Classes="setupAction"
                                     MinHeight="30"
                                     MaxWidth="220"
                                     Margin="0,0,8,8"
@@ -463,6 +468,7 @@
                                 <TextBlock Text="{DynamicResource L_OutputProfileConfigure}" TextWrapping="Wrap"/>
                             </Button>
                             <Button x:Name="CreateOutputProfileButton"
+                                    Classes="setupAction"
                                     MinHeight="30"
                                     MaxWidth="220"
                                     Margin="0,0,8,8"
@@ -473,6 +479,7 @@
                                 <TextBlock Text="{DynamicResource L_OutputProfileCreate}" TextWrapping="Wrap"/>
                             </Button>
                             <Button x:Name="DeleteOutputProfileButton"
+                                    Classes="setupAction"
                                     MinHeight="30"
                                     MaxWidth="220"
                                     Margin="0,0,8,8"

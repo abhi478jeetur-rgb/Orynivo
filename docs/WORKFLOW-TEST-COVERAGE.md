@@ -68,3 +68,10 @@ actual compiled sidebar ListBox with only its setup item retained. It checks all
 three child buttons, exit/reentry and actual local Settings activation. The
 original sidebar items and placement are restored. This does not prove
 full-sidebar traversal, native operating-system input or physical accessibility.
+
+Existing setup groups also check compiled focus-visible template colors against
+the active accent/soft-fill resources: all three sidebar actions after actual
+headless Tab dispatch in both themes, and Create output in the localized 240/640
+DIP layout loops. The output action bounds must remain unchanged by focus. Group
+count remains 55. This proves template properties, not physical screen contrast,
+native input, or assistive-technology behavior.

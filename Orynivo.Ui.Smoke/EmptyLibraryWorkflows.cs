@@ -5,6 +5,8 @@ using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.Headless;
 using Avalonia.Input;
+using Avalonia.Media;
+using Avalonia.VisualTree;
 using Avalonia.Threading;
 using Orynivo.Localization;
 using Orynivo.Streaming;
@@ -176,24 +178,31 @@ internal static class EmptyLibraryWorkflows
         }
         try
         {
-            host.Show(); Dispatcher.UIThread.RunJobs(); before.Focus();
-            for (var step = 0; step < 4 && !ReferenceEquals(host.FocusManager!.GetFocusedElement(), folders); step++)
-                Press(Key.Tab);
-            Check(ReferenceEquals(host.FocusManager!.GetFocusedElement(), folders), "Tab did not reach sidebar folder setup.");
-            Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), servers), "Tab skipped server setup.");
-            Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), output), "Tab skipped output setup.");
-            Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), after), "Sidebar trapped forward Tab.");
-            Press(Key.Tab, RawInputModifiers.Shift);
-            Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), output), "Reverse Tab did not enter output setup.");
-            Press(Key.Tab, RawInputModifiers.Shift);
-            Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), servers), "Reverse Tab skipped server setup.");
-            Press(Key.Tab, RawInputModifiers.Shift);
-            Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), folders), "Reverse Tab skipped folder setup.");
-            Press(Key.Enter);
-            var settingsHost = window.FindControl<ContentControl>("SettingsViewHost")!;
-            Check(settingsHost.IsVisible && settingsHost.Content is SettingsView view &&
-                view.FindControl<Control>("LibraryPanel")!.IsVisible, "Enter did not activate actual folder Settings routing.");
-            typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
+            host.Show(); Dispatcher.UIThread.RunJobs();
+            foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
+            {
+                ThemeManager.Apply(theme); Dispatcher.UIThread.RunJobs(); before.Focus();
+                for (var step = 0; step < 4 && !ReferenceEquals(host.FocusManager!.GetFocusedElement(), folders); step++)
+                    Press(Key.Tab);
+                Check(ReferenceEquals(host.FocusManager!.GetFocusedElement(), folders), "Tab did not reach sidebar folder setup.");
+                CheckSetupFocusVisual(folders);
+                Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), servers), "Tab skipped server setup.");
+                CheckSetupFocusVisual(servers);
+                Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), output), "Tab skipped output setup.");
+                CheckSetupFocusVisual(output);
+                Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), after), "Sidebar trapped forward Tab.");
+                Press(Key.Tab, RawInputModifiers.Shift);
+                Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), output), "Reverse Tab did not enter output setup.");
+                Press(Key.Tab, RawInputModifiers.Shift);
+                Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), servers), "Reverse Tab skipped server setup.");
+                Press(Key.Tab, RawInputModifiers.Shift);
+                Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), folders), "Reverse Tab skipped folder setup.");
+                Press(Key.Enter);
+                var settingsHost = window.FindControl<ContentControl>("SettingsViewHost")!;
+                Check(settingsHost.IsVisible && settingsHost.Content is SettingsView view &&
+                    view.FindControl<Control>("LibraryPanel")!.IsVisible, "Enter did not activate actual folder Settings routing.");
+                typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
+            }
             Console.WriteLine("PASS: sidebar setup supports headless Tab, reverse Tab and Enter activation");
         }
         finally
@@ -203,6 +212,7 @@ internal static class EmptyLibraryWorkflows
             sidebar.Items.Clear(); foreach (var item in items) sidebar.Items.Add(item);
             sidebar.Height = originalHeight; parent.Children.Insert(index, sidebar);
             Dispatcher.UIThread.RunJobs();
+            ThemeManager.Apply(AppTheme.Dark);
         }
     }
 
@@ -407,6 +417,11 @@ internal static class EmptyLibraryWorkflows
                     Check(ControlAutomationPeer.CreatePeerForElement(button)!.GetName() == text.Text,
                         "Output action lacks its localized accessible name.");
                 }
+                var create = view.FindControl<Button>("CreateOutputProfileButton")!;
+                var bounds = create.Bounds;
+                Check(create.Focus(NavigationMethod.Tab), "Output create action cannot receive keyboard focus.");
+                Dispatcher.UIThread.RunJobs(); CheckSetupFocusVisual(create);
+                Check(create.Bounds == bounds, "Keyboard focus changed output action layout.");
             }
             Console.WriteLine("PASS: output selector and translated actions fit narrow and wide Settings layouts");
         }
@@ -418,6 +433,18 @@ internal static class EmptyLibraryWorkflows
             LocalizationManager.Apply(Language.English);
             ThemeManager.Apply(AppTheme.Dark);
         }
+    }
+
+    /// <summary>Checks the compiled keyboard-focus border and fill against the active theme resources.</summary>
+    /// <param name="button">The keyboard-focused setup action.</param>
+    private static void CheckSetupFocusVisual(Button button)
+    {
+        var border = button.GetVisualDescendants().OfType<Border>().Single(item => item.Name == "Bd");
+        var accent = (ISolidColorBrush)Application.Current!.Resources["AppAccentBrush"]!;
+        var fill = (ISolidColorBrush)Application.Current.Resources["AppAccentSoftBrush"]!;
+        Check(border.BorderBrush is ISolidColorBrush stroke && stroke.Color == accent.Color &&
+            border.Background is ISolidColorBrush background && background.Color == fill.Color,
+            "Keyboard-focused setup action lacks its themed border and fill.");
     }
 
     /// <summary>Invokes the original library visibility adapter.</summary>

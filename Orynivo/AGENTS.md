@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Setup-action keyboard focus uses the shared accent border and soft fill in
+  existing button templates, scoped by setupAction. Keep it immediate and
+  geometry-preserving; do not add focus animations or shift button bounds.
+
 - Sidebar TabNavigation must Continue through nested setup buttons. Preserve
   forward/reverse traversal and normal Enter activation; never trap focus or
   treat the non-leaf setup hint as a persisted view.
