@@ -39,6 +39,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Background artist-row profile refreshes retain shared artist write ownership
+  through download, SQLite persistence and artwork decoding. Recheck original
+  row/background ownership after waiting and refresh authoritative manual-image
+  state off the UI thread before selecting image policy. Preserve the upfront
+  session freshness stamp and owner-specific loading cleanup.
+
 - The fixed GL post pass applies MilkDrop's centre-darkening sprite only within
   a small diamond around the centre (3/32 peak alpha, radius 0.025 of the
   smaller dimension). The legacy display pass mixes its animated hue shade with

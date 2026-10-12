@@ -1120,6 +1120,9 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Automatic artist-row profile jobs share the artist write queue through
+  download, database persistence and artwork decoding. Waiting jobs recheck
+  their original row binding and current database manual-image state.
 - Now Playing server profile writes share manual-image ordering and source-owned
   caches. Superseded images retain current biographies; forced biography refresh
   preserves manual server artwork.

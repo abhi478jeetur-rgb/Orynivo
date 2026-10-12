@@ -743,7 +743,16 @@ public partial class MainWindow : Window
     /// <summary>Refreshes a bound artist row while retaining its background request and row identity.</summary>
     /// <param name="row">The bound local artist row.</param>
     /// <returns>A task completing the automatic profile refresh or its abandonment.</returns>
-    private async Task EnsureArtistProfileAsync(ContentRow row)
+    private Task EnsureArtistProfileAsync(ContentRow row) =>
+        EnsureArtistProfileWithDownloadAsync(row, (id, name, language, image, token) =>
+            ArtistProfileService.DownloadAsync(id, name, language, image, token));
+
+    /// <summary>Orders background profile persistence with manual image batches.</summary>
+    /// <param name="row">The original bound local artist row.</param>
+    /// <param name="download">The profile lookup receiving the admitted image policy.</param>
+    /// <returns>A task completing refresh or rejection of obsolete work.</returns>
+    private async Task EnsureArtistProfileWithDownloadAsync(ContentRow row,
+        Func<long, string, string, bool, CancellationToken, Task<ArtistProfileDownload?>> download)
     {
         if (row.Id is not long artistId || row.EntityType != "Artist")
             return;
@@ -762,6 +771,7 @@ public partial class MainWindow : Window
         var tag = _currentTopLevelTag;
         var artistName = row.Title;
         var imageIsManual = row.ImageIsManual;
+        var manualImage = _artistImageWrites.CaptureCurrent();
         var tableSource = ContentDataGrid.IsVisible ? ContentDataGrid.ItemsSource : null;
         var artworkSource = ArtistArtworkListBox.IsVisible ? ArtistArtworkListBox.ItemsSource : null;
         bool CanPublish() => ReferenceEquals(_backgroundArtistLoadCts, background) &&
@@ -787,54 +797,69 @@ public partial class MainWindow : Window
 
         try
         {
-            var profile = await ArtistProfileService.DownloadAsync(
-                artistId,
-                row.Title ?? string.Empty,
-                language,
-                downloadImage: !row.ImageIsManual,
-                cancellationToken: backgroundToken);
-            if (!CanPublish()) return;
-
-            // Persist the (possibly negative) result and decode the artwork off the UI thread.
-            // Opening the database runs connection pragmas and schema DDL, which must never
-            // happen on the UI thread once per visible artist row.
-            var imagePath = profile?.ImagePath;
-            var (artwork, thumbnail) = await Task.Run(() =>
+            await _artistImageWriteQueue.RunAsync(
+                ArtistNameNormalizer.CreateComparisonKey(artistName), CanPublish, async () =>
             {
-                using var db = AudioDatabase.OpenDefault();
-                backgroundToken.ThrowIfCancellationRequested();
-                db.UpdateArtistProfile(
-                    artistId,
-                    profile?.Biography,
-                    profile?.ImagePath,
-                    profile?.SourceUrl,
-                    language);
-                return string.IsNullOrWhiteSpace(imagePath)
-                    ? ((IImage?)null, (IImage?)null)
-                    : (CreateArtworkImage(imagePath, 320, ignoreCache: true),
-                       CreateArtworkImage(imagePath, 96, ignoreCache: true));
-            }, backgroundToken);
+                bool CanPublishImage() => CanPublish() &&
+                    !IsArtistImageSuperseded(manualImage, null, artistId, artistName);
+                var manualState = await Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    backgroundToken.ThrowIfCancellationRequested();
+                    return db.GetArtistById(artistId)?.ImageIsManual ?? true;
+                }, backgroundToken);
+                if (!CanPublish()) return false;
+                var profile = await download(artistId, artistName ?? string.Empty, language,
+                    CanPublishImage() && !manualState, backgroundToken);
+                if (!CanPublish()) return false;
 
-            if (!CanPublish())
-            {
-                (artwork as IDisposable)?.Dispose();
-                (thumbnail as IDisposable)?.Dispose();
-                return;
-            }
+                // Persist the (possibly negative) result and decode the artwork off the UI thread.
+                // Opening the database runs connection pragmas and schema DDL, which must never
+                // happen on the UI thread once per visible artist row.
+                var imagePath = CanPublishImage() ? profile?.ImagePath : null;
+                var (artwork, thumbnail) = await Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    backgroundToken.ThrowIfCancellationRequested();
+                    db.UpdateArtistProfile(
+                        artistId,
+                        profile?.Biography,
+                        imagePath,
+                        profile?.SourceUrl,
+                        language);
+                    return string.IsNullOrWhiteSpace(imagePath)
+                        ? ((IImage?)null, (IImage?)null)
+                        : (CreateArtworkImage(imagePath, 320, ignoreCache: true),
+                           CreateArtworkImage(imagePath, 96, ignoreCache: true));
+                }, backgroundToken);
 
-            // The awaits above do not suppress the captured context, so these row updates
-            // run on the UI thread as required by INotifyPropertyChanged.
-            row.Biography = profile?.Biography;
-            row.SourceUrl = profile?.SourceUrl;
-            if (!string.IsNullOrWhiteSpace(imagePath))
-            {
-                row.ArtworkPath = imagePath;
-                row.ThumbnailPath = imagePath;
-                row.ArtworkLoadCompleted = false;
-                row.Artwork = artwork;
-                row.Thumbnail = thumbnail;
-                row.ArtworkLoadCompleted = true;
-            }
+                if (!CanPublish())
+                {
+                    (artwork as IDisposable)?.Dispose();
+                    (thumbnail as IDisposable)?.Dispose();
+                    return false;
+                }
+
+                // The awaits above do not suppress the captured context, so these row updates
+                // run on the UI thread as required by INotifyPropertyChanged.
+                row.Biography = profile?.Biography;
+                row.SourceUrl = profile?.SourceUrl;
+                if (CanPublishImage() && !string.IsNullOrWhiteSpace(imagePath))
+                {
+                    row.ArtworkPath = imagePath;
+                    row.ThumbnailPath = imagePath;
+                    row.ArtworkLoadCompleted = false;
+                    row.Artwork = artwork;
+                    row.Thumbnail = thumbnail;
+                    row.ArtworkLoadCompleted = true;
+                }
+                else
+                {
+                    (artwork as IDisposable)?.Dispose();
+                    (thumbnail as IDisposable)?.Dispose();
+                }
+                return true;
+            });
         }
         catch
         {

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Automatic artist-row profile downloads, database persistence and artwork
+  decoding now share write ordering with manual image changes. Waiting jobs
+  recheck their original row binding and current manual-image state.
+
 - Now Playing server profiles share ordered download/upload and cache work with
   manual artist-image changes. Queued work refreshes authoritative manual-image
   state, uses source-owned cache IDs and rechecks playback/source/image

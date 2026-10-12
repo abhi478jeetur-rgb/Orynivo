@@ -3147,3 +3147,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   configured Orynivo Server / Plex server row additionally shows a live
   connection badge probed asynchronously so opening Settings stays instant.
   Reachable Orynivo Server rows also show the version returned by `/api/info`.
+
+### Background artist profile write ownership
+
+`EnsureArtistProfileAsync` delegates to an injectable download adapter and
+reserves the window artist write queue before authoritative SQLite manual-state
+readback. Download, profile persistence and off-thread artwork decoding share
+that reservation. Original row binding, identity, language and background owner
+remain required. Manual image observations independently reject old image
+publication. Session freshness suppression and owner-specific loading cleanup
+remain intact. This ordering is scoped to the window, not a SQLite/file
+transaction or a cross-client coordinator.
