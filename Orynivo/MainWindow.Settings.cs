@@ -471,6 +471,12 @@ public partial class MainWindow : Window
     private void LibrarySetupButton_OnClick(object? sender, RoutedEventArgs e) =>
         OpenSettingsAt("Library");
 
+    /// <summary>Opens server setup through the shared embedded settings path.</summary>
+    /// <param name="sender">The empty-library server setup button.</param>
+    /// <param name="e">The button activation event.</param>
+    private void LibraryServerSetupButton_OnClick(object? sender, RoutedEventArgs e) =>
+        OpenSettingsAt("OrynivoServers");
+
     private void OpenSettingsAt(string sectionTag, bool scrollToEqualizer = false)
     {
         if (!SettingsViewHost.IsVisible)

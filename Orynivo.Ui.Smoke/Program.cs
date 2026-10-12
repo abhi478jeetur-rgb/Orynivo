@@ -38,6 +38,7 @@ internal static class Program
             DenyExternalRequests.Install();
             AppBuilder.Configure<App>().UseHeadless(new AvaloniaHeadlessPlatformOptions
                 { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
+            EmptyLibraryWorkflows.Run(root);
             using var fixture = new ArtistWorkflowFixture(root);
             fixture.Run();
             SearchWorkflows.Run();

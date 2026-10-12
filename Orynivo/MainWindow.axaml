@@ -1064,10 +1064,21 @@
                                    FontSize="{DynamicResource FontSizeMeta}"
                                    Foreground="{DynamicResource AppMutedTextBrush}"/>
                         <Button x:Name="LibrarySetupButton"
-                                Content="{DynamicResource L_Settings}"
+                                AutomationProperties.Name="{DynamicResource L_Directories}"
                                 Theme="{StaticResource HeaderFilterButtonTheme}"
-                                HorizontalAlignment="Left"
-                                Click="LibrarySetupButton_OnClick"/>
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Click="LibrarySetupButton_OnClick">
+                            <TextBlock Text="{DynamicResource L_Directories}" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button x:Name="LibraryServerSetupButton"
+                                AutomationProperties.Name="{DynamicResource L_OrynivoServersSettings}"
+                                Theme="{StaticResource HeaderFilterButtonTheme}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Click="LibraryServerSetupButton_OnClick">
+                            <TextBlock Text="{DynamicResource L_OrynivoServersSettings}" TextWrapping="Wrap"/>
+                        </Button>
                     </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem x:Name="LocalLibraryRootItem"

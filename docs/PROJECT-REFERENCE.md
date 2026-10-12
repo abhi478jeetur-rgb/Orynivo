@@ -793,14 +793,19 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   entities reuse the same `ContentRow`-bound masks, local and remote share it.
   Set `DisplayName` (bound to the row `Title` or an element reference) and
   `FontSize` to scale the initials to the slot size.
-- The empty-library sidebar hint offers a localized Settings button routed small
-  pill indicator (`TemplatedControl`, default template in `App.axaml`) with a
-  coloured dot and short label, driven by `Text` and a `State`
-  (`StatusBadgeState.Ok`/`Warning`/`Off`). Settings uses it to surface FFmpeg,
-  Steinberg ASIO, cwASIO, and MCP server availability; `SettingsView` populates
-  the badges in `UpdateSubsystemStatusBadges()` / `UpdateMcpStatusBadge()`. Each
-  Orynivo Server and Plex server row also carries a live connection badge probed
-  asynchronously (`CheckServerStatusAsync` +
+- The empty-library sidebar hint offers separate localized Directories and
+  Orynivo servers actions through `MainWindow.Settings.cs`. They open the
+  existing Library and OrynivoServers sections of embedded Settings. The row has
+  no height cap or transition; both captions wrap and provide explicit
+  accessible names. Existing source visibility rules hide the hint when a local
+  folder or Orynivo Server is configured.
+- `Orynivo/Controls/StatusBadge.cs`: small pill indicator (`TemplatedControl`,
+  default template in `App.axaml`) with a coloured dot and short label, driven
+  by `Text` and a `State` (`StatusBadgeState.Ok`/`Warning`/`Off`). Settings uses
+  it to surface FFmpeg, Steinberg ASIO, cwASIO, and MCP server availability;
+  `SettingsView` populates the badges in `UpdateSubsystemStatusBadges()` /
+  `UpdateMcpStatusBadge()`. Each Orynivo Server and Plex server row also carries
+  a live connection badge probed asynchronously (`CheckServerStatusAsync` +
   `ProbeOrynivoServerAsync`/`ProbePlexServerAsync`), so opening Settings never
   blocks on network calls; pending probes are cancelled per-list on rebuild and
   in `Deactivate()`. When a probe succeeds the timestamp is persisted through

@@ -8,8 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- Add a keyboard-accessible Settings action to the empty-library hint, opening
-  Library setup directly and allowing the hint to wrap without clipping.
+- Add distinct Directories and Orynivo servers actions to empty-library setup,
+  opening each existing Settings section with wrapped localized captions and
+  explicit accessible names. Remove hint clipping and track fresh-profile layout
+  and routing checks.
 
 - Add composed fake-player workflows for gapless queue edits and output
   switching at simulated playing positions, preserving current queue snapshots,

@@ -47,7 +47,8 @@ the ability to reach that library from any device on the local network.
   track at once, plus a genre field that stores a library-only override for the
   selected local or Orynivo Server tracks (media files are never modified)
 - Local library, playlists, smart playlists and full-text search
-- Empty-library guidance includes a Settings action that opens Library setup
+- Empty-library guidance opens Directories or Orynivo servers directly in
+  Settings, with localized, wrapped and keyboard-focusable setup actions.
 - Unified artist detail pages with an album-style image-and-biography hero,
   synchronized favorites, image management, refreshable biographies, and
   combined local/Orynivo Server albums. Their cards include cover search,
