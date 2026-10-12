@@ -29,3 +29,8 @@ affect the pure desktop unit tests.
   results, keep partial rows during retry, reject stale metadata registration
   and retain source-aware selection/history through the production Back adapter.
   Keep synthetic request observations in memory and never print them.
+
+- Remote album checks must hold metadata separately from overview/track reads,
+  reject stale admission before track requests and keep captured fallback/source
+  identity. Exercise both real open overloads and the existing restore adapter;
+  release every captured synthetic gate in teardown.

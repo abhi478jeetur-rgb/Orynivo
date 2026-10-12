@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Extend tracked Windows UI smoke coverage with twelve remote album cases for
+  late metadata admission, captured fallback/source ownership, overlapping opens
+  and superseded overview/detail restoration.
+
 - Extend tracked Windows UI smoke coverage with ten search groups: late replies,
   source failures and successful empty results, localized partial results, retry
   recovery, cache invalidation and source-aware Back restoration.

@@ -3250,5 +3250,11 @@ synthetic source collisions, cancellation-insensitive late responses,
 partial/full failure versus successful empty results, seven-language
 presentation, retained retry rows, duplicate retry rejection and cache
 invalidation. Search Back retains source selection and history; newly typed
-queries reject obsolete restoration. Linux/macOS execution and broader
-album/recovery workflows remain open.
+queries reject obsolete restoration. Twelve remote album groups exercise both
+open overloads and the existing album restore adapter: deliberately held
+metadata must reject navigation/configuration/source changes before requesting
+tracks, overlapping opens/restores retain only the latest owner, mutable row
+fallbacks and logical IDs stay captured, and copied sources resolve their
+configured owner. Tracks and overview responses are synthetic and empty; these
+cases do not claim a complete search-to-populated-album-to-Back journey. Local
+album publication, broader recovery and Linux/macOS UI execution remain open.

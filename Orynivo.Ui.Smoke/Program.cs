@@ -41,6 +41,7 @@ internal static class Program
             using var fixture = new ArtistWorkflowFixture(root);
             fixture.Run();
             SearchWorkflows.Run();
+            AlbumWorkflows.Run();
             if (DenyExternalRequests.Requests != 0)
                 throw new InvalidOperationException("Cached workflows attempted external provider requests.");
             Console.WriteLine("All Windows UI smoke workflows passed.");
