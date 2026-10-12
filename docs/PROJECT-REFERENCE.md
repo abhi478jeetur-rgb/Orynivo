@@ -3355,3 +3355,16 @@ its own fixture process. The fixture is built/copied transitively by server
 tests, not shipped with the server. This tests a real managed-child lifetime,
 not FFmpeg codec behavior, descendant-process trees or a physical network
 disconnect.
+
+### Synthetic catalog measurements
+
+scripts/CatalogBench generates production-schema metadata in an explicit owned
+temporary SQLite directory, measures eight actual synchronous readers at 1,000
+and 100,000 tracks, validates counts and records seven samples after one warmup.
+Seeding is outside samples; no OpenDefault, UI, HTTP, scan or audio work runs.
+Reports contain fixed phases, counts, runtime/OS/architecture/processor count,
+elapsed samples and current-thread managed allocations, without source paths or
+personal data. Allocation counts exclude native SQLite memory and process RSS.
+Cleanup validates its temporary parent/prefix and clears only its own pools.
+This opt-in tool is not a CI latency gate. The maintained methodology and dated
+observations are in [CATALOG-MEASUREMENTS.md](CATALOG-MEASUREMENTS.md).

@@ -1589,6 +1589,18 @@ production transcode runner. Cancellation and failed response writes must stop
 and await that child before returning. These cases validate process cleanup, not
 FFmpeg codecs, physical audio or a network-disconnect scenario.
 
+### Synthetic catalog measurements
+
+```powershell
+dotnet run --project scripts/CatalogBench/CatalogBench.csproj -c Release -- artifacts/catalog-benchmark.json
+```
+
+The tool generates temporary 1,000/100,000-track SQLite catalogs and records
+warm query times and current-thread managed allocations. It reads no personal
+media and performs no UI, HTTP, scan or audio work. This opt-in tool is outside
+CI timing gates. See
+[measurement methodology and observations](docs/CATALOG-MEASUREMENTS.md).
+
 ### Windows headless workflow smoke
 
 ```bash

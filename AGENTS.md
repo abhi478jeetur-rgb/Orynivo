@@ -31,6 +31,7 @@ deferred until the user asks for them separately.
 
 The closest `AGENTS.md` applies in addition to this repository-wide file:
 
+- `scripts/CatalogBench/AGENTS.md` — opt-in synthetic catalog measurements.
 - `Orynivo.Ui.Smoke/AGENTS.md` — isolated Windows headless workflow checks and
   their CI/local verification contracts.
 - `Orynivo/AGENTS.md` — Avalonia UI, navigation, playback, Dashboard, remote

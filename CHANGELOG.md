@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add an opt-in synthetic catalog measurement tool for 1,000 and 100,000 tracks,
+  recording warm query samples and managed allocations without personal media.
+  Document repeated observations and bounded-read guidance without CI time
+  gates.
+
 - Await transcode process termination before returning after request
   cancellation or response-write failure. Five real managed-child regression
   cases cover cleanup, natural completion, pre-cancelled requests and startup
