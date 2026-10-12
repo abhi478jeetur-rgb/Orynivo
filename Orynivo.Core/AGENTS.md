@@ -136,6 +136,13 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
 - A failed TagLib read must never upsert the file-system-only fallback record.
   Full, forced, watcher, and reconciliation scans retry boundedly, count a final
   failure, and preserve the existing database metadata unchanged.
+- For WavPack, technical property access can fail at extended sample rates while
+  tags remain readable. Preserve successful tags and supplement missing source
+  properties with a cancellable, 15-second FFprobe read of technical fields
+  only. Never probe failed tag opens, replace valid values or write source
+  files. CUE projection caches each physical source probe, including failure,
+  per sheet and applies source duration before computing the final segment
+  duration.
 - When an upsert changes a track's album identity inside the same physical album
   directory, carry the previous album's artwork and favorite flag to the target.
   Existing target artwork wins; favorites are combined rather than cleared.

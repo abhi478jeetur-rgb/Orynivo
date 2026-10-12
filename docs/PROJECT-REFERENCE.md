@@ -414,6 +414,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 
 ## Important Architecture
 
+High-resolution WavPack technical properties can be absent or throw through
+TagLib while tags are valid. LibraryScanner preserves those tags and uses
+WavPackTechnicalMetadata to fill missing duration, sample rate, bit depth,
+channels and encoded bitrate. FFprobe reads selected technical fields only, with
+scan cancellation, a 15-second timeout and no source mutation. Failed tag opens
+retain the existing failure/retry contract. Each CUE source is probed once per
+sheet; source duration is available before segment-end projection. Existing
+unchanged rows require explicit Refresh all metadata on their owning library.
+
 WASAPI output rate selection excludes every rate above a positive
 MaxOutputSampleRateHz, including fallback candidates. Zero remains unrestricted.
 FFmpeg resamples PCM to the selected accepted rate. If the driver supports no

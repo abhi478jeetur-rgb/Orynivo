@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Supplement incomplete high-resolution WavPack technical metadata with a
+  bounded FFprobe read during scanning. Preserve readable tags when TagLib
+  cannot read extended-rate properties; CUE tracks retain source precision and
+  correct final segment duration. Probe each physical source once per sheet.
+
 - Enforce the configured maximum WASAPI output sample rate as a strict limit.
   Never fall back above it when a driver rejects lower rates, preventing an
   advertised but unstable high-rate mode from bypassing the user's restriction.

@@ -611,7 +611,7 @@ public static class LibraryScanner
                     if (!file.Exists)
                         break;
                     var modifiedAt = new DateTimeOffset(file.LastWriteTimeUtc).ToUnixTimeSeconds();
-                    var candidate = BuildRecord(path, file, modifiedAt, now, out var metadataRead);
+                    var candidate = BuildRecord(path, file, modifiedAt, now, out var metadataRead, cancellationToken);
                     if (!metadataRead)
                     {
                         if (attempt < 3)
@@ -879,12 +879,23 @@ public static class LibraryScanner
         !string.IsNullOrWhiteSpace(path) &&
         SupportedExtensions.Contains(Path.GetExtension(path));
 
+    /// <summary>Reads source tags and technical properties, supplementing incomplete WavPack headers.</summary>
+    /// <param name="filePath">Physical source file.</param>
+    /// <param name="fi">Source file metadata.</param>
+    /// <param name="modifiedAt">Source modification timestamp.</param>
+    /// <param name="addedAt">Library addition timestamp.</param>
+    /// <param name="metadataRead">Whether source tags were successfully read.</param>
+    /// <param name="cancellationToken">Scan cancellation.</param>
+    /// <param name="technicalCache">Optional per-sheet source probe cache.</param>
+    /// <returns>The source record, never changing source media.</returns>
     private static TrackRecord BuildRecord(
         string filePath,
         FileInfo fi,
         long modifiedAt,
         long addedAt,
-        out bool metadataRead)
+        out bool metadataRead,
+        CancellationToken cancellationToken,
+        Dictionary<string, WavPackTechnicalMetadata?>? technicalCache = null)
     {
         metadataRead = false;
         var ext = Path.GetExtension(filePath).ToLowerInvariant();
@@ -909,11 +920,18 @@ public static class LibraryScanner
             var props = tagFile.Properties;
             if (props is not null)
             {
-                record.Duration   = props.Duration.TotalSeconds > 0 ? props.Duration.TotalSeconds : null;
-                record.SampleRate = props.AudioSampleRate > 0 ? props.AudioSampleRate : null;
-                record.BitDepth   = props.BitsPerSample > 0 ? props.BitsPerSample : null;
-                record.Channels   = props.AudioChannels > 0 ? props.AudioChannels : null;
-                record.Bitrate    = props.AudioBitrate > 0 ? props.AudioBitrate : null;
+                try
+                {
+                    record.Duration   = props.Duration.TotalSeconds > 0 ? props.Duration.TotalSeconds : null;
+                    record.SampleRate = props.AudioSampleRate > 0 ? props.AudioSampleRate : null;
+                    record.BitDepth   = props.BitsPerSample > 0 ? props.BitsPerSample : null;
+                    record.Channels   = props.AudioChannels > 0 ? props.AudioChannels : null;
+                    record.Bitrate    = props.AudioBitrate > 0 ? props.AudioBitrate : null;
+                }
+                catch when (ext == ".wv")
+                {
+                    // Extended WavPack rates can break property access while tags remain readable.
+                }
             }
 
             if (record.IsDsd && record.SampleRate.HasValue)
@@ -967,6 +985,18 @@ public static class LibraryScanner
             // Tag-Lesung fehlgeschlagen – Dateisystem-Metadaten bleiben erhalten
         }
 
+        if (metadataRead && ext == ".wv" &&
+            (record.Duration is null || record.SampleRate is null || record.BitDepth is null ||
+             record.Channels is null || record.Bitrate is null))
+        {
+            WavPackTechnicalMetadata? technical;
+            if (technicalCache is null || !technicalCache.TryGetValue(filePath, out technical))
+            {
+                technical = WavPackTechnicalMetadata.Read(filePath, cancellationToken);
+                if (technicalCache is not null) technicalCache[filePath] = technical;
+            }
+            technical?.Apply(record);
+        }
         return record;
     }
 
@@ -990,7 +1020,7 @@ public static class LibraryScanner
         for (var attempt = 0; attempt < 4; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var record = BuildRecord(filePath, fileInfo, modifiedAt, addedAt, out var metadataRead);
+            var record = BuildRecord(filePath, fileInfo, modifiedAt, addedAt, out var metadataRead, cancellationToken);
             if (metadataRead)
                 return record;
             if (attempt < 3)
@@ -1000,6 +1030,13 @@ public static class LibraryScanner
         return null;
     }
 
+    /// <summary>Projects physical source metadata onto virtual segments, probing each incomplete WavPack source once.</summary>
+    /// <param name="cuePath">CUE sheet or chapter source.</param>
+    /// <param name="definitions">Ordered segment definitions.</param>
+    /// <param name="addedAt">Library addition timestamp.</param>
+    /// <param name="cancellationToken">Scan cancellation.</param>
+    /// <param name="calculateMissingReplayGain">Whether missing ReplayGain should be analyzed.</param>
+    /// <returns>Virtual tracks with physical source technical properties and segment durations.</returns>
     private static List<TrackRecord> BuildCueRecords(
         string cuePath,
         IReadOnlyList<CueTrackDefinition> definitions,
@@ -1009,6 +1046,7 @@ public static class LibraryScanner
     {
         var cueModified = new DateTimeOffset(System.IO.File.GetLastWriteTimeUtc(cuePath)).ToUnixTimeSeconds();
         var result = new List<TrackRecord>(definitions.Count);
+        var technicalCache = new Dictionary<string, WavPackTechnicalMetadata?>(StringComparer.Ordinal);
         foreach (var definition in definitions)
         {
             var sourceFile = new FileInfo(definition.SourcePath);
@@ -1018,7 +1056,7 @@ public static class LibraryScanner
                 sourceFile,
                 Math.Max(cueModified, sourceModified),
                 addedAt,
-                out _);
+                out _, cancellationToken, technicalCache);
             record.Path = definition.VirtualPath;
             record.SourcePath = definition.SourcePath;
             record.CuePath = definition.CuePath;

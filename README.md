@@ -2184,6 +2184,13 @@ and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## WASAPI output rate limit
 
+High-resolution WavPack files use a bounded FFprobe fallback when the tag reader
+cannot supply technical properties. CUE track information reports the physical
+source format, sample rate, precision and channels; playback may report FLAC
+when a server transcodes that source. Use Refresh all metadata on the owning
+library to update previously indexed entries with missing values. Remote library
+metadata must be refreshed on the server running the updated scanner.
+
 For WASAPI devices that report unstable high sample rates, set Maximum output
 sample rate in Settings > Playback to a known working rate. This is a strict
 limit: playback never falls back above it. High-resolution sources are decoded
