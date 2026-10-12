@@ -1111,6 +1111,8 @@ byte-range streaming without FFmpeg.
   renames, and artist merges
 - Manual artist-image synchronization retains its original server connections,
   skips changed sources and invalidates shared caches after interrupted writes.
+- Image uploads and deletions retain their original artist view and reject
+  obsolete selections, image updates and failure messages after navigation.
 - Artist renaming in the artist information view, including a transactional
   merge flow with an explicit choice of which artist profile to retain
 - Cross-server artist renames retain their original connections and skip changed

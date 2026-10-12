@@ -325,71 +325,155 @@ public partial class MainWindow : Window
         }
     }
 
-    private async void UploadArtistImageButton_OnClick(object? sender, RoutedEventArgs e)
+    /// <summary>Owns manual image publication independently from profile observations.</summary>
+    private readonly NavigationLoadOwnership _artistImageActions = new();
+
+    /// <summary>Captures the displayed artist, source and playback context for a manual image action.</summary>
+    /// <returns>A predicate rejecting replacement image actions, profiles, sources or navigation.</returns>
+    private Func<bool> CaptureArtistImageActionGuard()
     {
-        if (!TryGetDisplayedArtistName(out var artistName) ||
-            await PickImageAsync() is not { } image)
-        {
-            return;
-        }
-
-        await SynchronizeUnifiedArtistImageAsync(artistName, image.Data, image.MimeType);
-        using var stream = new MemoryStream(image.Data);
-        ArtistInfoImage.Source = new Bitmap(stream);
-        ArtistInfoImagePlaceholder.IsVisible = false;
-        ArtistInfoImageStatusText.IsVisible = false;
-
-        if (_artistInfoDisplayedRemoteRow is { } remoteRow)
-        {
-            if (ResolveRowOrynivoServer(remoteRow) is { } server &&
-                remoteRow.Id is long artistId)
-            {
-                EnsureOrynivoArtistArtworkPaths(server, artistId, remoteRow);
-                ApplyRemoteArtwork(remoteRow, image.Data);
-                remoteRow.ImageIsManual = true;
-            }
-        }
-        else if (_artistInfoDisplayedId is long localArtistId)
-        {
-            ArtistInfo? artist;
-            using (var db = AudioDatabase.OpenDefault())
-                artist = db.GetArtistById(localArtistId);
-            if (artist is not null)
-                await RefreshVisibleArtistRowAsync(artist);
-        }
-
-        StatusTextBlock.Text = string.Empty;
+        var request = _artistImageActions.Begin(CancellationToken.None);
+        var profile = _artistProfileLoads.CaptureCurrent();
+        var title = ArtistInfoTitleButton.Content as string;
+        var localId = _artistInfoDisplayedId;
+        var row = _artistInfoDisplayedRemoteRow;
+        var rowId = row?.Id;
+        var rowTitle = row?.Title;
+        var nowPlaying = _nowPlayingRemoteArtistInfo;
+        var track = _currentOrynivoTrackRow;
+        var provider = _currentNowPlayingProvider;
+        var playingArtistId = track?.ArtistId;
+        var server = nowPlaying ? track?.OrynivoServer : row?.OrynivoServer ?? _activeOrynivoServer;
+        var sourceIsCurrent = nowPlaying || row is not null ? CreateArtistProfileSourceGuard(server) : () => true;
+        var tag = _currentTopLevelTag;
+        var detailVersion = _artistDetailLoadVersion;
+        var unifiedName = _artistInfoUnifiedArtistName;
+        var restore = _navigationRestores.Context;
+        return () => ArtistInfoView.IsVisible && _artistImageActions.IsCurrent(request) &&
+            _artistProfileLoads.IsCurrent(profile) && ArtistInfoTitleButton.Content as string == title &&
+            _artistInfoDisplayedId == localId && ReferenceEquals(_artistInfoDisplayedRemoteRow, row) &&
+            row?.Id == rowId && row?.Title == rowTitle && _nowPlayingRemoteArtistInfo == nowPlaying &&
+            _currentTopLevelTag == tag && _artistDetailLoadVersion == detailVersion &&
+            _artistInfoUnifiedArtistName == unifiedName && sourceIsCurrent() &&
+            (row is null || ReferenceEquals(row.OrynivoServer ?? _activeOrynivoServer, server)) &&
+            (!nowPlaying || (ReferenceEquals(_currentOrynivoTrackRow, track) &&
+                ReferenceEquals(_currentNowPlayingProvider, provider) && track?.ArtistId == playingArtistId &&
+                ReferenceEquals(track?.OrynivoServer, server))) &&
+            (nowPlaying || row is not null || localId is not null) &&
+            (restore is null || _navigationRestores.IsCurrent(restore));
     }
 
-    private async void DeleteArtistImageButton_OnClick(object? sender, RoutedEventArgs e)
+    /// <summary>Selects and uploads an image only for the original displayed artist.</summary>
+    /// <param name="sender">The upload button.</param>
+    /// <param name="e">The routed click event.</param>
+    private async void UploadArtistImageButton_OnClick(object? sender, RoutedEventArgs e)
+        => await UploadDisplayedArtistImageAsync(PickImageAsync);
+
+    /// <summary>Retains the original upload target through selection, synchronization and decoding.</summary>
+    /// <param name="pickImage">Selects image bytes and MIME type, or null for cancellation.</param>
+    /// <returns>A task completing accepted synchronization and still-current image publication.</returns>
+    private async Task UploadDisplayedArtistImageAsync(Func<Task<(byte[] Data, string MimeType)?>> pickImage)
     {
-        if (!TryGetDisplayedArtistName(out var artistName))
-            return;
-
-        await SynchronizeUnifiedArtistImageDeletionAsync(artistName);
-        ArtistInfoImage.Source = null;
-        ArtistInfoImagePlaceholder.IsVisible = true;
-        ArtistInfoImageStatusText.IsVisible = false;
-
-        if (_artistInfoDisplayedRemoteRow is { } remoteRow)
+        var canPublish = CaptureArtistImageActionGuard();
+        var remoteRow = _artistInfoDisplayedRemoteRow;
+        var server = remoteRow?.OrynivoServer ?? _activeOrynivoServer;
+        var localId = _artistInfoDisplayedId;
+        if (!canPublish() || !TryGetDisplayedArtistName(out var artistName)) return;
+        try
         {
-            InvalidateRemoteArtworkCache(remoteRow.ArtworkPath);
-            InvalidateRemoteArtworkCache(remoteRow.ThumbnailPath);
-            remoteRow.ArtworkPath = null;
-            remoteRow.ThumbnailPath = null;
-            UpdateRowArtworkFromBytes(remoteRow, null);
-            remoteRow.ImageIsManual = false;
+            var image = await pickImage();
+            if (!canPublish() || image is null) return;
+            await SynchronizeUnifiedArtistImageAsync(artistName, image.Value.Data, image.Value.MimeType);
+            if (!canPublish()) return;
+            var bitmap = await Task.Run(() =>
+            {
+                using var stream = new MemoryStream(image.Value.Data);
+                return new Bitmap(stream);
+            });
+            if (!canPublish()) { bitmap.Dispose(); return; }
+            ArtistInfoImage.Source = bitmap;
+            ArtistInfoImagePlaceholder.IsVisible = false;
+            ArtistInfoImageStatusText.IsVisible = false;
+            if (remoteRow is not null && server is not null && remoteRow.Id is long artistId)
+            {
+                EnsureOrynivoArtistArtworkPaths(server, artistId, remoteRow);
+                InvalidateRemoteArtworkCache(remoteRow.ArtworkPath);
+                InvalidateRemoteArtworkCache(remoteRow.ThumbnailPath);
+                WriteRemoteArtworkCache(remoteRow.ArtworkPath, image.Value.Data);
+                WriteRemoteArtworkCache(remoteRow.ThumbnailPath, image.Value.Data);
+                remoteRow.Artwork = bitmap;
+                remoteRow.Thumbnail = bitmap;
+                remoteRow.ArtworkLoadQueued = remoteRow.ThumbnailLoadQueued = false;
+                remoteRow.ArtworkLoadCompleted = remoteRow.ThumbnailLoadCompleted = true;
+                remoteRow.ImageIsManual = true;
+            }
+            else if (localId is long localArtistId)
+            {
+                var artist = await Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    return db.GetArtistById(localArtistId);
+                });
+                if (!canPublish()) return;
+                if (artist is not null) await RefreshVisibleArtistRowAsync(artist, canPublish);
+            }
+            if (canPublish()) StatusTextBlock.Text = string.Empty;
         }
-        else if (_artistInfoDisplayedId is long localArtistId)
+        catch
         {
-            ArtistInfo? artist;
-            using (var db = AudioDatabase.OpenDefault())
-                artist = db.GetArtistById(localArtistId);
-            if (artist is not null)
-                await RefreshVisibleArtistRowAsync(artist);
+            if (!canPublish()) return;
+            ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
+            ArtistInfoImageStatusText.IsVisible = true;
         }
+    }
 
-        StatusTextBlock.Text = string.Empty;
+    /// <summary>Deletes the original displayed artist's images without clearing a replacement view.</summary>
+    /// <param name="sender">The delete button.</param>
+    /// <param name="e">The routed click event.</param>
+    private async void DeleteArtistImageButton_OnClick(object? sender, RoutedEventArgs e)
+        => await DeleteDisplayedArtistImageAsync();
+
+    /// <summary>Retains deletion publication across synchronization and local row refresh.</summary>
+    /// <returns>A task completing accepted deletion and still-current image cleanup.</returns>
+    private async Task DeleteDisplayedArtistImageAsync()
+    {
+        var canPublish = CaptureArtistImageActionGuard();
+        var remoteRow = _artistInfoDisplayedRemoteRow;
+        var localId = _artistInfoDisplayedId;
+        if (!canPublish() || !TryGetDisplayedArtistName(out var artistName)) return;
+        try
+        {
+            await SynchronizeUnifiedArtistImageDeletionAsync(artistName);
+            if (!canPublish()) return;
+            ArtistInfoImage.Source = null;
+            ArtistInfoImagePlaceholder.IsVisible = true;
+            ArtistInfoImageStatusText.IsVisible = false;
+            if (remoteRow is not null)
+            {
+                InvalidateRemoteArtworkCache(remoteRow.ArtworkPath);
+                InvalidateRemoteArtworkCache(remoteRow.ThumbnailPath);
+                remoteRow.ArtworkPath = remoteRow.ThumbnailPath = null;
+                UpdateRowArtworkFromBytes(remoteRow, null);
+                remoteRow.ImageIsManual = false;
+            }
+            else if (localId is long artistId)
+            {
+                var artist = await Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    return db.GetArtistById(artistId);
+                });
+                if (!canPublish()) return;
+                if (artist is not null) await RefreshVisibleArtistRowAsync(artist, canPublish);
+            }
+            if (canPublish()) StatusTextBlock.Text = string.Empty;
+        }
+        catch
+        {
+            if (!canPublish()) return;
+            ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
+            ArtistInfoImageStatusText.IsVisible = true;
+        }
     }
 
     /// <summary>Resolves the artist currently displayed in the artist-information surface.</summary>

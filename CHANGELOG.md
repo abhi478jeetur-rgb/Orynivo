@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist-image upload selection and deletion retain their original displayed
+  artist, source, playback and navigation context. Outdated selections cannot
+  start synchronization; admitted data changes complete without overwriting a
+  replacement hero, row or status. Newer manual actions and profile admissions
+  reject older publication. Uploaded images decode off the UI thread, and
+  rejected decoded images are disposed. Local row reads and refreshes retain the
+  same guard; upload/deletion failures only affect their current view.
+
 - Manual artist-image upload and deletion synchronization captures its original
   server set and copied connections before local work. Delayed lookups and
   writes cannot start further mutations or delete list/artwork caches on changed
