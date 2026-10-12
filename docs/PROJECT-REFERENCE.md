@@ -3169,3 +3169,17 @@ queue through primary upload and unified synchronization. Recheck ownership
 after waiting and primary upload; obsolete work cannot begin fan-out or publish
 row artwork/status. Completed writes invalidate catalog snapshots even when
 publication is abandoned.
+
+### Settings missing artist image acceptance
+
+`MissingArtistImageWriter` retains shared artist admission through authoritative
+state readback, file/SQLite work or source-only upload. Embedded Settings
+injects the window queue and image-intent notification; standalone Settings owns
+its own queue. Recheck run/source ownership and normalized artist identity after
+waiting and readback. Skip manual, populated, unknown or obsolete targets
+without replacing biography. Complete server connection copies retain personal
+profile and streaming preferences. Eligibility is rechecked after preview
+acceptance; provider search and review remain sequential and outside write
+admission. Catalog invalidation follows admitted mutations, including
+cancellation after local file publication. This is window-scoped ordering, not a
+transaction or cross-client lock.

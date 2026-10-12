@@ -268,7 +268,7 @@ public partial class MainWindow : Window
         });
     }
 
-    /// <summary>Opens embedded Settings after abandoning pending Back restoration and library search work.</summary>
+    /// <summary>Opens embedded Settings with shared artist write ownership after abandoning pending navigation work.</summary>
     /// <param name="sender">Settings action source.</param>
     /// <param name="e">Button activation event.</param>
     private void SettingsButton_OnClick(object? sender, RoutedEventArgs e)
@@ -311,6 +311,8 @@ public partial class MainWindow : Window
             _settings.LastFmSessionKey = string.Empty;
             _settings.LastFmUsername = string.Empty;
         });
+        view.ArtistImageWriter = new MissingArtistImageWriter(_artistImageWriteQueue, AdmitArtistImageWrite);
+        view.ArtistImagesChanged += InvalidateUnifiedLibraryViewCache;
         var completionHandled = false;
         view.RunScheduledBackup = async force =>
         {

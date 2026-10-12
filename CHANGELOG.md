@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Settings missing-artist-image acceptance now shares artist write ordering with
+  profile and manual image work. Recheck current image/artist/source state after
+  waiting and preserve images added during search or preview. Remote acceptance
+  uploads only to the owning server. Settings connection copies retain personal
+  profile and streaming preferences.
+
 - Remote artist context-menu image searches retain their original row binding
   and server connection through selection and ordered upload/synchronization.
   Abandoned selections and superseded completions no longer change unrelated

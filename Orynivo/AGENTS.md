@@ -39,6 +39,14 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Settings missing-artist-image acceptance uses MissingArtistImageWriter with
+  the window artist write queue and image-intent notification. Standalone
+  Settings owns a separate queue. Recheck authoritative missing/manual state,
+  normalized artist identity and original run/source ownership after waiting and
+  before mutation. Copy complete source/profile preferences before lookup;
+  remote acceptance targets only that source. Notify catalog invalidation after
+  admitted writes even when later cancellation prevents metadata completion.
+
 - Remote artist context-menu image selections retain original binding, row
   identity, navigation and copied server ownership. Share manual action
   ownership and artist write admission with detail actions; reserve the whole

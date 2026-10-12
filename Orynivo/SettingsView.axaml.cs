@@ -39,12 +39,22 @@ internal partial class SettingsView : UserControl
     }
 
 
+    /// <summary>A missing-image identity with its original source ownership.</summary>
+    /// <param name="ArtistId">Source-local artist identifier.</param>
+    /// <param name="ArtistName">Original artist name.</param>
+    /// <param name="MusicBrainzArtistId">Optional provider lookup identifier.</param>
+    /// <param name="SourceName">Source display label.</param>
+    /// <param name="Server">Copied remote connection, or null for local artists.</param>
+    /// <param name="IsSourceCurrent">Original source configuration guard.</param>
     private sealed record MissingArtistImageTarget(
-        long ArtistId,
-        string ArtistName,
-        string? MusicBrainzArtistId,
-        string SourceName,
-        OrynivoServerSettings? Server);
+        long ArtistId, string ArtistName, string? MusicBrainzArtistId,
+        string SourceName, OrynivoServerSettings? Server, Func<bool> IsSourceCurrent);
+
+    /// <summary>Gets or sets ordered persistence shared with the owning window.</summary>
+    internal MissingArtistImageWriter ArtistImageWriter { get; set; } = new(new ArtistImageWriteQueue());
+
+    /// <summary>Raised after an admitted artist image mutation invalidates catalog snapshots.</summary>
+    internal event Action? ArtistImagesChanged;
 
     private sealed record OrynivoServerScanAction(
         OrynivoServerSettings Server,
@@ -834,12 +844,18 @@ internal partial class SettingsView : UserControl
         BaseUrl = server.BaseUrl
     };
 
+    /// <summary>Copies the complete in-memory server connection and streaming preferences.</summary>
+    /// <param name="server">Original server configuration.</param>
+    /// <returns>An independent connection retaining profile and streaming identity.</returns>
     private static OrynivoServerSettings CloneOrynivoServer(OrynivoServerSettings server) => new()
     {
         Id = server.Id,
         Name = server.Name,
         BaseUrl = server.BaseUrl,
-        ApiKey = server.ApiKey
+        ApiKey = server.ApiKey,
+        ProfileId = server.ProfileId,
+        StreamingFormat = server.StreamingFormat,
+        StreamingBitrateKbps = server.StreamingBitrateKbps
     };
 
     private static OutputProfile CloneOutputProfile(OutputProfile profile) => new()
@@ -2973,6 +2989,9 @@ internal partial class SettingsView : UserControl
         }
     }
 
+    /// <summary>Reviews missing-image candidates and persists accepted eligible targets in artist write order.</summary>
+    /// <param name="sender">Download or cancellation action source.</param>
+    /// <param name="e">Button activation event.</param>
     private async void DownloadMissingArtistImagesButton_OnClick(object? sender, RoutedEventArgs e)
     {
         if (_missingArtistImagesCts is not null)
@@ -3009,23 +3028,25 @@ internal partial class SettingsView : UserControl
                         artist.Artist,
                         artist.MusicBrainzArtistId,
                         LocalizationManager.Current.LocalSource,
-                        null))
+                        null, () => true))
                     .ToList();
             }, cancellation.Token);
 
             using var serverClient = new OrynivoServerClient();
-            foreach (var server in _orynivoServers)
+            foreach (var original in _orynivoServers.ToArray())
             {
                 cancellation.Token.ThrowIfCancellationRequested();
+                var server = CloneOrynivoServer(original);
+                bool IsCurrent() => _orynivoServers.Any(candidate => ReferenceEquals(candidate, original) &&
+                    candidate.Id == server.Id && candidate.Name == server.Name &&
+                    candidate.BaseUrl == server.BaseUrl && candidate.ApiKey == server.ApiKey &&
+                    candidate.ProfileId == server.ProfileId);
                 var remoteArtists = await serverClient.GetArtistsAsync(server, cancellation.Token);
+                if (!IsCurrent()) continue;
                 artists.AddRange(remoteArtists
                     .Where(artist => !artist.HasImage && !artist.ImageIsManual)
                     .Select(artist => new MissingArtistImageTarget(
-                        artist.Id,
-                        artist.Name,
-                        null,
-                        server.Name,
-                        server)));
+                        artist.Id, artist.Name, null, server.Name, server, IsCurrent)));
             }
 
             for (var index = 0; index < artists.Count; index++)
@@ -3139,33 +3160,21 @@ internal partial class SettingsView : UserControl
                     }
                 }
 
-                if (artist.Server is null)
-                {
-                    var imagePath = await ArtistImageSearchService.SaveImageAsync(
-                        artist.ArtistId,
-                        imageData,
-                        mimeType,
-                        cancellation.Token);
-                    await Task.Run(() =>
-                        {
-                            using var db = AudioDatabase.OpenDefault();
-                            db.UpdateArtistImage(artist.ArtistId, imagePath);
-                        },
-                        cancellation.Token);
-                }
-                else if (!await serverClient.UploadArtistImageAsync(
-                             artist.Server,
-                             artist.ArtistId,
-                             imageData,
-                             mimeType,
-                             cancellation.Token))
+                var stored = await ArtistImageWriter.StoreAsync(artist.ArtistId, artist.ArtistName,
+                    artist.Server, imageData, mimeType, serverClient, cancellation.Token,
+                    () => ReferenceEquals(_missingArtistImagesCts, cancellation) && artist.IsSourceCurrent(),
+                    () =>
+                    {
+                        if (artist.Server is not null && artist.IsSourceCurrent())
+                            MainWindow.DeleteOrynivoArtistListCache(artist.Server);
+                        ArtistImagesChanged?.Invoke();
+                    });
+                cancellation.Token.ThrowIfCancellationRequested();
+                if (stored is null) continue;
+                if (stored == false)
                 {
                     failed++;
                     continue;
-                }
-                else
-                {
-                    MainWindow.DeleteOrynivoArtistListCache(artist.Server);
                 }
                 downloaded++;
             }

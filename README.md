@@ -1120,6 +1120,10 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Settings checks missing-artist-image eligibility again after preview and
+  ordered admission, preserving manual or automatic images added meanwhile.
+  Accepted remote images target only their original server/profile. Settings
+  shares artist write ordering with profile and detail image actions.
 - Remote artist context-menu image searches retain their original row and source
   during selection, upload and synchronization, and share manual-image write
   ordering with artist-detail actions. Superseded completions preserve current
