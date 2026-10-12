@@ -161,7 +161,7 @@ Run the managed unit tests with
 `dotnet test Orynivo.Server.Tests/Orynivo.Server.Tests.csproj`.
 `Orynivo.Core.Tests` covers the cross-platform core library; `Orynivo.Tests`
 covers pure desktop helpers that do not require a running Avalonia UI;
-`Orynivo.Server.Tests` covers server middleware without starting the web host.
+`Orynivo.Server.Tests` covers middleware and isolated in-memory endpoint hosts.
 Do not move shared behavior into a UI-only class when a `Orynivo.Core` type can
 own it and stay cross-platform testable. The Windows build workflow runs all
 three test projects plus the isolated Windows headless workflow smoke suite.
@@ -3277,3 +3277,19 @@ duplicate retries, recover after failure, reject navigation/cache/configuration
 changes and retain newer admission during cancellation callbacks. All captured
 gates release during teardown. Server endpoint integration and Linux/macOS UI
 execution remain separate follow-ups.
+
+### Track endpoint integration and personal state
+
+LibraryEndpoints.MapLibraryEndpoints delegates track paging, by-ID resolution,
+single detail and favorite writes to MapTrackCatalogEndpoints. Production uses
+AudioDatabase.OpenDefault; an optional caller-owned connection factory permits
+isolated TestServer fixtures. Every request disposes its own connection, and the
+existing API-key/profile middleware remains required. Eight integration cases
+exercise ordered disjoint pages, page bounds, missing IDs, rejected requests
+before database access and overlapping profile reads after a favorite write.
+GetTrackListPage and GetTrackListByIds overlay active-profile favorites and
+ratings in SQLite, retaining existing legacy-column fallback and bounded paging.
+Tests seed synthetic SQLite, use fixed synthetic keys, disable host logging and
+release only their own SQLite pool. They do not start Program, hosted services,
+watchers, scans, FFmpeg or a listening TCP port. Playlist/streaming endpoint
+integration and generated-library measurements remain open.

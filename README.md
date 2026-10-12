@@ -1567,6 +1567,11 @@ failure and prints a compact summary.
 pwsh -NoProfile -File scripts/verify-all.ps1
 ```
 
+The server test project also runs production track routes through an in-memory
+HTTP host with temporary SQLite: paging, detail/ID resolution, authentication
+and profile-isolated favorites/ratings. It starts no scans, watchers or FFmpeg
+and uses no personal catalog or listening TCP port.
+
 ### Windows headless workflow smoke
 
 ```bash
@@ -1815,7 +1820,7 @@ Orynivo/
 ├── Orynivo.Core.Tests/      Unit tests for the cross-platform core library
 ├── Orynivo.Tests/           Unit tests for pure desktop helpers (no running UI required)
 ├── Orynivo.Ui.Smoke/        Windows headless synthetic artist/search/album workflows
-├── Orynivo.Server.Tests/    Unit tests for server middleware without starting the web host
+├── Orynivo.Server.Tests/    Server middleware and isolated in-memory endpoint tests
 ├── scripts/                 Verification and smoke-test harnesses
 │   ├── verify-localization-parity.ps1   Seven-language desktop/website/mobile parity
 │   ├──     verify-mcp-tool-parity.ps1       MCP, AI tool schema, and Settings checklist parity

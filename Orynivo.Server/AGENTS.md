@@ -180,3 +180,10 @@ This file applies to `Orynivo.Server/` and supplements `../AGENTS.md`.
 Consult the detailed endpoint, configuration, scan, cache, and package rules in
 the [project reference](../docs/PROJECT-REFERENCE.md) before changing those
 areas.
+
+- Track paging, by-ID/detail resolution and favorites map through
+  LibraryEndpoints.MapTrackCatalogEndpoints, called by MapLibraryEndpoints.
+  Production retains OpenDefault; injected factories are per-request owned and
+  disposed. Preserve authentication/profile middleware and SQLite paging.
+  TestServer integration must use explicit temporary databases without startup
+  scans/watchers/FFmpeg or process-wide data-directory changes.

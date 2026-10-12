@@ -359,3 +359,8 @@ areas.
   file at a reused path must discard the old initialization marker.
 - Use `GetTrackListPage` when only one ordered page is required; do not load the
   complete track list and page it in managed memory.
+
+- GetTrackListPage and GetTrackListByIds must overlay active-profile favorites
+  and user ratings in SQLite with the established legacy-column fallback.
+  Preserve bounded paging/batching and caller ID order; never materialize the
+  whole library to apply personal state after paging.

@@ -19,6 +19,7 @@ public static class LibraryEndpoints
     /// <param name="app">The endpoint route builder to register routes on.</param>
     public static void MapLibraryEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapTrackCatalogEndpoints();
         var api = app.MapGroup("/api");
 
         // --- Aggregate library summary ----------------------------------
@@ -212,15 +213,6 @@ public static class LibraryEndpoints
 
         // --- Tracks --------------------------------------------------------
 
-        api.MapGet("/tracks", (int page = 0, int pageSize = 500) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var tracks = db.GetTrackListPage(Math.Max(0, page), Math.Clamp(pageSize, 1, 5000))
-                .Select(TrackDto)
-                .ToList();
-            return Results.Ok(tracks);
-        });
-
         api.MapGet("/tracks/facets", () =>
         {
             using var db = AudioDatabase.OpenDefault();
@@ -231,19 +223,6 @@ public static class LibraryEndpoints
         {
             using var db = AudioDatabase.OpenDefault();
             return Results.Ok(GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parent, candidates, offset));
-        });
-
-        api.MapPost("/tracks/by-ids", (long[] ids) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            return Results.Ok(db.GetTrackListByIds(ids).Select(TrackDto).ToList());
-        });
-
-        api.MapGet("/tracks/{trackId:long}", (long trackId) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var track = db.GetTrackById(trackId);
-            return track is null ? Results.NotFound() : Results.Ok(TrackRecordDto(track));
         });
 
         api.MapGet("/tracks/{trackId:long}/waveform", async (long trackId, HttpContext ctx) =>
@@ -343,15 +322,6 @@ public static class LibraryEndpoints
                 db.SetTrackMusicBrainzLookupAttempt(trackId, attemptedAt);
             }
             return Results.Ok(db.GetTrackRating(trackId));
-        });
-
-        api.MapPut("/tracks/{trackId:long}/favorite", (long trackId, FavoriteUpdateRequest request) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            if (db.GetTrackById(trackId) is null)
-                return Results.NotFound();
-            db.SetTrackFavorite(trackId, request.IsFavorite);
-            return Results.Ok(new { trackId, request.IsFavorite });
         });
 
         api.MapPut("/tracks/{trackId:long}/genre", (long trackId, TrackGenreUpdateRequest request) =>
@@ -698,6 +668,45 @@ public static class LibraryEndpoints
             }
 
             return Results.Ok(new { tracks, albums, artists });
+        });
+    }
+
+    /// <summary>Maps database-backed track browsing and personal favorites without starting library services.</summary>
+    /// <param name="app">The endpoint builder for the authenticated middleware pipeline.</param>
+    /// <param name="openDatabase">Optional connection factory; each request owns and disposes its connection.</param>
+    public static void MapTrackCatalogEndpoints(this IEndpointRouteBuilder app, Func<AudioDatabase>? openDatabase = null)
+    {
+        openDatabase ??= AudioDatabase.OpenDefault;
+        var api = app.MapGroup("/api");
+        api.MapGet("/tracks", (int page = 0, int pageSize = 500) =>
+        {
+            using var db = openDatabase();
+            var tracks = db.GetTrackListPage(Math.Max(0, page), Math.Clamp(pageSize, 1, 5000))
+                .Select(TrackDto)
+                .ToList();
+            return Results.Ok(tracks);
+        });
+
+        api.MapPost("/tracks/by-ids", (long[] ids) =>
+        {
+            using var db = openDatabase();
+            return Results.Ok(db.GetTrackListByIds(ids).Select(TrackDto).ToList());
+        });
+
+        api.MapGet("/tracks/{trackId:long}", (long trackId) =>
+        {
+            using var db = openDatabase();
+            var track = db.GetTrackById(trackId);
+            return track is null ? Results.NotFound() : Results.Ok(TrackRecordDto(track));
+        });
+
+        api.MapPut("/tracks/{trackId:long}/favorite", (long trackId, FavoriteUpdateRequest request) =>
+        {
+            using var db = openDatabase();
+            if (db.GetTrackById(trackId) is null)
+                return Results.NotFound();
+            db.SetTrackFavorite(trackId, request.IsFavorite);
+            return Results.Ok(new { trackId, request.IsFavorite });
         });
     }
 

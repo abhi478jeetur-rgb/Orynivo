@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add in-memory integration checks for track paging, detail/ID resolution and
+  profile-scoped favorites through the production authentication pipeline. Paged
+  and ID-resolved tracks now apply the active profile's favorites and ratings
+  instead of returning only legacy shared values.
+
 - Extend tracked Windows UI smoke coverage with unified catalog retry and
   configuration recovery: retained rows, duplicate suppression, stale navigation
   and cache rejection, reentrant cancellation and fresh configuration loading.

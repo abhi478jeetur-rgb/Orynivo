@@ -2249,6 +2249,9 @@ public sealed class AudioDatabase : IDisposable
         return result;
     }
 
+    /// <summary>Loads requested compact tracks with active-profile favorites and ratings.</summary>
+    /// <param name="ids">Track identifiers; duplicates are ignored.</param>
+    /// <returns>Existing tracks in requested order with current personal state.</returns>
     public List<TrackListInfo> GetTrackListByIds(IEnumerable<long> ids)
     {
         const int batchSize = 500;
@@ -2269,16 +2272,17 @@ public sealed class AudioDatabase : IDisposable
             cmd.CommandText = $"""
                 SELECT
                     path, file_name, title, artist, album, album_artist, genre, format, bitrate,
-                    duration, sort_title, id, is_favorite, year, track_number, track_total,
+                    duration, sort_title, id, COALESCE((SELECT ps.is_favorite FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), is_favorite), year, track_number, track_total,
                     disc_number, disc_total, sample_rate, bit_depth, channels, composer, bpm,
                     file_size, added_at, replay_gain_track, replay_gain_album, artist_id, album_id,
-                    user_rating, musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
+                    COALESCE((SELECT ps.user_rating FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), user_rating), musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
                     musicbrainz_rating_fetched_at, musicbrainz_genres, musicbrainz_tags,
                     (SELECT af.camelot_key FROM track_audio_features af
                      WHERE af.track_id = tracks.id AND af.version = {AudioFeatureAnalysisService.CurrentVersion})
                 FROM tracks
                 WHERE id IN ({string.Join(", ", parameters)});
                 """;
+            Add(cmd, "$profile", ActiveProfileId);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
                 result.Add(MapTrackListInfo(reader));
@@ -5450,7 +5454,7 @@ public sealed class AudioDatabase : IDisposable
         return result;
     }
 
-    /// <summary>Loads one ordered page of compact track rows directly in SQLite.</summary>
+    /// <summary>Loads one ordered page of compact track rows with active-profile personal state directly in SQLite.</summary>
     /// <param name="page">Zero-based page index.</param>
     /// <param name="pageSize">Positive maximum number of rows to return.</param>
     /// <returns>The requested track page ordered by display title.</returns>
@@ -5462,10 +5466,10 @@ public sealed class AudioDatabase : IDisposable
         cmd.CommandText = $"""
             SELECT
                 path, file_name, title, artist, album, album_artist, genre, format, bitrate,
-                duration, sort_title, id, is_favorite, year, track_number, track_total,
+                duration, sort_title, id, COALESCE((SELECT ps.is_favorite FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), is_favorite), year, track_number, track_total,
                 disc_number, disc_total, sample_rate, bit_depth, channels, composer, bpm,
                 file_size, added_at, replay_gain_track, replay_gain_album, artist_id, album_id,
-                user_rating, musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
+                COALESCE((SELECT ps.user_rating FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), user_rating), musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
                 musicbrainz_rating_fetched_at, musicbrainz_genres, musicbrainz_tags,
                 (SELECT af.camelot_key FROM track_audio_features af
                  WHERE af.track_id = tracks.id AND af.version = {AudioFeatureAnalysisService.CurrentVersion})
@@ -5475,6 +5479,7 @@ public sealed class AudioDatabase : IDisposable
             """;
         Add(cmd, "$limit", pageSize);
         Add(cmd, "$offset", checked(page * pageSize));
+        Add(cmd, "$profile", ActiveProfileId);
         using var reader = cmd.ExecuteReader();
         var result = new List<TrackListInfo>(pageSize);
         while (reader.Read())
