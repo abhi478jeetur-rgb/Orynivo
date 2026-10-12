@@ -1576,10 +1576,12 @@ dotnet run --project Orynivo.Ui.Smoke/Orynivo.Ui.Smoke.csproj -c Debug
 The tracked smoke suite runs in a separate process with a unique temporary data
 root, cached synthetic artist metadata and fake server HTTP. It checks artist
 navigation, Back with colliding source IDs, late profile/image selection and
-outer artist scroll restoration. External profile/image transports fail closed.
-MainWindow stays unshown; only an isolated headless scroll host performs layout.
-No playback, hardware checks or real dialogs run. Windows CI executes the suite
-in Debug and Release; Linux/macOS runtime coverage remains a follow-up.
+outer artist scroll restoration. Ten search groups also cover superseded
+queries, partial results, retry, seven languages, cache invalidation and
+source-aware Back. External profile/image transports fail closed. MainWindow
+stays unshown; only an isolated headless scroll host performs layout. No
+playback, hardware checks or real dialogs run. Windows CI executes the suite in
+Debug and Release; Linux/macOS runtime coverage remains a follow-up.
 
 ### Orynivo Server
 
@@ -1803,7 +1805,7 @@ Orynivo/
 │   └── appsettings.json     Default configuration
 ├── Orynivo.Core.Tests/      Unit tests for the cross-platform core library
 ├── Orynivo.Tests/           Unit tests for pure desktop helpers (no running UI required)
-├── Orynivo.Ui.Smoke/        Windows headless synthetic artist/Back workflows
+├── Orynivo.Ui.Smoke/        Windows headless synthetic artist/search/Back workflows
 ├── Orynivo.Server.Tests/    Unit tests for server middleware without starting the web host
 ├── scripts/                 Verification and smoke-test harnesses
 │   ├── verify-localization-parity.ps1   Seven-language desktop/website/mobile parity

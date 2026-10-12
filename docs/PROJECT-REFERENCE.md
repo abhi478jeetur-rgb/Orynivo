@@ -3244,5 +3244,11 @@ Cached artist/Back scenarios include source-ID collision, deliberately late
 metadata response, valid image selection after navigation and compiled outer
 scroll layout. Reflection is confined to fixture adapters for the existing
 window-owned navigation model; production gains no test navigation model. A
-nonzero exit fails verification. The initial runtime contract is Windows-only;
-Linux/macOS execution and broader search/album/recovery workflows remain open.
+nonzero exit fails verification. The initial runtime contract is Windows-only.
+Ten additional search groups exercise real search/retry/restore adapters with
+synthetic source collisions, cancellation-insensitive late responses,
+partial/full failure versus successful empty results, seven-language
+presentation, retained retry rows, duplicate retry rejection and cache
+invalidation. Search Back retains source selection and history; newly typed
+queries reject obsolete restoration. Linux/macOS execution and broader
+album/recovery workflows remain open.

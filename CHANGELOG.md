@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Extend tracked Windows UI smoke coverage with ten search groups: late replies,
+  source failures and successful empty results, localized partial results, retry
+  recovery, cache invalidation and source-aware Back restoration.
+
 - Add a tracked Windows headless workflow suite for cached artist detail,
   source-aware Back, late profile/image selection and guarded scroll restore.
   Windows Debug/Release CI and local full verification run it in a separate

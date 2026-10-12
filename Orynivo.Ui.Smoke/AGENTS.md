@@ -24,3 +24,8 @@ affect the pure desktop unit tests.
   changes. Windows CI must continue invoking it in both configurations.
 - Match the desktop Avalonia version for Headless dependencies. Document all
   fixture types/members in English and maintain root documentation/checklists.
+
+- Search fixtures must distinguish unavailable sources from successful empty
+  results, keep partial rows during retry, reject stale metadata registration
+  and retain source-aware selection/history through the production Back adapter.
+  Keep synthetic request observations in memory and never print them.
