@@ -1908,6 +1908,16 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   unified album strip. Local artwork decoding also stays off the UI thread so
   playback and transport interaction remain responsive.
 - Artist images remain visible even when no biography is available.
+- Manual artist-image upload/deletion synchronization copies the original server
+  set before local work and retains configured source identity. Recheck after
+  lookup, before each remote mutation and before list/artwork cache cleanup.
+  Skip changed/removed sources; newly added servers stay outside the admitted
+  operation. Local workers check cancellation after opening SQLite and before
+  writes, and remote operations check between requests. Shared catalogs are
+  invalidated in finally after admission, including cancellation following a
+  write. Never roll back admitted changes or replace biography metadata. Dialog
+  and hero publication require their own enclosing ownership guards; source-safe
+  synchronization alone does not protect UI.
 - The artist information view can rename artists. A matching normalized name
   opens a merge dialog that asks which artist record and profile data survive;
   the transaction consolidates duplicate albums, reassigns tracks, preserves

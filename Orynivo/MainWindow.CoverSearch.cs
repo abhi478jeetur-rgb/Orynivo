@@ -489,7 +489,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Stores a manually selected artist image for every matching local and Orynivo Server
     /// identity so a unified artist never shows different artwork depending on its source.
-    /// Unreachable servers are skipped and will not prevent the selected image from being used.
+    /// Captured connections are revalidated before later writes; changed or unreachable sources are skipped.
     /// </summary>
     /// <param name="artistName">Artist display name used for normalized identity matching.</param>
     /// <param name="imageData">Selected image bytes.</param>
@@ -506,54 +506,82 @@ public partial class MainWindow : Window
         if (comparisonKey.Length == 0)
             return;
 
-        var localArtists = await Task.Run(() =>
+        cancellationToken.ThrowIfCancellationRequested();
+        var sources = (_settings.OrynivoServers ?? []).Select(server => (
+            Server: new OrynivoServerSettings
+            {
+                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+                StreamingFormat = server.StreamingFormat,
+                StreamingBitrateKbps = server.StreamingBitrateKbps
+            },
+            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
+        try
         {
-            using var db = AudioDatabase.OpenDefault();
-            return db.GetArtistsLite()
-                .Where(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist) == comparisonKey)
-                .ToList();
-        }, cancellationToken);
-        foreach (var artist in localArtists)
-        {
-            var imagePath = await ArtistImageSearchService.SaveImageAsync(
-                artist.Id,
-                imageData,
-                mimeType,
-                cancellationToken);
-            await Task.Run(() =>
+            var localArtists = await Task.Run(() =>
             {
                 using var db = AudioDatabase.OpenDefault();
-                db.UpdateArtistImage(artist.Id, imagePath);
+                cancellationToken.ThrowIfCancellationRequested();
+                return db.GetArtistsLite()
+                    .Where(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist) == comparisonKey)
+                    .ToList();
             }, cancellationToken);
-        }
-
-        foreach (var server in _settings.OrynivoServers)
-        {
-            try
+            foreach (var artist in localArtists)
             {
-                var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
-                foreach (var artist in artists.Where(candidate =>
-                             ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
+                cancellationToken.ThrowIfCancellationRequested();
+                var imagePath = await ArtistImageSearchService.SaveImageAsync(
+                    artist.Id,
+                    imageData,
+                    mimeType,
+                    cancellationToken);
+                await Task.Run(() =>
                 {
-                    await _orynivoClient.UploadArtistImageAsync(
-                        server,
-                        artist.Id,
-                        imageData,
-                        mimeType,
-                        cancellationToken);
+                    using var db = AudioDatabase.OpenDefault();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    db.UpdateArtistImage(artist.Id, imagePath);
+                }, cancellationToken);
+            }
+
+            foreach (var source in sources)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!source.IsCurrent()) continue;
+                var server = source.Server;
+                try
+                {
+                    var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!source.IsCurrent()) continue;
+                    foreach (var artist in artists.Where(candidate =>
+                                 ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!source.IsCurrent()) break;
+                        await _orynivoClient.UploadArtistImageAsync(
+                            server,
+                            artist.Id,
+                            imageData,
+                            mimeType,
+                            cancellationToken);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (source.IsCurrent()) DeleteOrynivoArtistListCache(server);
                 }
-                DeleteOrynivoArtistListCache(server);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                // The image remains available in every reachable matching library.
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // The image remains available in every reachable matching library.
+                }
             }
         }
-        InvalidateUnifiedLibraryViewCache();
+        finally
+        {
+            // Admitted writes may complete before cancellation; never retain stale catalog snapshots.
+            InvalidateUnifiedLibraryViewCache();
+        }
     }
 
     /// <summary>

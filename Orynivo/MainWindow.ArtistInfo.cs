@@ -462,7 +462,7 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = string.Empty;
     }
 
-    /// <summary>Deletes the image from every local and reachable remote identity of an artist.</summary>
+    /// <summary>Deletes matching artist images while retaining the original server set and connection identity.</summary>
     /// <param name="artistName">Artist display name used for normalized identity matching.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the synchronized deletion.</returns>
@@ -474,40 +474,69 @@ public partial class MainWindow : Window
         if (comparisonKey.Length == 0)
             return;
 
-        await Task.Run(() =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            foreach (var artist in db.GetArtistsLite().Where(candidate =>
-                         ArtistNameNormalizer.CreateComparisonKey(candidate.Artist) == comparisonKey))
+        cancellationToken.ThrowIfCancellationRequested();
+        var sources = (_settings.OrynivoServers ?? []).Select(server => (
+            Server: new OrynivoServerSettings
             {
-                if (db.ClearArtistImage(artist.Id))
-                    ArtistImageSearchService.DeleteImage(artist.Id);
-            }
-        }, cancellationToken);
-
-        foreach (var server in _settings.OrynivoServers)
+                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+                StreamingFormat = server.StreamingFormat,
+                StreamingBitrateKbps = server.StreamingBitrateKbps
+            },
+            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
+        try
         {
-            try
+            await Task.Run(() =>
             {
-                var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
-                foreach (var artist in artists.Where(candidate =>
-                             ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
+                using var db = AudioDatabase.OpenDefault();
+                cancellationToken.ThrowIfCancellationRequested();
+                foreach (var artist in db.GetArtistsLite().Where(candidate =>
+                             ArtistNameNormalizer.CreateComparisonKey(candidate.Artist) == comparisonKey))
                 {
-                    await _orynivoClient.DeleteArtistImageAsync(server, artist.Id, cancellationToken);
-                    var imageUrl = OrynivoServerClient.GetArtistArtworkUrl(server, artist.Id);
-                    InvalidateRemoteArtworkCache(imageUrl);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (db.ClearArtistImage(artist.Id))
+                        ArtistImageSearchService.DeleteImage(artist.Id);
                 }
-                DeleteOrynivoArtistListCache(server);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            }, cancellationToken);
+
+            foreach (var source in sources)
             {
-                throw;
-            }
-            catch
-            {
-                // Deletion remains applied to every reachable matching library.
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!source.IsCurrent()) continue;
+                var server = source.Server;
+                try
+                {
+                    var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!source.IsCurrent()) continue;
+                    foreach (var artist in artists.Where(candidate =>
+                                 ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!source.IsCurrent()) break;
+                        await _orynivoClient.DeleteArtistImageAsync(server, artist.Id, cancellationToken);
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!source.IsCurrent()) break;
+                        var imageUrl = OrynivoServerClient.GetArtistArtworkUrl(server, artist.Id);
+                        InvalidateRemoteArtworkCache(imageUrl);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (source.IsCurrent()) DeleteOrynivoArtistListCache(server);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // Deletion remains applied to every reachable matching library.
+                }
             }
         }
-        InvalidateUnifiedLibraryViewCache();
+        finally
+        {
+            // Admitted writes may complete before cancellation; never retain stale catalog snapshots.
+            InvalidateUnifiedLibraryViewCache();
+        }
     }
 }

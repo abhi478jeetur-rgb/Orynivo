@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Manual artist-image upload and deletion synchronization captures its original
+  server set and copied connections before local work. Delayed lookups and
+  writes cannot start further mutations or delete list/artwork caches on changed
+  or removed sources. Cancellation is rechecked before local metadata writes and
+  between remote operations; shared catalog caches are invalidated even when
+  cancellation follows an admitted write. Already started changes are not rolled
+  back, and local biography metadata remains intact.
+
 - Server artist edits retain their original displayed row, connection and
   navigation context across rename/merge dialogs and delayed responses. Changed
   sources or abandoned views cannot admit new edits, reopen old details or

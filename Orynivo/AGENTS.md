@@ -647,6 +647,15 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   changed source's artist-list cache. Album and artist detail upload/delete
   actions route through the owning local or remote artwork provider and use
   localized labels/tooltips. Plex identities remain separate.
+- Manual artist-image upload/deletion synchronization copies its original server
+  set before local work and retains configured source identity. Recheck after
+  lookup, before each remote mutation and before cache cleanup; skip
+  changed/removed sources and exclude newly added servers. Local workers check
+  cancellation after opening SQLite and before writes; remote work checks
+  between operations. Invalidate shared catalogs in finally after admission,
+  including cancellation following a write. Never roll back admitted changes.
+  Keep biography metadata intact. Dialog and hero publication require separate
+  ownership guards; source-safe synchronization alone does not protect UI.
 - Local artist edits capture displayed identity/title, sidebar/detail/name,
   profile observation and outer Back before background artist lookup. Recheck
   before opening a merge dialog and after its choice before transaction

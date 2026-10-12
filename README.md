@@ -1109,6 +1109,8 @@ byte-range streaming without FFmpeg.
 - Manual Wikimedia Commons artist-image search with editable search text
 - Manually selected artist images are retained across profile refreshes,
   renames, and artist merges
+- Manual artist-image synchronization retains its original server connections,
+  skips changed sources and invalidates shared caches after interrupted writes.
 - Artist renaming in the artist information view, including a transactional
   merge flow with an explicit choice of which artist profile to retain
 - Cross-server artist renames retain their original connections and skip changed
