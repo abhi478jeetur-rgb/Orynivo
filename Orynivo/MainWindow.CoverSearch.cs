@@ -442,16 +442,19 @@ public partial class MainWindow : Window
     /// <param name="server">Server that owns the artist.</param>
     /// <param name="row">Row to update.</param>
     /// <param name="artist">Server artist profile response.</param>
+    /// <param name="includeImage">Whether image metadata still belongs to this profile request.</param>
     private static void ApplyOrynivoArtistProfile(
         OrynivoServerSettings server,
         ContentRow row,
-        OrynivoArtistInfo artist)
+        OrynivoArtistInfo artist,
+        bool includeImage = true)
     {
         row.ArtistId = artist.Id;
         row.Biography = artist.Biography;
         row.SourceUrl = artist.SourceUrl;
         row.ProfileLanguage = artist.ProfileLanguage;
         row.ProfileFetchedAt = artist.ProfileFetchedAt;
+        if (!includeImage) return;
         row.ImageIsManual = artist.ImageIsManual;
         if (artist.HasImage)
         {

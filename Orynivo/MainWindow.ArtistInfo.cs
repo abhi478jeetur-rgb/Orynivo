@@ -280,6 +280,38 @@ public partial class MainWindow : Window
     /// <summary>Owns manual image publication independently from profile observations.</summary>
     private readonly NavigationLoadOwnership _artistImageActions = new();
 
+    /// <summary>Observes admitted manual image changes separately from unconfirmed selections.</summary>
+    private readonly NavigationLoadOwnership _artistImageWrites = new();
+
+    /// <summary>Retains the opaque local/server artist identity of the latest admitted manual change.</summary>
+    private (string? ServerId, long? ArtistId) _artistImageWriteTarget;
+
+    /// <summary>Retains normalized matching identity across local and server artist records.</summary>
+    private string _artistImageWriteNameKey = string.Empty;
+
+    /// <summary>Admits a manual image mutation for its original source-local artist identity.</summary>
+    /// <param name="serverId">The owning server ID, or null for the local library.</param>
+    /// <param name="artistId">The owning artist ID.</param>
+    /// <param name="artistName">The original displayed name used for cross-source matching.</param>
+    private void AdmitArtistImageWrite(string? serverId, long? artistId, string artistName)
+    {
+        _artistImageWriteTarget = (serverId, artistId);
+        _artistImageWriteNameKey = ArtistNameNormalizer.CreateComparisonKey(artistName);
+        _artistImageWrites.Begin(CancellationToken.None);
+    }
+
+    /// <summary>Rejects an older profile image only when the intervening manual change targets that artist.</summary>
+    /// <param name="observation">Manual-image ownership observed before profile admission.</param>
+    /// <param name="serverId">The profile's server ID, or null for the local library.</param>
+    /// <param name="artistId">The profile's source-local artist ID.</param>
+    /// <param name="artistName">Optional canonical name for normalized cross-source matching.</param>
+    /// <returns>Whether the profile image was superseded by a same-artist manual mutation.</returns>
+    private bool IsArtistImageSuperseded(NavigationLoadOwnership.Request observation, string? serverId, long artistId,
+        string? artistName = null)
+        => !_artistImageWrites.IsCurrent(observation) && (_artistImageWriteTarget == (serverId, artistId) ||
+            (_artistImageWriteNameKey.Length > 0 &&
+             ArtistNameNormalizer.CreateComparisonKey(artistName) == _artistImageWriteNameKey));
+
     /// <summary>Captures the displayed artist, source and playback context for a manual image action.</summary>
     /// <returns>A predicate rejecting replacement image actions, profiles, sources or navigation.</returns>
     private Func<bool> CaptureArtistImageActionGuard()
@@ -352,6 +384,8 @@ public partial class MainWindow : Window
         {
             var image = await pickImage();
             if (!canPublish() || image is null) return;
+            AdmitArtistImageWrite(nowPlaying || remoteRow is not null ? server?.Id : null,
+                nowPlaying || remoteRow is not null ? owningArtistId : localId, artistName);
             if (requireOwningServerUpload && connection is not null && owningArtistId is long remoteArtistId)
             {
                 var uploaded = await _orynivoClient.UploadArtistImageAsync(
@@ -435,6 +469,9 @@ public partial class MainWindow : Window
         if (!canPublish() || !TryGetDisplayedArtistName(out var artistName)) return;
         try
         {
+            AdmitArtistImageWrite(_nowPlayingRemoteArtistInfo ? _currentOrynivoTrackRow?.OrynivoServer?.Id :
+                remoteRow is not null ? (remoteRow.OrynivoServer ?? _activeOrynivoServer)?.Id : null,
+                _nowPlayingRemoteArtistInfo ? _currentOrynivoTrackRow?.ArtistId : remoteRow?.Id ?? localId, artistName);
             await SynchronizeUnifiedArtistImageDeletionAsync(artistName);
             if (!canPublish()) return;
             ArtistInfoImage.Source = null;

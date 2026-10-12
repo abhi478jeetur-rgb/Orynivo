@@ -8,6 +8,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Running local, server and Now Playing profiles retain separate ownership for
+  their images. Admitting a manual image change rejects older image/placeholder
+  publication, image status, retained-row refresh and profile-image
+  synchronization while still allowing the current biography and loading cleanup
+  to finish. Late cached server metadata preserves manually changed row images
+  and deletion state. Cancelled selections leave profile images admitted;
+  rejected decoded images are disposed.
+
 - Artist-detail image search uses the guarded manual-image flow for local,
   server and Now Playing artists. Search retains its original query and target;
   obsolete confirmations cannot upload or replace a newer image. Search and file

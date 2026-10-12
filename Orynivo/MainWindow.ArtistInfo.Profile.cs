@@ -45,7 +45,7 @@ public partial class MainWindow : Window
 {
     private readonly NavigationLoadOwnership _artistProfileLoads = new();
 
-    /// <summary>Loads a local artist profile while retaining navigation and decode publication ownership.</summary>
+    /// <summary>Loads the current local biography while rejecting images superseded by manual changes.</summary>
     /// <param name="artistId">Local artist identifier.</param>
     /// <param name="forceRefresh">Whether an external profile refresh is required.</param>
     /// <param name="profileLookupName">Optional external lookup name.</param>
@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         bool forceRefresh,
         string? profileLookupName = null)
     {
+        var manualImage = _artistImageWrites.CaptureCurrent();
         var restore = _navigationRestores.Context;
         if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         var tag = _currentTopLevelTag;
@@ -66,6 +67,8 @@ public partial class MainWindow : Window
             _currentTopLevelTag == tag && detailVersion == _artistDetailLoadVersion &&
             _artistInfoUnifiedArtistName == unifiedName &&
             (restore is null || _navigationRestores.IsCurrent(restore));
+        var imageArtistName = _artistInfoDisplayedId == artistId ? ArtistInfoTitleButton.Content as string : null;
+        bool CanPublishImage() => CanPublish() && !IsArtistImageSuperseded(manualImage, null, artistId, imageArtistName);
         if (!CanPublish())
         {
             if (ReferenceEquals(_artistProfileCts, cts)) _artistProfileCts = null;
@@ -79,14 +82,20 @@ public partial class MainWindow : Window
         EditArtistNameButton.IsVisible = true;
         SetArtistImageActionsVisible(true);
         RefreshArtistInfoButton.IsEnabled = false;
-        ArtistInfoImage.Source = null;
-        ArtistInfoImagePlaceholder.IsVisible = true;
+        if (CanPublishImage())
+        {
+            ArtistInfoImage.Source = null;
+            ArtistInfoImagePlaceholder.IsVisible = true;
+        }
         ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoLoading;
         ArtistInfoStatusTextBlock.IsVisible = true;
         ArtistInfoBiographyTextBlock.Text = string.Empty;
         ArtistInfoSourceButton.IsVisible = false;
-        ArtistInfoImageStatusText.Text = string.Empty;
-        ArtistInfoImageStatusText.IsVisible = false;
+        if (CanPublishImage())
+        {
+            ArtistInfoImageStatusText.Text = string.Empty;
+            ArtistInfoImageStatusText.IsVisible = false;
+        }
 
         try
         {
@@ -102,6 +111,7 @@ public partial class MainWindow : Window
                 return;
             }
 
+            imageArtistName = artist.Artist;
             ArtistInfoTitleButton.Content = artist.Artist;
             SetArtistInfoFavoriteState(artist.IsFavorite);
             var language = GetProfileLanguageCode();
@@ -121,17 +131,18 @@ public partial class MainWindow : Window
                     artist.Id,
                     profileLookupName ?? artist.Artist,
                     language,
-                    downloadImage: !artist.ImageIsManual,
+                    downloadImage: CanPublishImage() && !artist.ImageIsManual,
                     cancellationToken: cts.Token,
                     musicBrainzArtistId: artist.MusicBrainzArtistId);
                 if (!CanPublish()) return;
+                var imagePathToApply = CanPublishImage() ? profile?.ImagePath : null;
                 artist = await Task.Run(() =>
                 {
                     using var db = AudioDatabase.OpenDefault();
                     db.UpdateArtistProfile(
                         artist.Id,
                         profile?.Biography,
-                        profile?.ImagePath,
+                        imagePathToApply,
                         profile?.SourceUrl,
                         language);
                     return db.GetArtistById(artist.Id);
@@ -154,7 +165,7 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     request.Token,
-                    CanPublish);
+                    CanPublishImage);
                 if (!CanPublish()) return;
             }
 
@@ -162,32 +173,39 @@ public partial class MainWindow : Window
                 return;
 
             ArtistInfoBiographyTextBlock.Text = artist.Biography ?? string.Empty;
-            var image = await Task.Run(
-                () => CreateArtworkImage(artist.ImagePath, 1000, ignoreCache: true), request.Token);
-            if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
-            ArtistInfoImage.Source = image;
-            if (ArtistInfoImage.Source is null)
+            if (CanPublishImage())
             {
-                ArtistInfoImagePlaceholder.IsVisible = true;
-                string imageMsg;
-                if (string.IsNullOrWhiteSpace(artist.ImagePath))
-                {
-                    imageMsg = LocalizationManager.Current.ArtistInfoNoImage;
-                    var diag = ArtistProfileService.LastImageDiagnostic;
-                    if (!string.IsNullOrWhiteSpace(diag))
-                        imageMsg += $"\n{diag}";
-                }
-                else if (!File.Exists(artist.ImagePath))
-                    imageMsg = $"{LocalizationManager.Current.ArtistInfoImageMissing}:\n{artist.ImagePath}";
+                var image = await Task.Run(
+                    () => CreateArtworkImage(artist.ImagePath, 1000, ignoreCache: true), request.Token);
+                if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
+                if (!CanPublishImage()) (image as IDisposable)?.Dispose();
                 else
-                    imageMsg = $"{LocalizationManager.Current.ArtistInfoImageLoadError}:\n{artist.ImagePath}";
-                ArtistInfoImageStatusText.Text = imageMsg;
-                ArtistInfoImageStatusText.IsVisible = true;
-            }
-            else
-            {
-                ArtistInfoImagePlaceholder.IsVisible = false;
-                ArtistInfoImageStatusText.IsVisible = false;
+                {
+                    ArtistInfoImage.Source = image;
+                    if (ArtistInfoImage.Source is null)
+                    {
+                        ArtistInfoImagePlaceholder.IsVisible = true;
+                        string imageMsg;
+                        if (string.IsNullOrWhiteSpace(artist.ImagePath))
+                        {
+                            imageMsg = LocalizationManager.Current.ArtistInfoNoImage;
+                            var diag = ArtistProfileService.LastImageDiagnostic;
+                            if (!string.IsNullOrWhiteSpace(diag))
+                                imageMsg += $"\n{diag}";
+                        }
+                        else if (!File.Exists(artist.ImagePath))
+                            imageMsg = $"{LocalizationManager.Current.ArtistInfoImageMissing}:\n{artist.ImagePath}";
+                        else
+                            imageMsg = $"{LocalizationManager.Current.ArtistInfoImageLoadError}:\n{artist.ImagePath}";
+                        ArtistInfoImageStatusText.Text = imageMsg;
+                        ArtistInfoImageStatusText.IsVisible = true;
+                    }
+                    else
+                    {
+                        ArtistInfoImagePlaceholder.IsVisible = false;
+                        ArtistInfoImageStatusText.IsVisible = false;
+                    }
+                }
             }
             _artistInfoSourceUrl = artist.SourceUrl;
             ArtistInfoSourceButton.Content = _artistInfoSourceUrl?.Contains("last.fm") == true
@@ -196,7 +214,7 @@ public partial class MainWindow : Window
             ArtistInfoSourceButton.IsVisible = !(string.IsNullOrWhiteSpace(_artistInfoSourceUrl));
             ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoNotFound;
             ArtistInfoStatusTextBlock.IsVisible = string.IsNullOrWhiteSpace(artist.Biography);
-            await RefreshVisibleArtistRowAsync(artist, CanPublish);
+            await RefreshVisibleArtistRowAsync(artist, CanPublishImage);
             if (!CanPublish()) return;
             if (string.IsNullOrWhiteSpace(unifiedName))
                 await LoadArtistInfoAlbumsAsync(_localCatalogProvider, artistId, null, request.Token, CanPublish);
@@ -230,6 +248,7 @@ public partial class MainWindow : Window
         bool forceRefresh,
         string? profileLookupName = null)
     {
+        var manualImage = _artistImageWrites.CaptureCurrent();
         var restore = _navigationRestores.Context;
         if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         if (ResolveRowOrynivoServer(row) is not { } server ||
@@ -254,6 +273,7 @@ public partial class MainWindow : Window
             row.Id is long currentArtistId && currentArtistId == artistId &&
             ReferenceEquals(row.OrynivoServer ?? _activeOrynivoServer, server) &&
             (restore is null || _navigationRestores.IsCurrent(restore));
+        bool CanPublishImage() => CanPublish() && !IsArtistImageSuperseded(manualImage, server.Id, artistId, row.Title);
         if (!CanPublish())
         {
             if (ReferenceEquals(_artistProfileCts, cts)) _artistProfileCts = null;
@@ -269,14 +289,20 @@ public partial class MainWindow : Window
         EditArtistNameButton.IsVisible = true;
         SetArtistImageActionsVisible(true);
         RefreshArtistInfoButton.IsEnabled = false;
-        ArtistInfoImage.Source = null;
-        ArtistInfoImagePlaceholder.IsVisible = true;
+        if (CanPublishImage())
+        {
+            ArtistInfoImage.Source = null;
+            ArtistInfoImagePlaceholder.IsVisible = true;
+        }
         ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoLoading;
         ArtistInfoStatusTextBlock.IsVisible = true;
         ArtistInfoBiographyTextBlock.Text = string.Empty;
         ArtistInfoSourceButton.IsVisible = false;
-        ArtistInfoImageStatusText.Text = string.Empty;
-        ArtistInfoImageStatusText.IsVisible = false;
+        if (CanPublishImage())
+        {
+            ArtistInfoImageStatusText.Text = string.Empty;
+            ArtistInfoImageStatusText.IsVisible = false;
+        }
 
         try
         {
@@ -292,7 +318,7 @@ public partial class MainWindow : Window
                 if (!CanPublish()) return;
                 if (cached is not null)
                 {
-                    ApplyOrynivoArtistProfile(server, row, cached);
+                    ApplyOrynivoArtistProfile(server, row, cached, CanPublishImage());
                     ArtistInfoTitleButton.Content = row.Title ?? LocalizationManager.Current.Unknown;
                 }
             }
@@ -313,7 +339,7 @@ public partial class MainWindow : Window
                     artistId,
                     profileLookupName ?? row.Title ?? string.Empty,
                     language,
-                    downloadImage: !row.ImageIsManual,
+                    downloadImage: CanPublishImage() && !row.ImageIsManual,
                     cancellationToken: cts.Token);
                 if (!CanPublish()) return;
 
@@ -326,6 +352,7 @@ public partial class MainWindow : Window
                     imageMimeType = GuessImageMimeType(profile.ImagePath);
                 }
 
+                if (!CanPublishImage()) { imageData = null; imageMimeType = null; }
                 var refreshed = await _orynivoClient.UpdateArtistProfileAsync(
                     server,
                     artistId,
@@ -346,15 +373,18 @@ public partial class MainWindow : Window
                 row.SourceUrl = refreshed.SourceUrl;
                 row.ProfileLanguage = refreshed.ProfileLanguage;
                 row.ProfileFetchedAt = refreshed.ProfileFetchedAt;
-                row.ImageIsManual = refreshed.ImageIsManual;
-                if (imageData is not null)
+                if (CanPublishImage())
                 {
-                    EnsureOrynivoArtistArtworkPaths(server, artistId, row);
-                    ApplyRemoteArtwork(row, imageData);
-                }
-                else
-                {
-                    InvalidateRemoteArtworkCache(row.ArtworkPath);
+                    row.ImageIsManual = refreshed.ImageIsManual;
+                    if (imageData is not null)
+                    {
+                        EnsureOrynivoArtistArtworkPaths(server, artistId, row);
+                        ApplyRemoteArtwork(row, imageData);
+                    }
+                    else
+                    {
+                        InvalidateRemoteArtworkCache(row.ArtworkPath);
+                    }
                 }
                 DeleteOrynivoArtistListCache(server);
                 await SynchronizeUnifiedArtistProfileAsync(
@@ -365,30 +395,36 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cts.Token,
-                    CanPublish);
+                    CanPublishImage);
                 if (!CanPublish()) return;
             }
 
             ArtistInfoBiographyTextBlock.Text = row.Biography ?? string.Empty;
-            if (!string.IsNullOrWhiteSpace(row.ArtworkPath))
+            if (CanPublishImage())
             {
-                var image = await LoadRemoteArtworkImageAsync(row.ArtworkPath, 1000, request.Token);
-                if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
-                ArtistInfoImage.Source = image;
-            }
+                if (!string.IsNullOrWhiteSpace(row.ArtworkPath))
+                {
+                    var image = await LoadRemoteArtworkImageAsync(row.ArtworkPath, 1000, request.Token);
+                    if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
+                    if (CanPublishImage()) ArtistInfoImage.Source = image;
+                    else (image as IDisposable)?.Dispose();
+                }
 
-            if (ArtistInfoImage.Source is null)
-            {
-                ArtistInfoImagePlaceholder.IsVisible = true;
-                ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistInfoNoImage;
-                ArtistInfoImageStatusText.IsVisible = true;
+                if (CanPublishImage())
+                {
+                    if (ArtistInfoImage.Source is null)
+                    {
+                        ArtistInfoImagePlaceholder.IsVisible = true;
+                        ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistInfoNoImage;
+                        ArtistInfoImageStatusText.IsVisible = true;
+                    }
+                    else
+                    {
+                        ArtistInfoImagePlaceholder.IsVisible = false;
+                        ArtistInfoImageStatusText.IsVisible = false;
+                    }
+                }
             }
-            else
-            {
-                ArtistInfoImagePlaceholder.IsVisible = false;
-                ArtistInfoImageStatusText.IsVisible = false;
-            }
-
             _artistInfoSourceUrl = row.SourceUrl;
             ArtistInfoSourceButton.Content = _artistInfoSourceUrl?.Contains("last.fm") == true
                 ? LocalizationManager.Current.ArtistInfoSourceLastFm
@@ -444,6 +480,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        var manualImage = _artistImageWrites.CaptureCurrent();
         var restore = _navigationRestores.Context;
         if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         var tag = _currentTopLevelTag;
@@ -463,6 +500,7 @@ public partial class MainWindow : Window
             ReferenceEquals(_currentNowPlayingProvider, provider) &&
             row.ArtistId == artistId && ReferenceEquals(row.OrynivoServer, playbackServer) &&
             (restore is null || _navigationRestores.IsCurrent(restore));
+        bool CanPublishImage() => CanPublish() && !IsArtistImageSuperseded(manualImage, row.OrynivoServer?.Id, artistId, row.Artist);
         if (!CanPublish())
         {
             if (ReferenceEquals(_artistProfileCts, cts)) _artistProfileCts = null;
@@ -477,14 +515,20 @@ public partial class MainWindow : Window
         EditArtistNameButton.IsVisible = false;
         SetArtistImageActionsVisible(row.OrynivoServer is not null);
         RefreshArtistInfoButton.IsEnabled = false;
-        ArtistInfoImage.Source = null;
-        ArtistInfoImagePlaceholder.IsVisible = true;
+        if (CanPublishImage())
+        {
+            ArtistInfoImage.Source = null;
+            ArtistInfoImagePlaceholder.IsVisible = true;
+        }
         ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoLoading;
         ArtistInfoStatusTextBlock.IsVisible = true;
         ArtistInfoBiographyTextBlock.Text = string.Empty;
         ArtistInfoSourceButton.IsVisible = false;
-        ArtistInfoImageStatusText.Text = string.Empty;
-        ArtistInfoImageStatusText.IsVisible = false;
+        if (CanPublishImage())
+        {
+            ArtistInfoImageStatusText.Text = string.Empty;
+            ArtistInfoImageStatusText.IsVisible = false;
+        }
 
         var artistName = string.IsNullOrWhiteSpace(row.Artist)
             ? LocalizationManager.Current.Unknown
@@ -522,28 +566,34 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cts.Token,
-                    CanPublish);
+                    CanPublishImage);
                 if (!CanPublish()) return;
             }
 
             ArtistInfoBiographyTextBlock.Text = profile?.Biography ?? string.Empty;
-            var image = await Task.Run(
-                () => CreateArtworkImage(profile?.ImagePath, 1000, ignoreCache: true),
-                request.Token);
-            if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
-            ArtistInfoImage.Source = image;
-            if (ArtistInfoImage.Source is null)
+            if (CanPublishImage())
             {
-                ArtistInfoImagePlaceholder.IsVisible = true;
-                ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistInfoNoImage;
-                ArtistInfoImageStatusText.IsVisible = true;
+                var image = await Task.Run(
+                    () => CreateArtworkImage(profile?.ImagePath, 1000, ignoreCache: true),
+                    request.Token);
+                if (!CanPublish()) { (image as IDisposable)?.Dispose(); return; }
+                if (!CanPublishImage()) (image as IDisposable)?.Dispose();
+                else
+                {
+                    ArtistInfoImage.Source = image;
+                    if (ArtistInfoImage.Source is null)
+                    {
+                        ArtistInfoImagePlaceholder.IsVisible = true;
+                        ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistInfoNoImage;
+                        ArtistInfoImageStatusText.IsVisible = true;
+                    }
+                    else
+                    {
+                        ArtistInfoImagePlaceholder.IsVisible = false;
+                        ArtistInfoImageStatusText.IsVisible = false;
+                    }
+                }
             }
-            else
-            {
-                ArtistInfoImagePlaceholder.IsVisible = false;
-                ArtistInfoImageStatusText.IsVisible = false;
-            }
-
             _artistInfoSourceUrl = profile?.SourceUrl;
             ArtistInfoSourceButton.Content = _artistInfoSourceUrl?.Contains("last.fm") == true
                 ? LocalizationManager.Current.ArtistInfoSourceLastFm

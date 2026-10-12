@@ -671,6 +671,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   accepted direct writes and only clean the owning source cache while valid.
   Separate library context-menu artwork adapters and profile/manual-write
   overlap still require their audits.
+- Foreground profiles observe admitted manual-image changes separately from
+  dialog/action admission. Advance manual-image write ownership only after an
+  accepted selection or at deletion admission; cancelled selection must not
+  reject the profile image. Older profiles skip image/placeholder/status and
+  retained-row image publication, preserve current manual row metadata and
+  dispose rejected decodes. Biography/source/loading cleanup remain guarded by
+  the original profile owner. Profile synchronization retains the additional
+  image guard and skips later work after manual admission. Retain source-local
+  artist identity and normalized name with the manual mutation; do not suppress
+  a different artist opened during cancellation reentry, while equivalent
+  local/server identities still share image protection. Already-admitted
+  file/server writes and automatic row jobs remain separate acceptance work.
 - Local artist edits capture displayed identity/title, sidebar/detail/name,
   profile observation and outer Back before background artist lookup. Recheck
   before opening a merge dialog and after its choice before transaction

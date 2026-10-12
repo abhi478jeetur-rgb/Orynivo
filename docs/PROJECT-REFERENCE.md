@@ -1934,6 +1934,18 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   after navigation; only clean the source cache while its identity is valid.
   Separate library context-menu artwork adapters and profile/manual-write
   overlap still need their audits.
+- Foreground profiles separately observe admitted manual-image changes. Advance
+  manual-image write ownership after accepted selection or at deletion
+  admission; cancelled selection keeps profile images admitted. Older profiles
+  skip image/placeholder/status and retained-row image publication, preserve
+  current manual row metadata and dispose rejected decodes. Current biography,
+  source and loading cleanup retain the original profile owner. Profile
+  synchronization uses the additional image guard to stop later work after
+  manual admission. Retain source-local artist identity and normalized name with
+  the manual mutation so cancellation reentry cannot suppress a different
+  artist's image while equivalent local/server identities still share image
+  protection. Already-admitted file/server writes and automatic row jobs remain
+  separate acceptance work.
 - The artist information view can rename artists. A matching normalized name
   opens a merge dialog that asks which artist record and profile data survive;
   the transaction consolidates duplicate albums, reassigns tracks, preserves
