@@ -17,11 +17,12 @@ public partial class MainWindow
         InvalidateUnifiedLibraryViewCache();
     }
 
-    /// <summary>Clears catalog snapshots and abandons pending searches while retaining published search failures.</summary>
+    /// <summary>Clears snapshots, hides obsolete empty guidance and abandons searches while retaining published failures.</summary>
     private void InvalidateUnifiedLibraryViewCache()
     {
         CancelLibrarySearch(clearResult: false);
         _unifiedLibraryLoads.Invalidate();
+        UpdateUnifiedLibraryLoadNotice();
         InvalidateSimilarityFeatureCache();
     }
 

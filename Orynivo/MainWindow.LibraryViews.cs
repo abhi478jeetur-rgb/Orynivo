@@ -207,10 +207,12 @@ public partial class MainWindow : Window
         var request = _unifiedLibraryLoads.Begin(CreateUnifiedLibraryViewCacheKey(tag), cancellationToken);
         CancelAndDispose(ref previousCancellation);
         if (!_unifiedLibraryLoads.IsCurrent(request)) return;
+        UpdateUnifiedLibraryLoadNotice();
         if (_unifiedLibraryLoads.TryGet(request, CanCacheUnifiedLibraryView(tag), out var cachedResult))
         {
             var cachedRows = cachedResult!.Rows;
             _unifiedLibraryLoadResult = cachedResult;
+            _unifiedLibraryPublishedRequest = request;
             UpdateUnifiedLibraryLoadNotice();
             ApplyColumns(tag);
             ContentDataGrid.ItemsSource = cachedRows;
@@ -253,6 +255,7 @@ public partial class MainWindow : Window
             if (row.OrynivoServer is not null && row.EntityType == "OrynivoTrack" && row.FilePath is { } path)
                 _orynivoTracksByUrl[path] = row;
         _unifiedLibraryLoadResult = result;
+        _unifiedLibraryPublishedRequest = request;
         _unifiedLibraryLoads.TryStore(request, CreateUnifiedLibraryViewCacheKey(tag),
             CanCacheUnifiedLibraryView(tag), result);
         LogUiDiagnostics($"Unified library outcome tag={tag} status={result.Status} sources={result.Sources.Count} failed={result.Sources.Count(source => source.Status != LibrarySourceLoadStatus.Success)}");

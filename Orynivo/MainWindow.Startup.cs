@@ -230,7 +230,7 @@ public partial class MainWindow : Window
                 : _settings.FanartTvApiKey;
     }
 
-    /// <summary>Invalidates thread-safe snapshots immediately and coalesces version-guarded UI abandonment and refresh hints.</summary>
+    /// <summary>Invalidates thread-safe snapshots and coalesces guarded UI abandonment, empty guidance and refresh hints.</summary>
     private void OnWatchedLibraryChanged()
     {
         var searchVersion = Volatile.Read(ref _librarySearchVersion);
@@ -253,6 +253,7 @@ public partial class MainWindow : Window
                     CancelPlaylistLoad();
                 if (searchVersion == _librarySearchVersion)
                     CancelLibrarySearch(clearResult: false, cancelPlaylist: false);
+                UpdateUnifiedLibraryLoadNotice();
 
                 // The sidebar playlist list is lightweight metadata, not a content
                 // reload, so keep it in sync immediately.

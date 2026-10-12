@@ -799,7 +799,11 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   original reload/detail exclusion guard. Its localized text refers to this view
   and suggests filters/source setup, not a definitive empty catalog. Settings
   routes server-only profiles to OrynivoServers and others to Library.
-  Navigation clearing hides both empty and failed-load notices.
+  Navigation clearing hides both empty and failed-load notices. Empty guidance
+  also retains the coordinator Request that published its result. Version,
+  generation and cancellation must remain current; new load admission and
+  catalog invalidation refresh visibility. Watcher changes do this in their
+  existing coalesced dispatcher pass, never on the worker.
 
 - The empty-library sidebar hint offers localized Directories, Orynivo servers
   and Output device actions through `MainWindow.Settings.cs`. They open the

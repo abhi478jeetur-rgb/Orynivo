@@ -57,7 +57,9 @@ the ability to reach that library from any device on the local network.
 - Directories Settings explains how to scan a folder, follow progress and open
   Tracks after the scan for playback.
 - Successfully loaded empty library views offer source/filter guidance and a
-  Settings action; server-only profiles open their server settings directly.
+  Settings action; server-only profiles open their server settings directly. The
+  guidance disappears when reloading or when library changes invalidate that
+  result, and returns only for a current successful empty load.
 - Unified artist detail pages with an album-style image-and-biography hero,
   synchronized favorites, image management, refreshable biographies, and
   combined local/Orynivo Server albums. Their cards include cover search,

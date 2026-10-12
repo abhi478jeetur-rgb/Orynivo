@@ -167,6 +167,8 @@ internal sealed class CatalogRecoveryHandler : HttpMessageHandler
     internal TaskCompletionSource? Pending { get; set; }
     /// <summary>Retains captured gates safely if catalog adapters overlap on worker threads.</summary>
     private readonly ConcurrentBag<TaskCompletionSource> _gates = [];
+    /// <summary>Gets the number of captured synthetic request gates.</summary>
+    internal int PendingCount => _gates.Count;
     /// <summary>Releases every captured gate during teardown.</summary>
     internal void ReleaseGates() { foreach (var gate in _gates) gate.TrySetResult(); }
     /// <summary>Returns synthetic empty or unavailable responses after an optional late gate.</summary>

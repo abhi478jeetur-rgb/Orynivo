@@ -7,11 +7,13 @@ namespace Orynivo;
 public partial class MainWindow
 {
     private int? _unifiedLibraryRetryVersion;
+    private LibraryCatalogLoadCoordinator<ContentRow>.Request? _unifiedLibraryPublishedRequest;
 
     /// <summary>Clears the visible notice when its owning navigation is abandoned.</summary>
     private void ClearUnifiedLibraryLoadNotice()
     {
         _unifiedLibraryLoadResult = null;
+        _unifiedLibraryPublishedRequest = null;
         _unifiedLibraryRetryVersion = null;
         UpdateUnifiedLibraryLoadNotice();
     }
@@ -28,6 +30,7 @@ public partial class MainWindow
         LibraryLoadNotice.IsVisible = text.Length > 0;
         LibraryLoadNoticeMessage.Text = text;
         LibraryEmptyNotice.IsVisible = result is { Status: LibraryLoadStatus.Complete, Rows.Count: 0 } &&
+            _unifiedLibraryPublishedRequest is { } published && _unifiedLibraryLoads.IsCurrent(published) &&
             result.Sources.Count > 0 &&
             ((_settings.LibraryPaths?.Count ?? 0) > 0 || (_settings.OrynivoServers?.Count ?? 0) > 0) &&
             _currentTopLevelTag is "Artists" or "Albums" or "Tracks" &&

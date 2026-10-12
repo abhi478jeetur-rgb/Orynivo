@@ -43,7 +43,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   normal Artists/Albums/Tracks view with configured media sources. Reuse the
   existing detail/search/playlist exclusion guard; never present unavailable or
   partial catalogs as empty. Clear it with navigation and route server-only
-  Settings to OrynivoServers, otherwise Library.
+  Settings to OrynivoServers, otherwise Library. Retain its original coordinator
+  Request at normal/cache publication and require IsCurrent before showing
+  guidance. Refresh notice visibility after load admission and invalidation,
+  including the watcher's dispatcher pass.
 
 - Local folder scan guidance stays beside Directories and uses all seven
   languages. It points to existing per-folder scan/progress and normal Tracks

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Hide obsolete empty-library guidance during reload and after catalog or
+  watcher invalidation. Reuse existing request ownership so late empty results
+  cannot replace current failure/recovery presentation.
+
 - Show source/filter guidance and a Settings action for successfully loaded
   empty Artists, Albums and Tracks views. Failed or incomplete sources retain
   their separate retry notice; search and detail surfaces are excluded.
