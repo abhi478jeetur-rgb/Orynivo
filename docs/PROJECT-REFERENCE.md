@@ -393,6 +393,13 @@ environment variable, and the systemd unit sets
 `ORYNIVO_DATA_DIR=/var/lib/orynivo-server` plus `StateDirectory=orynivo-server`
 (the post-install also creates `/var/lib/orynivo-server` owned by the service
 user). The server's SQLite database, caches, and downloaded artwork live there.
+Explicit data roots never import legacy Player settings or caches. Default roots
+copy missing legacy files once, guarded by `.legacy-data-migrated`. A removed
+marker allows migration again; renaming the default root alone is not a clean
+reset when Player still exists. Concurrent destination creation is tolerated
+only for file-exists errors, without overwriting; other I/O failures propagate
+and leave migration unmarked for retry. Regression tests use temporary roots.
+
 Do not remove the data-directory override or the systemd unit will abort on
 startup with `UnauthorizedAccessException`/`SIGABRT`.
 

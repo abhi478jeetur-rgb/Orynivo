@@ -366,3 +366,8 @@ areas.
   values; absent state keeps fallback. Preserve bounded paging/batching and
   caller ID order; never materialize the whole library to apply personal state
   after paging.
+
+- Explicit ORYNIVO_DATA_DIR roots never import legacy Player data. Default-root
+  migration preserves current destination files, tolerates concurrent file
+  creation only for file-exists errors and marks completion only after success.
+  Keep migration tests on fixture-owned roots, never personal application data.

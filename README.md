@@ -2180,3 +2180,17 @@ the Orynivo name, wordmark, logo, or application icon.
 Third-party components and the optional Steinberg ASIO SDK are excluded from
 that grant and remain subject to their respective terms. See [NOTICE](NOTICE)
 and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Fresh profiles and legacy data
+
+The default data directory is the Orynivo folder under local application data.
+On its first start, Orynivo copies missing files from the former Player folder
+and records completion in `.legacy-data-migrated`. Renaming Orynivo alone
+removes that marker and can therefore import old settings and large artwork
+caches again. Existing destination files are never overwritten.
+
+For a clean test, use an explicit `ORYNIVO_DATA_DIR` pointing to a separate
+folder. Explicit roots do not import legacy settings or caches. On Windows,
+`scripts/prepare-first-playback-check.ps1 -Scenario Local -Start` prepares and
+opens an isolated profile with a small test track; the original data stays in
+place. See [first-playback acceptance](docs/FIRST-PLAYBACK-ACCEPTANCE.md).

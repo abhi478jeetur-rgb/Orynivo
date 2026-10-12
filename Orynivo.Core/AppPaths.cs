@@ -3,37 +3,38 @@ using System.IO;
 namespace Orynivo;
 
 /// <summary>
-/// Centralises well-known file-system paths for application data and handles one-time migration
-/// from the legacy <c>Player</c> data directory to the current <c>Orynivo</c> directory.
+/// Centralises application data paths and one-time migration from the legacy
+/// <c>Player</c> directory. Explicit data roots remain isolated from legacy data.
 /// </summary>
 public static class AppPaths
 {
-    /// <summary>Current product name used as the <c>%LOCALAPPDATA%</c> sub-directory.</summary>
+    /// <summary>Current product name used as the local application data subdirectory.</summary>
     public const string ProductName = "Orynivo";
 
     /// <summary>Legacy product name whose data is migrated on first launch.</summary>
     public const string LegacyProductName = "Player";
 
     /// <summary>
-    /// Environment variable that overrides the data directory. Used by the Linux
-    /// server package so the systemd service writes to a dedicated, service-owned
-    /// directory (e.g. <c>/var/lib/orynivo-server</c>) instead of relying on a
-    /// writable <c>$HOME</c>, which a <c>--no-create-home</c> service user lacks.
+    /// Environment variable selecting an isolated data directory for desktop tests
+    /// or service-owned server storage. Explicit roots never import legacy data.
     /// </summary>
     public const string DataDirEnvironmentVariable = "ORYNIVO_DATA_DIR";
 
+    /// <summary>Captures the override together with the process-wide data root.</summary>
+    private static readonly string? DataRootOverride = Environment.GetEnvironmentVariable(DataDirEnvironmentVariable);
+
     /// <summary>
-    /// Root data directory. Defaults to <c>%LOCALAPPDATA%\Orynivo\</c> (or
-    /// <c>$HOME/.local/share/Orynivo</c> on Linux/macOS) but can be overridden
-    /// with the <see cref="DataDirEnvironmentVariable"/> environment variable.
+    /// Root data directory, defaulting to the local application data <c>Orynivo</c>
+    /// directory unless <see cref="DataDirEnvironmentVariable"/> selects another root.
     /// </summary>
     public static string DataRoot { get; } = ResolveDataRoot();
 
+    /// <summary>Resolves the data root using the captured process override.</summary>
+    /// <returns>The explicit root or the default product directory.</returns>
     private static string ResolveDataRoot()
     {
-        var overridePath = Environment.GetEnvironmentVariable(DataDirEnvironmentVariable);
-        if (!string.IsNullOrWhiteSpace(overridePath))
-            return overridePath;
+        if (!string.IsNullOrWhiteSpace(DataRootOverride))
+            return DataRootOverride;
 
         return Path.Combine(
             Environment.GetFolderPath(
@@ -42,7 +43,7 @@ public static class AppPaths
             ProductName);
     }
 
-    /// <summary>Legacy data directory: <c>%LOCALAPPDATA%\Player\</c>.</summary>
+    /// <summary>Legacy data directory beneath local application data.</summary>
     public static string LegacyDataRoot { get; } = Path.Combine(
         Environment.GetFolderPath(
             Environment.SpecialFolder.LocalApplicationData,
@@ -50,31 +51,33 @@ public static class AppPaths
         LegacyProductName);
 
     /// <summary>
-    /// Copies missing files from <see cref="LegacyDataRoot"/> to <see cref="DataRoot"/> exactly once,
-    /// guarded by a marker file so subsequent launches skip the operation.
+    /// Copies missing legacy files once for the default root. Explicit roots only
+    /// receive a completion marker and never import settings or caches from Player.
+    /// Existing destination files are preserved, including concurrent creations.
     /// </summary>
     public static void MigrateLegacyData()
+        => MigrateLegacyData(LegacyDataRoot, DataRoot, !string.IsNullOrWhiteSpace(DataRootOverride));
+
+    /// <summary>Migrates an explicitly supplied root pair without accessing process data.</summary>
+    /// <param name="legacyDataRoot">Legacy source directory.</param>
+    /// <param name="dataRoot">Destination directory.</param>
+    /// <param name="isExplicitRoot">Whether the destination must remain isolated.</param>
+    internal static void MigrateLegacyData(string legacyDataRoot, string dataRoot, bool isExplicitRoot)
     {
-        var migrationMarker = GetDataPath(".legacy-data-migrated");
+        var migrationMarker = Path.Combine(dataRoot, ".legacy-data-migrated");
         if (File.Exists(migrationMarker))
             return;
 
-        if (Directory.Exists(LegacyDataRoot))
-        {
-            Directory.CreateDirectory(DataRoot);
-            CopyMissingFiles(LegacyDataRoot, DataRoot);
-        }
+        Directory.CreateDirectory(dataRoot);
+        if (!isExplicitRoot && Directory.Exists(legacyDataRoot))
+            CopyMissingFiles(legacyDataRoot, dataRoot);
 
-        Directory.CreateDirectory(DataRoot);
         File.WriteAllText(migrationMarker, DateTimeOffset.UtcNow.ToString("O"));
     }
 
-    /// <summary>
-    /// Builds a path beneath <see cref="DataRoot"/> by joining <paramref name="parts"/> with
-    /// <see cref="Path.Combine(string, string)"/>.
-    /// </summary>
-    /// <param name="parts">Path segments to append to <see cref="DataRoot"/>.</param>
-    /// <returns>The combined absolute path.</returns>
+    /// <summary>Builds a path beneath the process data root.</summary>
+    /// <param name="parts">Path segments to append to the data root.</param>
+    /// <returns>The combined path.</returns>
     public static string GetDataPath(params string[] parts)
     {
         var path = DataRoot;
@@ -83,6 +86,9 @@ public static class AppPaths
         return path;
     }
 
+    /// <summary>Copies a legacy directory tree without replacing destination files.</summary>
+    /// <param name="sourceDirectory">Legacy source directory.</param>
+    /// <param name="targetDirectory">Destination directory.</param>
     private static void CopyMissingFiles(string sourceDirectory, string targetDirectory)
     {
         foreach (var directory in Directory.EnumerateDirectories(sourceDirectory, "*", SearchOption.AllDirectories))
@@ -97,7 +103,26 @@ public static class AppPaths
             var targetFile = Path.Combine(targetDirectory, relativePath);
             Directory.CreateDirectory(Path.GetDirectoryName(targetFile)!);
             if (!File.Exists(targetFile))
-                File.Copy(file, targetFile);
+                CopyMissingFile(file, targetFile);
+        }
+    }
+
+    /// <summary>
+    /// Copies one missing file, preserving a destination created after the caller's
+    /// existence check. Other I/O failures propagate and prevent completion marking.
+    /// </summary>
+    /// <param name="sourceFile">Legacy source file.</param>
+    /// <param name="targetFile">Destination file that must never be overwritten.</param>
+    internal static void CopyMissingFile(string sourceFile, string targetFile)
+    {
+        try
+        {
+            File.Copy(sourceFile, targetFile, overwrite: false);
+        }
+        catch (IOException exception) when (
+            (exception.HResult & 0xffff) is 17 or 80 or 183 && File.Exists(targetFile))
+        {
+            // EEXIST / ERROR_FILE_EXISTS / ERROR_ALREADY_EXISTS: another writer won.
         }
     }
 }

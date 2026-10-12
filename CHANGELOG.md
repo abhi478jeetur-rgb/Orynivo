@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Keep explicit ORYNIVO_DATA_DIR profiles isolated from legacy Player settings
+  and caches. Preserve destination files created during legacy migration without
+  crashing startup; other copy failures remain retryable.
+
 - Improve setup hint contrast and use one themed keyboard-focus outline. Check
   simulated 100/200% scaling, reduced motion and opaque theme contrast.
 - Disable Play before a track is available, including after an empty stop;

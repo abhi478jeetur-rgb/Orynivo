@@ -27,6 +27,17 @@ certification. UI checks create no player and do not scan media. The production
 default-output migration remains unchanged; the smoke process pre-seeds a
 synthetic output so it cannot discover the real default device.
 
+## Fresh-start migration regression
+
+A reported startup failure exposed a race between checking a missing legacy
+artwork destination and copying it. Migration now preserves files created in
+that interval and propagates other I/O failures without a completion marker.
+Explicit ORYNIVO_DATA_DIR profiles do not import legacy data, even without the
+marker prepared by the helper. Renaming the default Orynivo folder alone can
+still intentionally migrate the old Player configuration and caches again. Use
+the isolated check below for a clean test without moving personal data. Local
+and server-only audible acceptance remain pending after this fix.
+
 ## Isolated human check
 
 PowerShell 7 on Windows can prepare a separate profile and a quiet three-second
