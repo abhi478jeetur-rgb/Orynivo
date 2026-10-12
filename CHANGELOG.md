@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add thirteen in-memory original-file stream integration cases for exact bytes,
+  range headers/slices and 416, invalid-range fallback, missing files, rejected
+  options/authentication and client cancellation reaching the file-response
+  write.
+
 - Add seven in-memory playlist endpoint integration cases for ordered duplicate
   entries, regular mutations, per-profile track state, smart favorite overrides,
   similarity/count resolution and rejection of invalid or unauthenticated

@@ -1579,6 +1579,11 @@ Seven playlist endpoint cases also check ordered duplicate entries,
 append/remove and deletion, per-profile track state, smart favorites/similarity
 resolution and validation/authentication through the same isolated host.
 
+Thirteen original-file streaming cases verify exact response bytes, byte ranges,
+416 and fallback behavior, rejected options/access and client cancellation of a
+held file-response write. They use synthetic byte files and exercise no audio
+decoding or FFmpeg process; transcoder lifecycle tests remain separate.
+
 ### Windows headless workflow smoke
 
 ```bash

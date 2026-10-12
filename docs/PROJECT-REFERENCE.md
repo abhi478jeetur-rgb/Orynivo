@@ -3318,3 +3318,19 @@ before database access. Playlist definitions remain shared; personal track state
 follows the request profile. Synthetic databases, fixed test keys and disabled
 host logging only; no startup services or TCP listener. HTTP stream ranges and
 client-abort/transcoder integration remain open.
+
+### Original-file streaming integration
+
+MapStreamEndpoints delegates audio routes to MapAudioStreamEndpoints; artwork
+routes stay in the original mapper. The optional indexed-track connection
+factory uses OpenDefault in production and temporary SQLite in TestServer.
+Thirteen cases check full bytes/content type/length, closed/open/suffix ranges
+with 206 and Content-Range, unsatisfiable 416, invalid/multipart full fallback,
+missing tracks/files, invalid transcode options and authentication/profile
+rejection before database access. A gated response stream observes the actual
+file-result write token: after the write starts, client cancellation must reach
+RequestAborted, cancel writing and unwind the server request. Diagnostic
+timeouts are not latency budgets. Fixtures use synthetic opaque bytes without
+decoding audio, listening TCP ports or FFmpeg. This proves original-file
+cancellation through the in-memory pipeline, not FFmpeg process termination or a
+physical network disconnect; those require separate evidence.

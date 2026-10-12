@@ -193,3 +193,10 @@ areas.
   state for their tracks, ordered duplicate entries, current HTTP statuses and
   client favorite overrides. Smart resolution and count must retain the shared
   vector resolver. Isolated TestServer factories own one connection per request.
+
+- MapStreamEndpoints delegates audio routes to MapAudioStreamEndpoints while
+  retaining artwork routes. The optional factory owns one indexed-track
+  connection per request and defaults to OpenDefault. Preserve framework byte
+  ranges and response cancellation. Original-file TestServer cancellation must
+  observe a held actual write and server completion; it is not evidence of
+  FFmpeg process termination or physical-network behavior.
