@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist image cache saves and deletions serialize per artist and data directory
+  within the process. Unique staging files are cleaned after cancellation or
+  failed publication; cancelled waiters preserve the current image. The existing
+  deletion API remains compatible alongside asynchronous deletion.
+
 - Running local, server and Now Playing profiles retain separate ownership for
   their images. Admitting a manual image change rejects older image/placeholder
   publication, image status, retained-row refresh and profile-image

@@ -310,7 +310,15 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
   diagnostics. `ArtistProfileService` prefers that image only when automatic
   image refresh is allowed; manual artist images must remain untouched.
   `ArtistImageSearchService` owns writes and explicit deletion of the
-  provider-local `artist-images/<id>.*` cache variants.
+  provider-local `artist-images/<id>.*` cache variants. Shared in-process
+  mutation admission uses canonical data-directory plus artist identity, never
+  logged or persisted. Hold ownership through unique staging, publication and
+  old-format cleanup; remove idle gates after all active/waiting reservations
+  leave. Cancelled waiters must not release another writer. Cancellation before
+  publication and failed publication clean staging and preserve the prior image.
+  UI callers must await `DeleteImageAsync` or use a worker for legacy deletion.
+  File serialization does not order user intent or make SQLite metadata and
+  cache files transactional, and does not coordinate separate processes.
 - Web page fetching must retain SSRF protection, connect-time address checks,
   redirect and size limits, text-only responses, timeouts, and audit logging.
   The loopback/private/link-local/CGNAT/multicast/reserved address

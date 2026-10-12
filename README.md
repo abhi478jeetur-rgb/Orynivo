@@ -1107,6 +1107,8 @@ byte-range streaming without FFmpeg.
 - The profile lookup dialog retains the artist it was opened for and rejects
   outdated confirmations. Profile refresh preserves the displayed album strip.
 - Manual Wikimedia Commons artist-image search with editable search text
+- Artist image cache saves and deletions serialize per artist within the
+  process, preventing overlapping file replacement and format cleanup.
 - Manually selected artist images are retained across profile refreshes,
   renames, and artist merges
 - Manual artist-image synchronization retains its original server connections,

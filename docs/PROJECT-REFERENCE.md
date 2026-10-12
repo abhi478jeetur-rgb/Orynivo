@@ -1569,7 +1569,12 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   falls back to Wikimedia Commons. Every in-memory candidate must be explicitly
   accepted or rejected in a preview before it may be saved to its owning local
   or remote library; progress includes a provider-search-based remaining-time
-  estimate.
+  estimate. Cache saves and deletions share in-process exclusive admission per
+  canonical data directory and artist ID. Unique staging is cleaned on failed
+  publication or cancellation; old formats are removed while ownership is held.
+  `DeleteImageAsync` supports cancellable admission; legacy deletion remains
+  compatible. Idle gates are removed. This file contract does not provide
+  cross-process ordering, user-intent ordering or a SQLite/file transaction.
 - `Orynivo/EditArtistNameDialog.*` and `Orynivo/ArtistMergeDialog.*`:
   artist-info rename flow; collisions require an explicit merge-profile priority
   choice
