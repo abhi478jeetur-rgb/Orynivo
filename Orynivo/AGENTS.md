@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Empty-library setup uses the shared embedded Settings Library section. Keep
+  its button keyboard accessible and the wrapped hint free of row-height caps.
+  Do not animate its unbounded maximum height or persist it as a sidebar leaf.
+
 - Tracked headless workflow checks live in Orynivo.Ui.Smoke, separately from
   pure desktop unit tests. Its friend access is for synthetic production-adapter
   testing only. Follow its nested instructions; never show MainWindow or invoke

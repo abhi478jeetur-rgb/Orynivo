@@ -1052,15 +1052,23 @@
                     </Grid>
                 </ListBoxItem>
                 <ListBoxItem x:Name="LibraryEmptyHintItem"
-                             IsHitTestVisible="False"
                              Focusable="False"
                              IsVisible="False"
                              Theme="{StaticResource NavItemTheme}">
-                    <TextBlock Text="{DynamicResource L_LibraryEmptyHint}"
-                               TextWrapping="Wrap"
-                               FontSize="{DynamicResource FontSizeMeta}"
-                               Margin="16,2,4,2"
-                               Foreground="{DynamicResource AppMutedTextBrush}"/>
+                    <ListBoxItem.Transitions>
+                        <Transitions/>
+                    </ListBoxItem.Transitions>
+                    <StackPanel Margin="16,2,4,2" Spacing="8">
+                        <TextBlock Text="{DynamicResource L_LibraryEmptyHint}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSizeMeta}"
+                                   Foreground="{DynamicResource AppMutedTextBrush}"/>
+                        <Button x:Name="LibrarySetupButton"
+                                Content="{DynamicResource L_Settings}"
+                                Theme="{StaticResource HeaderFilterButtonTheme}"
+                                HorizontalAlignment="Left"
+                                Click="LibrarySetupButton_OnClick"/>
+                    </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem x:Name="LocalLibraryRootItem"
                              Tag="LibraryGroup:LocalMedia"

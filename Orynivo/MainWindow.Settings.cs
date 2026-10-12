@@ -465,6 +465,12 @@ public partial class MainWindow : Window
         SettingsViewHost.IsVisible = false;
     }
 
+    /// <summary>Opens library setup through the shared embedded settings path.</summary>
+    /// <param name="sender">The empty-library setup button.</param>
+    /// <param name="e">The button activation event.</param>
+    private void LibrarySetupButton_OnClick(object? sender, RoutedEventArgs e) =>
+        OpenSettingsAt("Library");
+
     private void OpenSettingsAt(string sectionTag, bool scrollToEqualizer = false)
     {
         if (!SettingsViewHost.IsVisible)

@@ -524,12 +524,15 @@ public partial class MainWindow : Window
     private static void SetArrowData(Avalonia.Controls.Shapes.Path arrow, bool isExpanded) =>
         arrow.Data = Geometry.Parse(isExpanded ? "M 0 5 L 4 0 L 8 5" : "M 0 0 L 4 5 L 8 0");
 
+    /// <summary>Updates sidebar visibility while allowing the setup hint to wrap without clipping.</summary>
+    /// <param name="item">The sidebar item to update.</param>
+    /// <param name="isVisible">Whether the item should be shown.</param>
     private static void SetSidebarItemVisibility(ListBoxItem item, bool isVisible)
     {
         if (isVisible)
         {
             item.IsVisible = true;
-            item.MaxHeight = 96;
+            item.MaxHeight = item.Name == "LibraryEmptyHintItem" ? double.PositiveInfinity : 96;
             item.Opacity = 1;
             return;
         }
