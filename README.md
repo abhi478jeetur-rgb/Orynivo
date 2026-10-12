@@ -1582,7 +1582,12 @@ resolution and validation/authentication through the same isolated host.
 Thirteen original-file streaming cases verify exact response bytes, byte ranges,
 416 and fallback behavior, rejected options/access and client cancellation of a
 held file-response write. They use synthetic byte files and exercise no audio
-decoding or FFmpeg process; transcoder lifecycle tests remain separate.
+decoding or FFmpeg. Process-lifetime checks are described below.
+
+Five process-lifetime cases run a small managed fixture child through the
+production transcode runner. Cancellation and failed response writes must stop
+and await that child before returning. These cases validate process cleanup, not
+FFmpeg codecs, physical audio or a network-disconnect scenario.
 
 ### Windows headless workflow smoke
 

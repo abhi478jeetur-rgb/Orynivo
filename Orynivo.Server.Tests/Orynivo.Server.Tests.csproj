@@ -24,4 +24,14 @@
   <ItemGroup>
     <ProjectReference Include="..\Orynivo.Server\Orynivo.Server.csproj" />
   </ItemGroup>
+  <ItemGroup>
+    <Compile Remove="Fixtures/TranscodeChild/**/*.cs" />
+    <ProjectReference Include="Fixtures/TranscodeChild/TranscodeChild.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+  <Target Name="CopyTranscodeFixture" AfterTargets="Build">
+    <ItemGroup>
+      <TranscodeFixture Include="$(MSBuildProjectDirectory)/Fixtures/TranscodeChild/bin/$(Configuration)/net10.0/TranscodeChild.*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(TranscodeFixture)" DestinationFolder="$(OutDir)TranscodeChild" />
+  </Target>
 </Project>

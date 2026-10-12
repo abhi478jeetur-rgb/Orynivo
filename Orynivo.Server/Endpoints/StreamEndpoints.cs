@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 using Orynivo.Audio;
 using Orynivo.Library;
+using Orynivo.Server.Services;
 
 namespace Orynivo.Server.Endpoints;
 
@@ -332,9 +333,7 @@ public static class StreamEndpoints
 
         try
         {
-            ffmpeg.Start();
-            await ffmpeg.StandardOutput.BaseStream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
-            await ffmpeg.WaitForExitAsync(ctx.RequestAborted);
+            await TranscodeProcessRunner.PipeAsync(ffmpeg, ctx.Response.Body, ctx.RequestAborted);
             if (logSeekTranscode)
             {
                 var stderr = await TryReadStandardErrorAsync(ffmpeg).ConfigureAwait(false);
@@ -345,16 +344,7 @@ public static class StreamEndpoints
         }
         catch (OperationCanceledException)
         {
-            // Client disconnected (e.g. seeked again); stop transcoding promptly.
-            try
-            {
-                if (!ffmpeg.HasExited)
-                    ffmpeg.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Process already gone.
-            }
+            // The process runner has already terminated and awaited the canceled child.
 
             if (logSeekTranscode)
             {
@@ -375,19 +365,6 @@ public static class StreamEndpoints
             }
             logger.LogError(ex, "FFmpeg transcode failed for {Source}", sourcePath);
         }
-        finally
-        {
-            try
-            {
-                if (!ffmpeg.HasExited)
-                    ffmpeg.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Process already gone.
-            }
-        }
-
         return Results.Empty;
     }
 

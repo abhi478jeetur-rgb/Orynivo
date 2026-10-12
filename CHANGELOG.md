@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Await transcode process termination before returning after request
+  cancellation or response-write failure. Five real managed-child regression
+  cases cover cleanup, natural completion, pre-cancelled requests and startup
+  failure.
+
 - Add thirteen in-memory original-file stream integration cases for exact bytes,
   range headers/slices and 416, invalid-range fallback, missing files, rejected
   options/authentication and client cancellation reaching the file-response

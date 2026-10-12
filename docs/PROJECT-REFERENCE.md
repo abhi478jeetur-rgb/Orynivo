@@ -3291,8 +3291,9 @@ GetTrackListPage and GetTrackListByIds overlay active-profile favorites and
 ratings in SQLite, retaining existing legacy-column fallback and bounded paging.
 Tests seed synthetic SQLite, use fixed synthetic keys, disable host logging and
 release only their own SQLite pool. They do not start Program, hosted services,
-watchers, scans, FFmpeg or a listening TCP port. Playlist/streaming endpoint
-integration and generated-library measurements remain open.
+watchers, scans, FFmpeg or a listening TCP port. Playlist and original-file
+streaming integration are described below; generated-library measurements remain
+open.
 
 ### Compact track profile consistency
 
@@ -3316,8 +3317,9 @@ favorites/ratings, client favorite overrides and matching resolve counts,
 similarity vector resolution, invalid criteria/names and rejected mutations
 before database access. Playlist definitions remain shared; personal track state
 follows the request profile. Synthetic databases, fixed test keys and disabled
-host logging only; no startup services or TCP listener. HTTP stream ranges and
-client-abort/transcoder integration remain open.
+host logging only; no startup services or TCP listener. Original-file
+range/cancellation and process-lifetime checks are described below; FFmpeg codec
+validation remains separate.
 
 ### Original-file streaming integration
 
@@ -3334,3 +3336,22 @@ timeouts are not latency budgets. Fixtures use synthetic opaque bytes without
 decoding audio, listening TCP ports or FFmpeg. This proves original-file
 cancellation through the in-memory pipeline, not FFmpeg process termination or a
 physical network disconnect; those require separate evidence.
+
+### Transcode process lifetime
+
+StreamEndpoints uses Services.TranscodeProcessRunner.PipeAsync for process
+start, stdout copy and natural exit. On every successfully started path, cleanup
+requests entire-tree termination if the child is still alive and awaits parent
+process exit without the already-cancelled request token. Already-exited races
+are accepted; a live-child kill failure is not silently swallowed. The caller
+retains Process disposal and response-stream ownership. Existing endpoint
+diagnostics remain outside the runner.
+
+Five tests execute a small managed child from the test-only TranscodeChild
+project: natural output, cancellation during a gated write, write failure,
+pre-cancellation and startup failure. They assert process exit before runner
+completion and keep the borrowed output stream open. Parent teardown stops only
+its own fixture process. The fixture is built/copied transitively by server
+tests, not shipped with the server. This tests a real managed-child lifetime,
+not FFmpeg codec behavior, descendant-process trees or a physical network
+disconnect.

@@ -200,3 +200,11 @@ areas.
   ranges and response cancellation. Original-file TestServer cancellation must
   observe a held actual write and server completion; it is not evidence of
   FFmpeg process termination or physical-network behavior.
+
+- TranscodeProcessRunner owns start/copy/exit cleanup for the endpoint's
+  borrowed Process and response stream. Cancellation/write failure must request
+  child-tree termination and await parent exit before return; cleanup cannot
+  reuse the cancelled request token. Preserve natural exit and already-exited
+  races. Managed test children validate process lifetime, not FFmpeg codecs or
+  physical network/audio behavior; never launch arbitrary user-controlled test
+  commands.
