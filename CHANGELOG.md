@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Remote artist context-menu image searches retain their original row binding
+  and server connection through selection and ordered upload/synchronization.
+  Abandoned selections and superseded completions no longer change unrelated
+  artwork or status.
+
 - Automatic artist-row profile downloads, database persistence and artwork
   decoding now share write ordering with manual image changes. Waiting jobs
   recheck their original row binding and current manual-image state.

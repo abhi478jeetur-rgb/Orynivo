@@ -3158,3 +3158,14 @@ remain required. Manual image observations independently reject old image
 publication. Session freshness suppression and owner-specific loading cleanup
 remain intact. This ordering is scoped to the window, not a SQLite/file
 transaction or a cross-client coordinator.
+
+### Remote artist context-menu image ownership
+
+`OpenOrynivoArtistImageSearchAsync` uses an injectable selection adapter
+retaining original binding, row identity, navigation and copied server
+connection. Its manual action shares ownership with detail image actions. After
+valid selection, it admits image intent and reserves the shared artist write
+queue through primary upload and unified synchronization. Recheck ownership
+after waiting and primary upload; obsolete work cannot begin fan-out or publish
+row artwork/status. Completed writes invalidate catalog snapshots even when
+publication is abandoned.

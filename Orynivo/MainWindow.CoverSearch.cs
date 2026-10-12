@@ -392,35 +392,75 @@ public partial class MainWindow : Window
                 ? row.Artist
                 : null;
 
-    private async Task OpenOrynivoArtistImageSearchAsync(
-        OrynivoServerSettings server,
-        long artistId,
-        ContentRow row)
-    {
-        var dialog = new ArtistImageSearchWindow(
-            row.Title ?? string.Empty,
-            _settings.FanartTvApiKey);
-        if (await dialog.ShowDialog<bool>(this) == false || dialog.SelectedResult is not { } selected)
-            return;
+    /// <summary>Runs a remote artist-row image search with retained source and binding ownership.</summary>
+    /// <param name="server">Original owning server connection.</param>
+    /// <param name="artistId">Source-local artist identifier.</param>
+    /// <param name="row">Original bound artist row.</param>
+    /// <returns>A task completing selection, ordered persistence and current publication.</returns>
+    private Task OpenOrynivoArtistImageSearchAsync(
+        OrynivoServerSettings server, long artistId, ContentRow row) =>
+        OpenOrynivoArtistImageSelectionAsync(server, artistId, row, async () =>
+        {
+            var dialog = new ArtistImageSearchWindow(row.Title ?? string.Empty, _settings.FanartTvApiKey);
+            return await dialog.ShowDialog<bool>(this) && dialog.SelectedResult is { } selected
+                ? (selected.ImageData, selected.MimeType) : null;
+        });
 
-        var uploaded = await _orynivoClient.UploadArtistImageAsync(
-            server,
-            artistId,
-            selected.ImageData,
-            selected.MimeType);
+    /// <summary>Orders a selected context-menu artist image and rejects obsolete UI publication.</summary>
+    /// <param name="server">Original owning server connection.</param>
+    /// <param name="artistId">Source-local artist identifier.</param>
+    /// <param name="row">Original bound row.</param>
+    /// <param name="select">Dialog adapter returning accepted image bytes and MIME type.</param>
+    /// <returns>A task completing the admitted image batch or its abandonment.</returns>
+    private async Task OpenOrynivoArtistImageSelectionAsync(OrynivoServerSettings server,
+        long artistId, ContentRow row, Func<Task<(byte[] Data, string? MimeType)?>> select)
+    {
+        var sourceGuard = CreateArtistProfileSourceGuard(server);
+        var connection = new OrynivoServerSettings
+        {
+            Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+            ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+            StreamingFormat = server.StreamingFormat, StreamingBitrateKbps = server.StreamingBitrateKbps
+        };
+        var artistName = row.Title;
+        var externalId = row.ExternalId;
+        var rowId = row.Id;
+        var rowServerId = row.OrynivoServer?.Id;
+        var tag = _currentTopLevelTag;
+        var tableSource = ContentDataGrid.IsVisible ? ContentDataGrid.ItemsSource : null;
+        var artworkSource = ArtistArtworkListBox.IsVisible ? ArtistArtworkListBox.ItemsSource : null;
+        var action = _artistImageActions.Begin(CancellationToken.None);
+        bool CanPublish() => _artistImageActions.IsCurrent(action) && sourceGuard() &&
+            !SettingsViewHost.IsVisible && _currentTopLevelTag == tag && row.Title == artistName && row.ExternalId == externalId &&
+            row.Id == rowId && row.OrynivoServer?.Id == rowServerId &&
+            ((tableSource is not null && ContentDataGrid.IsVisible && ReferenceEquals(ContentDataGrid.ItemsSource, tableSource)) ||
+             (artworkSource is not null && ArtistArtworkListBox.IsVisible && ReferenceEquals(ArtistArtworkListBox.ItemsSource, artworkSource)));
+        if (!CanPublish() || await select() is not { } selected || !CanPublish()) return;
+        AdmitArtistImageWrite(connection.Id, artistId, artistName ?? string.Empty);
+        var sources = CaptureManualArtistImageSources();
+        var uploaded = false;
+        await _artistImageWriteQueue.RunAsync(ArtistNameNormalizer.CreateComparisonKey(artistName),
+            CanPublish, async () =>
+            {
+                uploaded = await _orynivoClient.UploadArtistImageAsync(connection, artistId,
+                    selected.Data, selected.MimeType);
+                if (!uploaded) return false;
+                if (sourceGuard()) DeleteOrynivoArtistListCache(connection);
+                InvalidateUnifiedLibraryViewCache();
+                if (!CanPublish()) return true;
+                await SynchronizeUnifiedArtistImageCoreAsync(artistName, selected.Data,
+                    selected.MimeType, sources, CancellationToken.None);
+                return true;
+            });
+        if (!CanPublish()) return;
         if (!uploaded)
         {
             StatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
             return;
         }
-
-        EnsureOrynivoArtistArtworkPaths(server, artistId, row);
-        ApplyRemoteArtwork(row, selected.ImageData);
-        DeleteOrynivoArtistListCache(server);
-        await SynchronizeUnifiedArtistImageAsync(
-            row.Title,
-            selected.ImageData,
-            selected.MimeType);
+        EnsureOrynivoArtistArtworkPaths(connection, artistId, row);
+        ApplyRemoteArtwork(row, selected.Data);
+        row.ImageIsManual = true;
         StatusTextBlock.Text = string.Empty;
     }
 

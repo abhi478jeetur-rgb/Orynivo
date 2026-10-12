@@ -39,6 +39,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Remote artist context-menu image selections retain original binding, row
+  identity, navigation and copied server ownership. Share manual action
+  ownership and artist write admission with detail actions; reserve the whole
+  primary upload and synchronization batch. Recheck ownership after selection,
+  queue wait and primary upload before fan-out or UI publication.
+
 - Background artist-row profile refreshes retain shared artist write ownership
   through download, SQLite persistence and artwork decoding. Recheck original
   row/background ownership after waiting and refresh authoritative manual-image

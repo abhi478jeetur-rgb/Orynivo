@@ -1120,6 +1120,10 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Remote artist context-menu image searches retain their original row and source
+  during selection, upload and synchronization, and share manual-image write
+  ordering with artist-detail actions. Superseded completions preserve current
+  artwork and status.
 - Automatic artist-row profile jobs share the artist write queue through
   download, database persistence and artwork decoding. Waiting jobs recheck
   their original row binding and current database manual-image state.
