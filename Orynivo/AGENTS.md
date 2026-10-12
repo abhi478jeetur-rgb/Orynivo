@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Both Settings root-change paths use SetConfiguredLibraryPaths to copy roots
+  and expand Library on the first local source. Later changes preserve its
+  collapsed state. Pass the returned roots to watchers and cleanup.
+
 - Output Settings keeps the profile selector full-width above wrapping actions.
   Captions must wrap vertically and retain localized automation names; do not
   restore the fixed-width, single-row action grid.

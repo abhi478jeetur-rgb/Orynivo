@@ -140,6 +140,35 @@ internal static class EmptyLibraryWorkflows
             typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
             Dispatcher.UIThread.RunJobs();
         }
+        CheckFirstLocalSource(window, settings, root);
+    }
+
+    /// <summary>Checks the shared production root setter without scanning or removing catalog rows.</summary>
+    /// <param name="window">The unshown synthetic application window.</param>
+    /// <param name="settings">Its process-isolated configuration.</param>
+    /// <param name="root">Process-owned synthetic root.</param>
+    private static void CheckFirstLocalSource(MainWindow window, AppSettings settings, string root)
+    {
+        settings.LibraryPaths = [];
+        settings.IsLocalLibrarySectionExpanded = false;
+        var roots = new List<string> { root };
+        typeof(MainWindow).GetMethod("SetConfiguredLibraryPaths", Private)!.Invoke(window, [roots]);
+        roots.Clear();
+        ApplyVisibility(window);
+        Check(settings.IsLocalLibrarySectionExpanded && settings.LibraryPaths.SequenceEqual(new[] { root }) &&
+            window.FindControl<ListBoxItem>("TracksNavItem")!.IsVisible &&
+            window.FindControl<ListBoxItem>("AlbumsNavItem")!.IsVisible &&
+            window.FindControl<ListBoxItem>("ArtistsNavItem")!.IsVisible &&
+            window.FindControl<ListBoxItem>("LibraryEmptyHintItem")!.MaxHeight == 0,
+            "First local source did not reveal the library with copied roots.");
+        settings.IsLocalLibrarySectionExpanded = false;
+        typeof(MainWindow).GetMethod("SetConfiguredLibraryPaths", Private)!.Invoke(window,
+            [new List<string> { root, Path.Combine(root, "second") }]);
+        ApplyVisibility(window);
+        Check(!settings.IsLocalLibrarySectionExpanded &&
+            window.FindControl<ListBoxItem>("TracksNavItem")!.MaxHeight == 0,
+            "Later root changes discarded the collapsed-library preference.");
+        Console.WriteLine("PASS: first local source reveals library while later root changes retain collapsed preference");
     }
 
     /// <summary>Checks the compiled output selector and wrapping actions in a bounded host.</summary>

@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Expand the Library sidebar when its first local music folder is configured,
+  matching first-server setup. Later folder changes retain the collapsed
+  preference; configured roots are copied before watcher and cleanup handoff.
+
 - Keep the output profile selector full-width and wrap Create output, Configure
   output and Delete output below it. Translated captions can grow vertically
   instead of clipping in narrow Settings layouts.

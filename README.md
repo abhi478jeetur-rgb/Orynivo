@@ -51,6 +51,9 @@ the ability to reach that library from any device on the local network.
   Settings, with localized, wrapped and keyboard-focusable setup actions.
 - Output Settings keeps the profile selector full-width and wraps its actions
   below it so longer translations remain visible in narrow layouts.
+- Adding the first local music folder expands Library so Artists, Albums and
+  Tracks are immediately reachable. Later folder changes keep a collapsed
+  Library collapsed.
 - Unified artist detail pages with an album-style image-and-biography hero,
   synchronized favorites, image management, refreshable biographies, and
   combined local/Orynivo Server albums. Their cards include cover search,

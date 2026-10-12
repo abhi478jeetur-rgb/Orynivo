@@ -800,9 +800,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   no height cap or transition; both captions wrap and provide explicit
   accessible names. Existing source visibility rules hide the hint when a local
   folder or Orynivo Server is configured.
+- Both live Settings root changes and accepted Settings use
+  `SetConfiguredLibraryPaths` in `MainWindow.Settings.cs`. It copies the roots,
+  expands Library when the first local root is added, and retains collapsed
+  state on later changes. Watcher and cleanup receive that copied root set.
 - Settings output-profile setup uses a full-width ComboBox above a WrapPanel of
   the existing create/configure/delete actions. Their captions wrap with bounded
   widths and flexible heights; selection and callbacks are unchanged.
+
 - `Orynivo/Controls/StatusBadge.cs`: small pill indicator (`TemplatedControl`,
   default template in `App.axaml`) with a coloured dot and short label, driven
   by `Text` and a `State` (`StatusBadgeState.Ok`/`Warning`/`Off`). Settings uses

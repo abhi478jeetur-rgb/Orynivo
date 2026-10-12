@@ -268,6 +268,17 @@ public partial class MainWindow : Window
         });
     }
 
+    /// <summary>Copies configured roots and reveals the library when its first local source is added.</summary>
+    /// <param name="paths">New local roots; later caller edits must not change configured state.</param>
+    /// <returns>The copied, non-null configured roots.</returns>
+    private List<string> SetConfiguredLibraryPaths(IReadOnlyCollection<string> paths)
+    {
+        if ((_settings.LibraryPaths?.Count ?? 0) == 0 && paths.Count > 0)
+            _settings.IsLocalLibrarySectionExpanded = true;
+        _settings.LibraryPaths = paths.ToList();
+        return _settings.LibraryPaths;
+    }
+
     /// <summary>Opens embedded Settings with shared artist write ownership after abandoning pending navigation work.</summary>
     /// <param name="sender">Settings action source.</param>
     /// <param name="e">Button activation event.</param>
@@ -283,10 +294,10 @@ public partial class MainWindow : Window
         CancelLibrarySearch();
         var view = new SettingsView(_settings, paths =>
         {
-            _settings.LibraryPaths = paths;
+            var configuredPaths = SetConfiguredLibraryPaths(paths);
             _settingsStore.Save(_settings);
-            _libraryWatcher?.UpdatePaths(paths);
-            _ = CleanupLibraryRootsAsync(paths);
+            _libraryWatcher?.UpdatePaths(configuredPaths);
+            _ = CleanupLibraryRootsAsync(configuredPaths);
             // Show/hide the Local section and the empty-library hint immediately
             // when directories are added or removed while Settings is open.
             ApplySidebarNavigationSettings();
@@ -864,11 +875,11 @@ public partial class MainWindow : Window
             _settings.EqualizerProfile      = window.SelectedEqualizerProfile;
             _settings.EqualizerProfiles     = window.SelectedEqualizerProfiles.ToList();
             _settings.SelectedEqualizerProfileName = window.SelectedEqualizerProfileName;
-            _settings.LibraryPaths           = window.SelectedLibraryPaths.ToList();
+            var configuredLibraryPaths = SetConfiguredLibraryPaths(window.SelectedLibraryPaths);
             _libraryWatcher?.UpdateReplayGainAnalysis(_settings.CalculateMissingReplayGainDuringScan);
-            _libraryWatcher?.UpdatePaths(_settings.LibraryPaths);
+            _libraryWatcher?.UpdatePaths(configuredLibraryPaths);
             if (libraryPathsChanged)
-                _ = CleanupLibraryRootsAsync(_settings.LibraryPaths);
+                _ = CleanupLibraryRootsAsync(configuredLibraryPaths);
             _settings.Theme                  = window.SelectedTheme;
             _settings.Language               = window.SelectedLanguage;
             _settings.GenreCloudBackground   = window.SelectedGenreCloudBackground;
