@@ -254,75 +254,27 @@ public partial class MainWindow : Window
             await ShowArtistInfoAsync(artistId, forceRefresh: true, query);
     }
 
+    /// <summary>Searches artwork while retaining the originally displayed artist.</summary>
+    /// <param name="sender">The search button.</param>
+    /// <param name="e">The routed click event.</param>
     private async void SearchArtistImageButton_OnClick(object? sender, RoutedEventArgs e)
+        => await SearchDisplayedArtistImageAsync(async artistName =>
+        {
+            var dialog = new ArtistImageSearchWindow(artistName, _settings.FanartTvApiKey);
+            return await dialog.ShowDialog<bool>(this) ? dialog.SelectedResult : null;
+        });
+
+    /// <summary>Adapts a confirmed search result to the guarded manual-image publication flow.</summary>
+    /// <param name="selectImage">Searches the original artist name and returns accepted bytes, or null.</param>
+    /// <returns>A task completing selection and the still-admitted image operation.</returns>
+    private Task SearchDisplayedArtistImageAsync(Func<string, Task<ArtistImageDownload?>> selectImage)
     {
-        if (_nowPlayingRemoteArtistInfo)
+        if (!TryGetDisplayedArtistName(out var artistName)) return Task.CompletedTask;
+        return ApplyDisplayedArtistImageAsync(async () =>
         {
-            await OpenNowPlayingRemoteArtistImageSearchAsync();
-            return;
-        }
-
-        if (_artistInfoDisplayedRemoteRow is { } remoteRow)
-        {
-            var server = ResolveRowOrynivoServer(remoteRow);
-            if (server is null ||
-                remoteRow.Id is not long remoteArtistId ||
-                remoteRow.EntityType != "OrynivoArtist")
-            {
-                return;
-            }
-
-            await OpenOrynivoArtistImageSearchAsync(server, remoteArtistId, remoteRow);
-            ArtistInfoImage.Source = remoteRow.Artwork;
-            ArtistInfoImagePlaceholder.IsVisible = ArtistInfoImage.Source is null;
-            ArtistInfoImageStatusText.IsVisible = false;
-            return;
-        }
-
-        if (_artistInfoDisplayedId is not long artistId)
-            return;
-
-        ArtistInfo? artist;
-        using (var db = AudioDatabase.OpenDefault())
-            artist = db.GetArtistById(artistId);
-        if (artist is null)
-            return;
-
-        var dialog = new ArtistImageSearchWindow(
-            artist.Artist,
-            _settings.FanartTvApiKey);
-        if (await dialog.ShowDialog<bool>(this) == false || dialog.SelectedResult is not { } selected)
-            return;
-
-        try
-        {
-            var imagePath = await ArtistImageSearchService.SaveImageAsync(
-                artistId,
-                selected.ImageData,
-                selected.MimeType);
-            using (var db = AudioDatabase.OpenDefault())
-            {
-                db.UpdateArtistImage(artistId, imagePath);
-                artist = db.GetArtistById(artistId);
-            }
-
-            if (artist is null)
-                return;
-
-            ArtistInfoImage.Source = CreateArtworkImage(imagePath, 1000, ignoreCache: true);
-            ArtistInfoImagePlaceholder.IsVisible = ArtistInfoImage.Source is null;
-            ArtistInfoImageStatusText.IsVisible = false;
-            await SynchronizeUnifiedArtistImageAsync(
-                artist.Artist,
-                selected.ImageData,
-                selected.MimeType);
-            await RefreshVisibleArtistRowAsync(artist);
-        }
-        catch
-        {
-            ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
-            ArtistInfoImageStatusText.IsVisible = true;
-        }
+            var selected = await selectImage(artistName);
+            return selected is null ? null : (selected.ImageData, selected.MimeType ?? "image/jpeg");
+        }, requireOwningServerUpload: true);
     }
 
     /// <summary>Owns manual image publication independently from profile observations.</summary>
@@ -372,17 +324,51 @@ public partial class MainWindow : Window
     /// <summary>Retains the original upload target through selection, synchronization and decoding.</summary>
     /// <param name="pickImage">Selects image bytes and MIME type, or null for cancellation.</param>
     /// <returns>A task completing accepted synchronization and still-current image publication.</returns>
-    private async Task UploadDisplayedArtistImageAsync(Func<Task<(byte[] Data, string MimeType)?>> pickImage)
+    private Task UploadDisplayedArtistImageAsync(Func<Task<(byte[] Data, string MimeType)?>> pickImage)
+        => ApplyDisplayedArtistImageAsync(pickImage, requireOwningServerUpload: false);
+
+    /// <summary>Retains selection, owning-server upload and synchronized manual-image publication.</summary>
+    /// <param name="pickImage">Selects accepted bytes, or null for cancellation.</param>
+    /// <param name="requireOwningServerUpload">Whether search must first upload directly to the captured owning server.</param>
+    /// <returns>A task completing accepted data work and still-current image publication.</returns>
+    private async Task ApplyDisplayedArtistImageAsync(Func<Task<(byte[] Data, string MimeType)?>> pickImage,
+        bool requireOwningServerUpload)
     {
         var canPublish = CaptureArtistImageActionGuard();
         var remoteRow = _artistInfoDisplayedRemoteRow;
-        var server = remoteRow?.OrynivoServer ?? _activeOrynivoServer;
+        var nowPlaying = _nowPlayingRemoteArtistInfo;
+        var server = nowPlaying ? _currentOrynivoTrackRow?.OrynivoServer : remoteRow?.OrynivoServer ?? _activeOrynivoServer;
+        var owningArtistId = nowPlaying ? _currentOrynivoTrackRow?.ArtistId : remoteRow?.Id;
+        var sourceIsCurrent = CreateArtistProfileSourceGuard(server);
+        var connection = server is null ? null : new OrynivoServerSettings
+        {
+            Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+            ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+            StreamingFormat = server.StreamingFormat, StreamingBitrateKbps = server.StreamingBitrateKbps
+        };
         var localId = _artistInfoDisplayedId;
         if (!canPublish() || !TryGetDisplayedArtistName(out var artistName)) return;
         try
         {
             var image = await pickImage();
             if (!canPublish() || image is null) return;
+            if (requireOwningServerUpload && connection is not null && owningArtistId is long remoteArtistId)
+            {
+                var uploaded = await _orynivoClient.UploadArtistImageAsync(
+                    connection, remoteArtistId, image.Value.Data, image.Value.MimeType);
+                if (!uploaded)
+                {
+                    if (canPublish())
+                    {
+                        ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
+                        ArtistInfoImageStatusText.IsVisible = true;
+                    }
+                    return;
+                }
+                InvalidateUnifiedLibraryViewCache();
+                if (sourceIsCurrent()) DeleteOrynivoArtistListCache(connection);
+                if (!canPublish()) return;
+            }
             await SynchronizeUnifiedArtistImageAsync(artistName, image.Value.Data, image.Value.MimeType);
             if (!canPublish()) return;
             var bitmap = await Task.Run(() =>
@@ -406,6 +392,12 @@ public partial class MainWindow : Window
                 remoteRow.ArtworkLoadQueued = remoteRow.ThumbnailLoadQueued = false;
                 remoteRow.ArtworkLoadCompleted = remoteRow.ThumbnailLoadCompleted = true;
                 remoteRow.ImageIsManual = true;
+            }
+            else if (requireOwningServerUpload && nowPlaying && server is not null && owningArtistId is long playingArtistId)
+            {
+                var imageUrl = OrynivoServerClient.GetArtistArtworkUrl(server, playingArtistId);
+                InvalidateRemoteArtworkCache(imageUrl);
+                WriteRemoteArtworkCache(imageUrl, image.Value.Data);
             }
             else if (localId is long localArtistId)
             {
@@ -501,49 +493,6 @@ public partial class MainWindow : Window
         SearchArtistImageButton.IsVisible = isVisible;
         UploadArtistImageButton.IsVisible = isVisible;
         DeleteArtistImageButton.IsVisible = isVisible;
-    }
-
-    /// <summary>Opens manual artist-image search for the currently playing remote track's artist.</summary>
-    /// <returns>A task representing the asynchronous search and upload flow.</returns>
-    private async Task OpenNowPlayingRemoteArtistImageSearchAsync()
-    {
-        if (_currentOrynivoTrackRow is not { OrynivoServer: { } server, ArtistId: long artistId })
-            return;
-
-        var artistName = ArtistInfoTitleButton.Content as string;
-        if (string.IsNullOrWhiteSpace(artistName))
-            artistName = _currentOrynivoTrackRow.Artist ?? string.Empty;
-
-        var dialog = new ArtistImageSearchWindow(
-            artistName,
-            _settings.FanartTvApiKey);
-        if (await dialog.ShowDialog<bool>(this) == false || dialog.SelectedResult is not { } selected)
-            return;
-
-        var uploaded = await _orynivoClient.UploadArtistImageAsync(
-            server,
-            artistId,
-            selected.ImageData,
-            selected.MimeType);
-        if (!uploaded)
-        {
-            ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
-            ArtistInfoImageStatusText.IsVisible = true;
-            return;
-        }
-
-        var imageUrl = OrynivoServerClient.GetArtistArtworkUrl(server, artistId);
-        InvalidateRemoteArtworkCache(imageUrl);
-        WriteRemoteArtworkCache(imageUrl, selected.ImageData);
-        using var stream = new MemoryStream(selected.ImageData);
-        ArtistInfoImage.Source = new Bitmap(stream);
-        ArtistInfoImagePlaceholder.IsVisible = ArtistInfoImage.Source is null;
-        ArtistInfoImageStatusText.IsVisible = false;
-        await SynchronizeUnifiedArtistImageAsync(
-            artistName,
-            selected.ImageData,
-            selected.MimeType);
-        StatusTextBlock.Text = string.Empty;
     }
 
     /// <summary>Deletes matching artist images while retaining the original server set and connection identity.</summary>

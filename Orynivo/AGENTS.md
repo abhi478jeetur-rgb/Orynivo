@@ -656,15 +656,21 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   including cancellation following a write. Never roll back admitted changes.
   Keep biography metadata intact. Dialog and hero publication require separate
   ownership guards; source-safe synchronization alone does not protect UI.
-- Artist-image upload/delete adapters capture displayed local/remote/now-playing
-  identity, source, sidebar/detail/name, profile observation and outer Back
-  before selection or synchronization. Manual image actions have independent
-  publication ownership; a newer action rejects older completion. Recheck after
-  selection before mutation and after synchronization, decoding and row reads.
-  Decode uploads off UI and dispose rejected bitmaps. Publish the retained hero
-  and captured row only; pass the guard into local row refresh and guard errors
-  and final status. Accepted data writes remain navigation-independent. Image
-  search must use the same ownership before this action audit is complete.
+- Artist-detail image search/upload/delete adapters capture displayed
+  local/remote/now-playing identity, source, sidebar/detail/name, profile
+  observation and outer Back before selection or synchronization. Manual image
+  actions have independent publication ownership; a newer action rejects older
+  completion. Recheck after selection before mutation and after synchronization,
+  decoding and row reads. Decode uploads off UI and dispose rejected bitmaps.
+  Publish the retained hero and captured row only; pass the guard into local row
+  refresh and guard errors and final status. Accepted data writes remain
+  navigation-independent. Search adapts its captured query/result into the same
+  publication flow and shares ownership with file upload. Retain direct search
+  upload to the copied owning server and current failure feedback. Recheck after
+  direct upload before further synchronization; invalidate catalogs after
+  accepted direct writes and only clean the owning source cache while valid.
+  Separate library context-menu artwork adapters and profile/manual-write
+  overlap still require their audits.
 - Local artist edits capture displayed identity/title, sidebar/detail/name,
   profile observation and outer Back before background artist lookup. Recheck
   before opening a merge dialog and after its choice before transaction

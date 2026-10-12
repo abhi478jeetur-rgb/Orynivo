@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist-detail image search uses the guarded manual-image flow for local,
+  server and Now Playing artists. Search retains its original query and target;
+  obsolete confirmations cannot upload or replace a newer image. Search and file
+  upload share action ownership. Direct uploads use copied owning-server
+  connections and retain current failure feedback; changed sources or views
+  reject subsequent synchronization/publication. Successful admitted uploads
+  invalidate catalogs even after navigation. Redundant unguarded detail-search
+  continuations and the separate Now Playing search flow were removed.
+
 - Artist-image upload selection and deletion retain their original displayed
   artist, source, playback and navigation context. Outdated selections cannot
   start synchronization; admitted data changes complete without overwriting a

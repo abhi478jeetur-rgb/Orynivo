@@ -1918,16 +1918,22 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   write. Never roll back admitted changes or replace biography metadata. Dialog
   and hero publication require their own enclosing ownership guards; source-safe
   synchronization alone does not protect UI.
-- Artist-image upload/delete adapters capture displayed local/remote/now-playing
-  identity, source, sidebar/detail/name, profile observation and outer Back
-  before selection or synchronization. Independent manual-image publication
-  ownership rejects older completion after a newer action. Recheck after
-  selection before mutation, then after synchronization, decoding and local
-  reads. Decode uploaded bitmaps off UI and dispose rejected images. Publish
-  only the retained hero/captured row; local row refresh, failures and final
-  status use the same guard. Accepted data writes remain navigation-independent.
-  Image search must adopt the same ownership before this action audit is
-  complete.
+- Artist-detail image search/upload/delete adapters capture displayed
+  local/remote/now-playing identity, source, sidebar/detail/name, profile
+  observation and outer Back before selection or synchronization. Independent
+  manual-image publication ownership rejects older completion after a newer
+  action. Recheck after selection before mutation, then after synchronization,
+  decoding and local reads. Decode uploaded bitmaps off UI and dispose rejected
+  images. Publish only the retained hero/captured row; local row refresh,
+  failures and final status use the same guard. Accepted data writes remain
+  navigation-independent. Search retains its query and adapts the selected bytes
+  into the same flow, sharing publication ownership with file upload. Preserve
+  the direct search upload to a copied owning-server connection and current
+  failure feedback. Recheck afterward before subsequent
+  synchronization/publication. Accepted direct writes invalidate catalogs even
+  after navigation; only clean the source cache while its identity is valid.
+  Separate library context-menu artwork adapters and profile/manual-write
+  overlap still need their audits.
 - The artist information view can rename artists. A matching normalized name
   opens a merge dialog that asks which artist record and profile data survive;
   the transaction consolidates duplicate albums, reassigns tracks, preserves
