@@ -65,7 +65,7 @@ public sealed class WasapiSampleRateSelectionTests
         Assert.Equal(expectedFirst, rates[0]);
     }
 
-    /// <summary>A configured cap moves every rate above it to the end of the order.</summary>
+    /// <summary>A configured cap excludes every rate above it, including fallback rates.</summary>
     [Fact]
     public void OrderCandidateSampleRates_HonoursTheMaximumOutputRate()
     {
@@ -81,11 +81,11 @@ public sealed class WasapiSampleRateSelectionTests
         var rates = WasapiAudioPlayer.OrderCandidateSampleRates(info, maxSampleRateHz: 96_000).ToList();
 
         Assert.Equal(96_000, rates[0]);
-        Assert.True(rates.IndexOf(96_000) < rates.IndexOf(192_000));
-        Assert.All(rates.TakeWhile(rate => rate <= 96_000), rate => Assert.True(rate <= 96_000));
+        Assert.DoesNotContain(192_000, rates);
+        Assert.All(rates, rate => Assert.InRange(rate, 1, 96_000));
     }
 
-    /// <summary>A cap that excludes everything still leaves a fallback order.</summary>
+    /// <summary>A low supported cap offers only the matching rate.</summary>
     [Fact]
     public void OrderCandidateSampleRates_KeepsAFallbackBelowTheCap()
     {
@@ -102,6 +102,7 @@ public sealed class WasapiSampleRateSelectionTests
 
         Assert.NotEmpty(rates);
         Assert.Equal(8_000, rates[0]);
+        Assert.Single(rates);
     }
 
     /// <summary>The DSD preference still applies under a cap.</summary>
@@ -113,7 +114,29 @@ public sealed class WasapiSampleRateSelectionTests
         var rates = WasapiAudioPlayer.OrderCandidateSampleRates(info, maxSampleRateHz: 96_000).ToList();
 
         Assert.Equal(88_200, rates[0]);
-        Assert.True(rates.IndexOf(88_200) < rates.IndexOf(176_400));
+        Assert.DoesNotContain(176_400, rates);
+        Assert.All(rates, rate => Assert.InRange(rate, 1, 96_000));
+    }
+
+    /// <summary>High-resolution WavPack never offers an unstable rate above the configured limit.</summary>
+    /// <param name="limit">Explicit maximum output sample rate.</param>
+    [Theory]
+    [InlineData(96_000)]
+    [InlineData(192_000)]
+    public void OrderCandidateSampleRates_HighResolutionWavPackStaysWithinLimit(int limit)
+    {
+        var info = new AudioFileInfo("wavpack", 384_000, 2, 384_000, false, "wv", TimeSpan.FromMinutes(1));
+        var rates = WasapiAudioPlayer.OrderCandidateSampleRates(info, limit);
+        Assert.Equal(limit, rates[0]);
+        Assert.All(rates, rate => Assert.InRange(rate, 1, limit));
+    }
+
+    /// <summary>A cap below all candidates must not silently fall back above the limit.</summary>
+    [Fact]
+    public void OrderCandidateSampleRates_NoCandidateWithinLimitReturnsEmpty()
+    {
+        var info = new AudioFileInfo("wavpack", 384_000, 2, 384_000, false, "wv", TimeSpan.FromMinutes(1));
+        Assert.Empty(WasapiAudioPlayer.OrderCandidateSampleRates(info, 4_000));
     }
 
     /// <summary>Every offered rate is positive and appears once.</summary>

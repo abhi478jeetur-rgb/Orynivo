@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Enforce the configured maximum WASAPI output sample rate as a strict limit.
+  Never fall back above it when a driver rejects lower rates, preventing an
+  advertised but unstable high-rate mode from bypassing the user's restriction.
+
 - Scan newly added local directories immediately in Settings, using the existing
   progress, cancellation and retry controls. Preserve active directory rows when
   other folders are added or removed; duplicate folders do not start new scans.

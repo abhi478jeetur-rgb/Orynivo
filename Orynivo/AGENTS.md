@@ -39,6 +39,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- WASAPI MaxOutputSampleRateHz is a strict positive ceiling, not a preference.
+  Never retain higher-rate fallback candidates. Zero retains unrestricted
+  selection; no supported format within a positive cap must fail before output
+  starts. Preserve exact DSD division ordering among eligible candidates.
+
 - Fresh transport keeps Play disabled until a source is known. Idle Stop must
   preserve this condition while retaining remembered-source retry/resume;
   restoration failure disables Play. Do not duplicate playback ownership.

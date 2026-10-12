@@ -414,6 +414,13 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 
 ## Important Architecture
 
+WASAPI output rate selection excludes every rate above a positive
+MaxOutputSampleRateHz, including fallback candidates. Zero remains unrestricted.
+FFmpeg resamples PCM to the selected accepted rate. If the driver supports no
+format within the limit, selection fails before output starts; advertised higher
+rates must never bypass an explicit cap. Pure desktop tests cover 384-kHz
+WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
+
 - `Orynivo/OutputProfile.cs`: named audio output configuration (backend, device
   IDs, display name); multiple profiles allow switching between output devices
   without reconfiguring each time
@@ -2421,7 +2428,7 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   the source rate, then the first supported stereo format from 32-bit float,
   packed 24-bit PCM, and 16-bit PCM. Sources above the endpoint maximum are
   converted by FFmpeg; when only higher rates are available, the lowest one is
-  used.
+  used only if it remains within a configured positive output ceiling.
 - WASAPI plays DSF/DFF by converting DSD to PCM through `ffmpeg` without a
   temporary file using the same endpoint-aware sample-rate and precision
   selection as other PCM playback.

@@ -2182,6 +2182,15 @@ Third-party components and the optional Steinberg ASIO SDK are excluded from
 that grant and remain subject to their respective terms. See [NOTICE](NOTICE)
 and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
+## WASAPI output rate limit
+
+For WASAPI devices that report unstable high sample rates, set Maximum output
+sample rate in Settings > Playback to a known working rate. This is a strict
+limit: playback never falls back above it. High-resolution sources are decoded
+and resampled to an accepted output rate; if none works within the limit,
+playback reports failure instead of exceeding it. Automatic retains the
+unrestricted device selection.
+
 ## Fresh profiles and legacy data
 
 The default data directory is the Orynivo folder under local application data.

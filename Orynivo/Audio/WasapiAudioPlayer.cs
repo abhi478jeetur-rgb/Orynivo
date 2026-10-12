@@ -813,6 +813,7 @@ public sealed class WasapiAudioPlayer : IGaplessAudioPlayer, IEqualizerAudioPlay
     /// PCM sources and as the fallback when no exact DSD division is supported.
     /// </summary>
     /// <param name="info">Probed source information.</param>
+    /// <param name="maxSampleRateHz">Strict upper output limit; zero leaves the rates unrestricted.</param>
     /// <returns>The distinct candidate rates in probe order.</returns>
     internal static IReadOnlyList<int> OrderCandidateSampleRates(AudioFileInfo info, int maxSampleRateHz = 0)
     {
@@ -832,11 +833,10 @@ public sealed class WasapiAudioPlayer : IGaplessAudioPlayer, IEqualizerAudioPlay
                 .ThenBy(rate => rate > sourceSampleRate ? rate : int.MaxValue))
             .Distinct()
             .ToArray();
-        // A configured cap only reorders: rates inside the cap come first so a driver that
-        // advertises an unusable maximum rate can be kept out of reach, while playback still
-        // has a fallback when the device supports nothing at or below the cap.
+        // Never probe above an explicit limit, even when the driver rejects every
+        // lower rate. An advertised high rate may produce noise rather than audio.
         return maxSampleRateHz > 0
-            ? [.. ordered.Where(rate => rate <= maxSampleRateHz), .. ordered.Where(rate => rate > maxSampleRateHz)]
+            ? [.. ordered.Where(rate => rate <= maxSampleRateHz)]
             : ordered;
     }
 
