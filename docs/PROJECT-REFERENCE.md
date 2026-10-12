@@ -811,7 +811,10 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Settings. The output entry shares the transport Settings action. The row has
   no height cap or transition; both captions wrap and provide explicit
   accessible names. Existing source visibility rules hide the hint when a local
-  folder or Orynivo Server is configured.
+  folder or Orynivo Server is configured. The navigation ListBox uses Continue
+  tab traversal so all nested setup buttons are reachable with Tab/Shift+Tab and
+  activate through normal Enter handling rather than being skipped by the
+  default single-entry tab policy.
 - Both live Settings root changes and accepted Settings use
   `SetConfiguredLibraryPaths` in `MainWindow.Settings.cs`. It copies the roots,
   expands Library when the first local root is added, and retains collapsed

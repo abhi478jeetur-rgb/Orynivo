@@ -52,9 +52,13 @@ affect the pure desktop unit tests.
   owning UI dispatcher; release all captured transport gates during teardown.
 
 - Fresh-profile setup checks run before catalog seeding. Detach only the
-  compiled hint or output-profile setup panel into a bounded host; verify
-  wrapped localized captions, focus admission and explicit automation names.
-  Activate the routed Click event through the existing Settings host and
+  compiled hint, setup-only sidebar or output-profile panel into a bounded host;
+  verify wrapped localized captions, focus admission and explicit automation
+  names. Activate the routed Click event through the existing Settings host and
   deactivate every opened view. Never start a scan, open a picker, connect a
   real server or enumerate audio devices. Distinguish these checks from native
   Tab/pointer and audible playback proof.
+- Headless sidebar key checks temporarily retain only the setup item inside the
+  actual compiled ListBox. This avoids activating unrelated radio/provider
+  navigation. Restore all items/parent placement and deactivate Settings. Label
+  this as headless key dispatch, not native OS or full-sidebar traversal proof.

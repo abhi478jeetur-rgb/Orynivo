@@ -3,6 +3,8 @@ using Avalonia;
 using Avalonia.Automation.Peers;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
+using Avalonia.Headless;
+using Avalonia.Input;
 using Avalonia.Threading;
 using Orynivo.Localization;
 using Orynivo.Streaming;
@@ -97,6 +99,7 @@ internal static class EmptyLibraryWorkflows
             ThemeManager.Apply(AppTheme.Dark);
         }
 
+        CheckSidebarKeyboard(window, sidebar, hint, folders, servers, output);
         try
         {
             foreach (var entry in new[] { (folders, "LibraryPanel"), (servers, "OrynivoServersSettingsPanel"),
@@ -143,6 +146,64 @@ internal static class EmptyLibraryWorkflows
         CheckFirstLocalSource(window, settings, root);
         CheckEmptyViewNotice(window, settings, root);
         CheckEmptyViewLoadOwnership(window, settings);
+    }
+
+    /// <summary>Checks headless key dispatch through the compiled sidebar with only the setup item admitted.</summary>
+    /// <param name="window">The unshown production window that owns Settings routing.</param>
+    /// <param name="sidebar">The compiled navigation ListBox.</param>
+    /// <param name="hint">Its non-leaf setup item.</param>
+    /// <param name="folders">The local setup action.</param>
+    /// <param name="servers">The server setup action.</param>
+    /// <param name="output">The output setup action.</param>
+    private static void CheckSidebarKeyboard(MainWindow window, ListBox sidebar, ListBoxItem hint,
+        Button folders, Button servers, Button output)
+    {
+        var parent = (Panel)sidebar.Parent!;
+        var index = parent.Children.IndexOf(sidebar);
+        var items = sidebar.Items.Cast<object>().ToArray();
+        var originalHeight = sidebar.Height;
+        parent.Children.Remove(sidebar);
+        sidebar.Items.Clear(); sidebar.Items.Add(hint); sidebar.Height = 400;
+        var before = new Button { Content = "Synthetic before" };
+        var after = new Button { Content = "Synthetic after" };
+        var stack = new StackPanel(); stack.Children.Add(before); stack.Children.Add(sidebar); stack.Children.Add(after);
+        var host = new Window { Width = 270, Height = 600, Content = stack };
+        void Press(Key key, RawInputModifiers modifiers = RawInputModifiers.None)
+        {
+            var physical = key == Key.Tab ? PhysicalKey.Tab : PhysicalKey.Enter;
+            host.KeyPress(key, modifiers, physical, null); host.KeyRelease(key, modifiers, physical, null);
+            Dispatcher.UIThread.RunJobs();
+        }
+        try
+        {
+            host.Show(); Dispatcher.UIThread.RunJobs(); before.Focus();
+            for (var step = 0; step < 4 && !ReferenceEquals(host.FocusManager!.GetFocusedElement(), folders); step++)
+                Press(Key.Tab);
+            Check(ReferenceEquals(host.FocusManager!.GetFocusedElement(), folders), "Tab did not reach sidebar folder setup.");
+            Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), servers), "Tab skipped server setup.");
+            Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), output), "Tab skipped output setup.");
+            Press(Key.Tab); Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), after), "Sidebar trapped forward Tab.");
+            Press(Key.Tab, RawInputModifiers.Shift);
+            Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), output), "Reverse Tab did not enter output setup.");
+            Press(Key.Tab, RawInputModifiers.Shift);
+            Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), servers), "Reverse Tab skipped server setup.");
+            Press(Key.Tab, RawInputModifiers.Shift);
+            Check(ReferenceEquals(host.FocusManager.GetFocusedElement(), folders), "Reverse Tab skipped folder setup.");
+            Press(Key.Enter);
+            var settingsHost = window.FindControl<ContentControl>("SettingsViewHost")!;
+            Check(settingsHost.IsVisible && settingsHost.Content is SettingsView view &&
+                view.FindControl<Control>("LibraryPanel")!.IsVisible, "Enter did not activate actual folder Settings routing.");
+            typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
+            Console.WriteLine("PASS: sidebar setup supports headless Tab, reverse Tab and Enter activation");
+        }
+        finally
+        {
+            typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
+            host.Content = null; host.Close(); stack.Children.Remove(sidebar);
+            sidebar.Items.Clear(); foreach (var item in items) sidebar.Items.Add(item);
+            sidebar.Height = originalHeight; parent.Children.Insert(index, sidebar);
+            Dispatcher.UIThread.RunJobs();
+        }
     }
 
     /// <summary>Checks real catalog publication, cache, supersession and watcher freshness before seeding media.</summary>

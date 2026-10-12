@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Sidebar TabNavigation must Continue through nested setup buttons. Preserve
+  forward/reverse traversal and normal Enter activation; never trap focus or
+  treat the non-leaf setup hint as a persisted view.
+
 - Empty-view guidance requires a complete, source-backed zero-row result in a
   normal Artists/Albums/Tracks view with configured media sources. Reuse the
   existing detail/search/playlist exclusion guard; never present unavailable or

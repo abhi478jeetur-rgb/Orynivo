@@ -974,6 +974,7 @@
 
             <!-- Nav -->
             <ListBox x:Name="NavListBox"
+                     KeyboardNavigation.TabNavigation="Continue"
                      Grid.Row="1"
                      Background="Transparent"
                      BorderThickness="0"
