@@ -520,7 +520,14 @@ public partial class MainWindow : Window
                 language,
                 forceRefresh,
                 cts.Token,
-                CanPublish);
+                CanPublish,
+                CanPublishImage,
+                write => _artistImageWriteQueue.RunAsync(
+                    ArtistNameNormalizer.CreateComparisonKey(artistName), CanPublish, async () =>
+                    {
+                        await write();
+                        return true;
+                    }));
             if (!CanPublish()) return;
 
             byte[]? imageData = null;

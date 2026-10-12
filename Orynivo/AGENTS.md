@@ -704,8 +704,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   IDs for server profile image files. The server API still uses its real artist
   ID. Never derive this identity from URLs or credentials. Release before the
   separately ordered primary upload and unified synchronization, both of which
-  recheck ownership. Now Playing provider uploads, automatic row jobs,
-  Settings/context-menu and cross-window/client ordering remain separate work.
+  recheck ownership. Now Playing passes its independent image guard and an
+  ordered-write adapter into GetArtistProfileForViewAsync. Initial metadata
+  reads remain outside mutation admission; superseded cached images return
+  biography without image writes. Ordered data work refreshes server
+  manual-image state after waiting, uses source-owned negative download cache
+  IDs and retains source/playback/image guards between download, byte capture
+  and upload. Forced biography refresh loads existing manual server artwork when
+  available. Stage server-image cache bytes uniquely and recheck ownership
+  before publication; rejected or cancelled staging must preserve previous
+  cached bytes. Release before unified synchronization. Standard metadata
+  callers keep the optional adapters unset. Automatic row jobs,
+  Settings/context-menu and cross-window/ client ordering remain separate work.
 - Foreground profiles observe admitted manual-image changes separately from
   dialog/action admission. Advance manual-image write ownership only after an
   accepted selection or at deletion admission; cancelled selection must not

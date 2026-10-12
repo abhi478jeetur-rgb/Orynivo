@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Now Playing server profiles share ordered download/upload and cache work with
+  manual artist-image changes. Queued work refreshes authoritative manual-image
+  state, uses source-owned cache IDs and rechecks playback/source/image
+  ownership. Superseded cached images still allow current biography display
+  without writes. Forced biography refresh retains manual server artwork;
+  guarded cache staging preserves prior bytes when publication is abandoned.
+
 - Server artist-detail profile downloads and image-byte capture share write
   ordering with manual image changes. Image policy is checked after waiting;
   obsolete capture is rejected while retaining biography data. Waiting downloads

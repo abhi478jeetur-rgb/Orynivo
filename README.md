@@ -1120,6 +1120,9 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Now Playing server profile writes share manual-image ordering and source-owned
+  caches. Superseded images retain current biographies; forced biography refresh
+  preserves manual server artwork.
 - Server artist-detail profile downloads and image capture also share write
   ordering, retaining later manual image changes and current biographies. They
   recheck server manual-image state and keep downloaded files separate from

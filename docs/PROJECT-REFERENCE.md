@@ -1973,9 +1973,17 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   artist cache files remain separate. Real artist IDs remain unchanged in API
   requests. Cache file stems and save/delete wildcard patterns use invariant
   numeric formatting. Release before the separately guarded/ordered primary
-  upload and unified synchronization. Now Playing provider uploads, automatic
-  row jobs, Settings/context-menu writers and other windows/clients still
-  require coordination. This does not provide a transaction.
+  upload and unified synchronization. Now Playing supplies an independent image
+  guard and shared ordered-write adapter to GetArtistProfileForViewAsync.
+  Initial metadata reads stay outside write admission. Ordered work refreshes
+  manual-image state after waiting and uses source-owned negative cache IDs.
+  Superseded cached images return biography without image writes. Forced
+  biography refresh retains manual server artwork; unique server-image staging
+  rechecks ownership before replacing cached bytes and cleans rejected/cancelled
+  staging. Release before unified synchronization. Standard metadata callers
+  leave optional adapters unset. Automatic row jobs, Settings/context-menu and
+  other windows/clients still need coordination. This does not provide a
+  transaction.
 - Foreground profiles separately observe admitted manual-image changes. Advance
   manual-image write ownership after accepted selection or at deletion
   admission; cancelled selection keeps profile images admitted. Older profiles
