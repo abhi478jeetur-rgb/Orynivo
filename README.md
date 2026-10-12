@@ -1120,6 +1120,9 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Back restores the outer artist-detail scroll position after layout. New artist
+  details start at the top; old deferred callbacks cannot move another detail.
+  Hidden tables do not supply artist-detail selections.
 - Artist image requests retain their own rejection after a matching manual
   change, even when another artist changes afterwards. Only live requests retain
   observation state; completed requests release it.

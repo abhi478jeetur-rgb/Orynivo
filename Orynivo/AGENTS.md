@@ -39,6 +39,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Artist detail owns ArtistInfoScrollViewer for Back position capture and
+  restoration. Never borrow selected rows or offsets from an overlaid table.
+  Reset scroll on new detail admission; restore only after layout while the
+  original Back guard, detail version, canonical name and visibility remain
+  current. Refreshing metadata inside the same detail must not reset its scroll.
+
 - ArtistImageIntentOwnership retains per-identity rejection only for live
   disposable observations. A later unrelated admission must never revive an old
   matching image. Observe identities before cancellation callbacks and release

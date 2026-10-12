@@ -3293,7 +3293,8 @@
                   IsVisible="False"
                   Background="{DynamicResource AppContentBrush}"
                   ZIndex="21">
-                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                <ScrollViewer x:Name="ArtistInfoScrollViewer"
+                              VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                     <Grid Margin="24,24,24,50">
                         <Grid.RowDefinitions>

@@ -85,6 +85,7 @@ public partial class MainWindow : Window
         LyricsView.IsVisible = false;
         PodcastInfoView.IsVisible = false;
         ArtistInfoView.IsVisible = true;
+        ArtistInfoScrollViewer.Offset = default;
         ArtistInfoTitleButton.Content = artistName;
         ResetArtistInfoSurface(artistName);
         ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoLoading;

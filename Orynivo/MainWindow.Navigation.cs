@@ -231,6 +231,8 @@ public partial class MainWindow : Window
     {
         if (SearchResultsScrollViewer.IsVisible)
             return SearchResultsScrollViewer.Offset.Y;
+        if (ArtistInfoView.IsVisible)
+            return ArtistInfoScrollViewer.Offset.Y;
         if (ContentDataGrid.IsVisible)
         {
             AttachContentDataGridVerticalScrollBar();
@@ -249,9 +251,13 @@ public partial class MainWindow : Window
             .Offset.Y;
     }
 
+    /// <summary>Gets the active content selection without borrowing rows hidden by artist detail.</summary>
+    /// <returns>The selected ID, or null when no selectable content surface is active.</returns>
     private long? GetSelectedContentRowId()
         => GetSelectedContentRow()?.Id;
 
+    /// <summary>Gets the selected row from the active search, table or artwork surface.</summary>
+    /// <returns>The active selected row, or null for artist detail or absent selection.</returns>
     private ContentRow? GetSelectedContentRow()
     {
         if (SearchResultsScrollViewer.IsVisible)
@@ -264,6 +270,7 @@ public partial class MainWindow : Window
                 return searchArtist;
             return null;
         }
+        if (ArtistInfoView.IsVisible) return null;
         if (ContentDataGrid.IsVisible &&
             ContentDataGrid.SelectedItem is ContentRow gridRow)
             return gridRow;
@@ -662,6 +669,11 @@ public partial class MainWindow : Window
     {
         if (canRestore is not null && !canRestore())
             return;
+        if (ArtistInfoView.IsVisible)
+        {
+            RestoreArtistInfoPositionAfterLayout(verticalOffset, canRestore);
+            return;
+        }
         var rows = (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList()
                    ?? (AlbumArtworkListBox.ItemsSource as IEnumerable<ContentRow>)?.ToList()
                    ?? (ArtistArtworkListBox.ItemsSource as IEnumerable<ContentRow>)?.ToList()
@@ -762,6 +774,23 @@ public partial class MainWindow : Window
                 },
                 DispatcherPriority.Loaded);
         }
+    }
+
+    /// <summary>Restores the outer artist-detail scroll after layout while its original detail remains current.</summary>
+    /// <param name="verticalOffset">Saved outer detail offset.</param>
+    /// <param name="canRestore">Optional enclosing Back/load ownership.</param>
+    private void RestoreArtistInfoPositionAfterLayout(double? verticalOffset, Func<bool>? canRestore)
+    {
+        if (verticalOffset is not double offset) return;
+        var version = _artistDetailLoadVersion;
+        var artistName = _artistInfoUnifiedArtistName;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if ((canRestore is not null && !canRestore()) || !ArtistInfoView.IsVisible ||
+                version != _artistDetailLoadVersion || artistName != _artistInfoUnifiedArtistName) return;
+            ArtistInfoScrollViewer.Offset = new Vector(ArtistInfoScrollViewer.Offset.X,
+                Math.Clamp(offset, 0, Math.Max(0, ArtistInfoScrollViewer.Extent.Height - ArtistInfoScrollViewer.Viewport.Height)));
+        }, DispatcherPriority.Loaded);
     }
 
     /// <summary>Restores table position after layout only while its owning load remains current.</summary>

@@ -3217,3 +3217,17 @@ Local artwork decoding opens read streams with deletion sharing. Atomic cache
 replacement and variant cleanup can proceed while an existing reader finishes
 decoding its original published bytes. Enclosing image guards still decide
 whether that decoded result may publish.
+
+### Artist detail Back scroll acceptance
+
+Artist detail captures the offset of its named outer `ArtistInfoScrollViewer`
+and exposes no selection from overlaid table rows. New unified artist admission
+starts at zero. Restore routes schedule the saved offset after layout, retaining
+the enclosing Back guard plus detail version, canonical name and visibility.
+Metadata refresh within the same detail retains its position. Actual offline
+Back-button fixtures cover source-aware origin selection/history, late
+remote/Now Playing profiles, delayed upload/search/refresh selection, and
+admitted image changes whose data may finish while UI publication is rejected. A
+bounded headless scroll host checks the compiled artist scroll control and
+current or obsolete deferred callbacks; MainWindow stays unshown and no playback
+starts.

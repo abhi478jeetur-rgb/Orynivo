@@ -8,6 +8,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Back now captures and restores the outer artist-detail scroll position,
+  without borrowing a selection from an overlaid table. Deferred scrolling
+  rechecks detail identity and Back ownership; newly opened artist details start
+  at the top. Offline Back checks cover delayed profile/dialog/image completion
+  and retained source-aware selection.
+
 - Artist image rejection now stays attached to each running profile or artwork
   operation. Later changes to another artist cannot revive an older image.
   Observations are released on completion, without keeping mutation history.
