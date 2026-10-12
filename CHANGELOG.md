@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Local foreground artist profiles order download, SQLite persistence and image
+  byte capture together with manual image changes. Download policy is checked
+  after waiting; later manual uploads/deletions finish last. Current biographies
+  still persist when a manual change supersedes the image.
+
 - Primary profile uploads from the server artist-detail view share write
   ordering with manual image changes. Waiting uploads recheck view/source
   ownership and discard obsolete image bytes while retaining current biography

@@ -686,9 +686,16 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   cancellation after waiting; form the image payload only after checking current
   image ownership. Biography-only uploads remain admitted for a current view
   after manual image supersession. Later manual writes finish last; hero/row and
-  loading publication retain their separate guards. Direct profile downloads,
-  Now Playing provider uploads, automatic row jobs, Settings/context-menu and
-  cross-window/client ordering remain separate acceptance work.
+  loading publication retain their separate guards. Local foreground profiles
+  use DownloadLocalArtistProfileInWriteOrderAsync to hold the same queue through
+  download, SQLite persistence and image-byte capture. Check view/cancellation
+  before admission; determine image download policy after waiting. Keep accepted
+  biography persistence after image supersession and read image bytes before
+  releasing ownership so later manual cleanup cannot remove the file mid-read.
+  Release before unified synchronization to avoid nested same-artist queue
+  waits. Server direct downloads, Now Playing provider uploads, automatic row
+  jobs, Settings/context-menu and cross-window/client ordering remain separate
+  work.
 - Foreground profiles observe admitted manual-image changes separately from
   dialog/action admission. Advance manual-image write ownership only after an
   accepted selection or at deletion admission; cancelled selection must not

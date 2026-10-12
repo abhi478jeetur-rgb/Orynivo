@@ -127,36 +127,17 @@ public partial class MainWindow : Window
             if (needsDownload)
             {
                 ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloading;
-                var profile = await ArtistProfileService.DownloadAsync(
-                    artist.Id,
-                    profileLookupName ?? artist.Artist,
-                    language,
-                    downloadImage: CanPublishImage() && !artist.ImageIsManual,
-                    cancellationToken: cts.Token,
-                    musicBrainzArtistId: artist.MusicBrainzArtistId);
+                var downloaded = await DownloadLocalArtistProfileInWriteOrderAsync(
+                    artist, language, request.Token, CanPublish, CanPublishImage,
+                    downloadImage => ArtistProfileService.DownloadAsync(
+                        artist.Id, profileLookupName ?? artist.Artist, language,
+                        downloadImage: downloadImage, cancellationToken: cts.Token,
+                        musicBrainzArtistId: artist.MusicBrainzArtistId));
                 if (!CanPublish()) return;
-                var imagePathToApply = CanPublishImage() ? profile?.ImagePath : null;
-                artist = await Task.Run(() =>
-                {
-                    using var db = AudioDatabase.OpenDefault();
-                    db.UpdateArtistProfile(
-                        artist.Id,
-                        profile?.Biography,
-                        imagePathToApply,
-                        profile?.SourceUrl,
-                        language);
-                    return db.GetArtistById(artist.Id);
-                }, request.Token);
-                if (!CanPublish()) return;
-
-                byte[]? imageData = null;
-                string? imageMimeType = null;
-                if (!string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
-                {
-                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, request.Token);
-                    if (!CanPublish()) return;
-                    imageMimeType = GuessImageMimeType(profile.ImagePath);
-                }
+                artist = downloaded.Artist;
+                var profile = downloaded.Profile;
+                var imageData = downloaded.ImageData;
+                var imageMimeType = downloaded.ImageMimeType;
                 await SynchronizeUnifiedArtistProfileAsync(
                     artist?.Artist,
                     profile?.Biography,
@@ -639,6 +620,47 @@ public partial class MainWindow : Window
             candidate.Id == id && candidate.Name == name && candidate.BaseUrl == url &&
             candidate.ApiKey == key && candidate.ProfileId == profile;
         return () => Matches(server) && (_settings.OrynivoServers ?? []).Any(Matches);
+    }
+
+    /// <summary>Orders local foreground download, persistence and image capture with manual image batches.</summary>
+    /// <param name="artist">The original resolved local artist.</param>
+    /// <param name="language">Profile language.</param>
+    /// <param name="cancellationToken">Cancellation before later operation admission.</param>
+    /// <param name="canPublish">Original profile/view ownership guard.</param>
+    /// <param name="canPublishImage">Additional image ownership guard.</param>
+    /// <param name="download">Downloads the profile with the admitted image-refresh policy.</param>
+    /// <returns>Updated artist metadata, downloaded profile and captured image bytes, or empty values after abandonment.</returns>
+    private async Task<(ArtistInfo? Artist, ArtistProfileDownload? Profile, byte[]? ImageData, string? ImageMimeType)>
+        DownloadLocalArtistProfileInWriteOrderAsync(ArtistInfo artist, string language,
+            CancellationToken cancellationToken, Func<bool> canPublish, Func<bool> canPublishImage,
+            Func<bool, Task<ArtistProfileDownload?>> download)
+    {
+        (ArtistInfo? Artist, ArtistProfileDownload? Profile, byte[]? ImageData, string? ImageMimeType) result = default;
+        await _artistImageWriteQueue.RunAsync(ArtistNameNormalizer.CreateComparisonKey(artist.Artist),
+            () => !cancellationToken.IsCancellationRequested && canPublish(), async () =>
+            {
+                var profile = await download(canPublishImage() && !artist.ImageIsManual);
+                if (!canPublish() || cancellationToken.IsCancellationRequested) return false;
+                var imagePath = canPublishImage() ? profile?.ImagePath : null;
+                var updated = await Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    db.UpdateArtistProfile(artist.Id, profile?.Biography, imagePath, profile?.SourceUrl, language);
+                    return db.GetArtistById(artist.Id);
+                }, cancellationToken);
+                if (!canPublish()) return false;
+                byte[]? imageData = null;
+                string? mimeType = null;
+                if (canPublishImage() && !string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
+                {
+                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, cancellationToken);
+                    mimeType = GuessImageMimeType(profile.ImagePath);
+                }
+                result = (updated, profile, imageData, mimeType);
+                return true;
+            });
+        return result;
     }
 
     /// <summary>Orders a primary server profile upload with complete manual artist-image batches.</summary>

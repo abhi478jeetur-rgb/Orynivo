@@ -1958,9 +1958,15 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   via UpdateArtistProfileInWriteOrderAsync. Recheck view/source/cancellation
   after waiting and form image payloads only after image ownership validation;
   current biography-only uploads remain admitted after manual image
-  supersession. Direct profile downloads, Now Playing provider uploads,
-  automatic row jobs, Settings/ context-menu writers and other windows/clients
-  still require coordination. This ordering does not provide a transaction.
+  supersession. Local foreground profiles use
+  DownloadLocalArtistProfileInWriteOrderAsync for ordered download, SQLite
+  persistence and image-byte capture. Determine download policy after waiting,
+  preserve current biography after image supersession, and capture image bytes
+  before releasing ownership. Unified synchronization is admitted afterwards to
+  avoid nested same-artist waits. Server direct downloads, Now Playing provider
+  uploads, automatic row jobs, Settings/context-menu writers and other
+  windows/clients still require coordination. This does not provide a
+  transaction.
 - Foreground profiles separately observe admitted manual-image changes. Advance
   manual-image write ownership after accepted selection or at deletion
   admission; cancelled selection keeps profile images admitted. Older profiles
