@@ -31,6 +31,8 @@ deferred until the user asks for them separately.
 
 The closest `AGENTS.md` applies in addition to this repository-wide file:
 
+- `Orynivo.Ui.Smoke/AGENTS.md` — isolated Windows headless workflow checks and
+  their CI/local verification contracts.
 - `Orynivo/AGENTS.md` — Avalonia UI, navigation, playback, Dashboard, remote
   library integration, localization, and Windows-specific behavior.
 - `Orynivo.Core/AGENTS.md` — cross-platform library, database, scanning, search,

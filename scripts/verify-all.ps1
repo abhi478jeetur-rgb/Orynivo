@@ -1,5 +1,5 @@
 # Runs the same checks as CI on a local checkout: the managed builds with
-# --warnaserror, all three test projects, and both parity scripts. It stops at the
+# --warnaserror, three test projects, Windows headless UI smoke and parity checks. It stops at the
 # first failure and prints a compact summary.
 #
 # CI runs these steps itself; this script only mirrors them for local use, so it
@@ -105,6 +105,13 @@ if (-not $SkipTests) {
             Arguments  = @('test', "$project/$project.csproj", '--configuration', $Configuration)
         })
     }
+}
+if (-not $SkipTests -and $IsWindows) {
+    $steps.Add(@{
+        Name       = 'Windows headless UI workflows'
+        Executable = 'dotnet'
+        Arguments  = @('run', '--project', 'Orynivo.Ui.Smoke/Orynivo.Ui.Smoke.csproj', '--configuration', $Configuration)
+    })
 }
 $steps.Add(@{
     Name       = 'Verify MCP tool parity'

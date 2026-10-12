@@ -164,10 +164,11 @@ covers pure desktop helpers that do not require a running Avalonia UI;
 `Orynivo.Server.Tests` covers server middleware without starting the web host.
 Do not move shared behavior into a UI-only class when a `Orynivo.Core` type can
 own it and stay cross-platform testable. The Windows build workflow runs all
-three test projects. `scripts/verify-all.ps1` runs the same checks locally in
-one command (managed builds with `--warnaserror`, the non-Windows desktop
-compile via `-p:OS=Unix`, all three test projects, and the three parity scripts)
-and stops at the first failure; CI still runs these steps itself. The
+three test projects plus the isolated Windows headless workflow smoke suite.
+`scripts/verify-all.ps1` runs the same checks locally in one command (managed
+builds with `--warnaserror`, the non-Windows desktop compile via `-p:OS=Unix`,
+all three test projects, Windows UI smoke on Windows, and the three parity
+scripts) and stops at the first failure; CI still runs these steps itself. The
 non-Windows compile matters because the desktop swaps in `Compatibility/Linux`
 implementations for several Windows types, so a Windows-only local build cannot
 see a broken Linux or macOS call site. Use it before declaring work complete.
@@ -3231,3 +3232,17 @@ admitted image changes whose data may finish while UI publication is rejected. A
 bounded headless scroll host checks the compiled artist scroll control and
 current or obsolete deferred callbacks; MainWindow stays unshown and no playback
 starts.
+
+### Tracked Windows headless workflow suite
+
+`Orynivo.Ui.Smoke` is a separate executable in the solution, invoked by local
+full verification and Windows CI in Debug and Release. It seeds unique temporary
+SQLite data before application creation, never shows MainWindow, injects
+synthetic server transport and blocks external profile/image HTTP handlers.
+Fixed workflow diagnostics contain no credentials or real catalog metadata.
+Cached artist/Back scenarios include source-ID collision, deliberately late
+metadata response, valid image selection after navigation and compiled outer
+scroll layout. Reflection is confined to fixture adapters for the existing
+window-owned navigation model; production gains no test navigation model. A
+nonzero exit fails verification. The initial runtime contract is Windows-only;
+Linux/macOS execution and broader search/album/recovery workflows remain open.

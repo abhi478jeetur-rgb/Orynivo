@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add a tracked Windows headless workflow suite for cached artist detail,
+  source-aware Back, late profile/image selection and guarded scroll restore.
+  Windows Debug/Release CI and local full verification run it in a separate
+  synthetic-data process with external profile/image transport blocked.
+
 - Back now captures and restores the outer artist-detail scroll position,
   without borrowing a selection from an overlaid table. Deferred scrolling
   rechecks detail identity and Back ownership; newly opened artist details start

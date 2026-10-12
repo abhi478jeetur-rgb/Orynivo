@@ -94,6 +94,14 @@ jobs:
           dotnet test Orynivo.Server.Tests/Orynivo.Server.Tests.csproj --configuration ${{ matrix.configuration }}
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
+      - name: Run Windows headless UI workflows
+        run: >
+          dotnet run --project Orynivo.Ui.Smoke/Orynivo.Ui.Smoke.csproj
+          --configuration ${{ matrix.configuration }}
+          /p:IncludeAsioBridge=false
+          /p:IncludeCwAsioBridge=true
+          /p:IncludeAirPlay2Bridge=true
+
       - name: Publish Windows build
         if: matrix.configuration == 'Release'
         run: >

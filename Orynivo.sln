@@ -19,6 +19,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orynivo.Tests", "Orynivo.Te
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orynivo.Server.Tests", "Orynivo.Server.Tests\Orynivo.Server.Tests.csproj", "{EF407CAA-10F1-4121-BF2E-3F34E1EE8B60}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Orynivo.Ui.Smoke", "Orynivo.Ui.Smoke\Orynivo.Ui.Smoke.csproj", "{2257EEEB-26DD-431C-82B2-33C272977614}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -109,6 +111,18 @@ Global
 		{EF407CAA-10F1-4121-BF2E-3F34E1EE8B60}.Release|x64.Build.0 = Release|Any CPU
 		{EF407CAA-10F1-4121-BF2E-3F34E1EE8B60}.Release|x86.ActiveCfg = Release|Any CPU
 		{EF407CAA-10F1-4121-BF2E-3F34E1EE8B60}.Release|x86.Build.0 = Release|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Debug|x64.Build.0 = Debug|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Debug|x86.Build.0 = Debug|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Release|x64.ActiveCfg = Release|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Release|x64.Build.0 = Release|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Release|x86.ActiveCfg = Release|Any CPU
+		{2257EEEB-26DD-431C-82B2-33C272977614}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

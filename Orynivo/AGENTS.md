@@ -39,6 +39,12 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Tracked headless workflow checks live in Orynivo.Ui.Smoke, separately from
+  pure desktop unit tests. Its friend access is for synthetic production-adapter
+  testing only. Follow its nested instructions; never show MainWindow or invoke
+  startup/playback to test navigation. Windows full verification and CI run the
+  smoke suite; broader platform/runtime coverage must be evidenced separately.
+
 - Artist detail owns ArtistInfoScrollViewer for Back position capture and
   restoration. Never borrow selected rows or offsets from an overlaid table.
   Reset scroll on new detail admission; restore only after layout while the
