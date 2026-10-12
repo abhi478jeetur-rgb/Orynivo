@@ -3255,6 +3255,12 @@ open overloads and the existing album restore adapter: deliberately held
 metadata must reject navigation/configuration/source changes before requesting
 tracks, overlapping opens/restores retain only the latest owner, mutable row
 fallbacks and logical IDs stay captured, and copied sources resolve their
-configured owner. Tracks and overview responses are synthetic and empty; these
-cases do not claim a complete search-to-populated-album-to-Back journey. Local
-album publication, broader recovery and Linux/macOS UI execution remain open.
+configured owner. These remote metadata groups use empty overview/track replies.
+Five local album groups hold dispatcher publication during reset, top-level or
+configuration changes, reject obsolete rows/header/fade/Back updates, retain the
+latest same-album publication and copy caller-owned logical IDs. A separate
+populated synthetic journey searches for a remote album with a colliding local
+ID, opens it through the existing row adapter, checks remote tracks/detail, and
+uses the actual Back handler to restore search selection, source, surface and
+history. It does not simulate pointer double-click dispatch or playback. Broader
+recovery, server endpoint integration and Linux/macOS UI execution remain open.

@@ -34,3 +34,9 @@ affect the pure desktop unit tests.
   reject stale admission before track requests and keep captured fallback/source
   identity. Exercise both real open overloads and the existing restore adapter;
   release every captured synthetic gate in teardown.
+
+- Local album fixtures must hold dispatcher publication rather than rely on
+  worker timing. Preserve newer rows, header, opacity, Back state and loading
+  cleanup. A populated journey must use actual search/open/Back adapters, source
+  collisions and existing history; state explicitly when pointer dispatch is not
+  exercised.
