@@ -2164,23 +2164,25 @@ public sealed class AudioDatabase : IDisposable
         return new ArtistNormalizationResult(mergedArtists, updatedTracks);
     }
 
-    /// <summary>Nur die Spalten, die die Trackliste tatsächlich rendert – keine BLOBs, keine Texte.</summary>
+    /// <summary>Loads compact track rows with active-profile favorites and personal ratings.</summary>
+    /// <returns>All compact tracks ordered by display title without large payloads.</returns>
     public List<TrackListInfo> GetTrackList()
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT
                 path, file_name, title, artist, album, album_artist, genre, format, bitrate,
-                duration, sort_title, id, is_favorite, year, track_number, track_total,
+                duration, sort_title, id, COALESCE((SELECT ps.is_favorite FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), is_favorite), year, track_number, track_total,
                 disc_number, disc_total, sample_rate, bit_depth, channels, composer, bpm,
                 file_size, added_at, replay_gain_track, replay_gain_album, artist_id, album_id,
-                user_rating, musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
+                COALESCE((SELECT ps.user_rating FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), user_rating), musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
                 musicbrainz_rating_fetched_at, musicbrainz_genres, musicbrainz_tags,
                 (SELECT af.camelot_key FROM track_audio_features af
                  WHERE af.track_id = tracks.id AND af.version = {AudioFeatureAnalysisService.CurrentVersion})
             FROM tracks
             ORDER BY COALESCE(sort_title, title, file_name) COLLATE NOCASE;
             """;
+        Add(cmd, "$profile", ActiveProfileId);
         using var reader = cmd.ExecuteReader();
         var result = new List<TrackListInfo>();
         while (reader.Read())
@@ -2188,16 +2190,20 @@ public sealed class AudioDatabase : IDisposable
         return result;
     }
 
+    /// <summary>Loads compact album tracks with active-profile favorites and personal ratings.</summary>
+    /// <param name="albumId">Album identifier.</param>
+    /// <param name="artistId">Optional primary-artist filter.</param>
+    /// <returns>Matching tracks ordered by disc, track number and file name.</returns>
     public List<TrackListInfo> GetTrackListByAlbum(long albumId, long? artistId = null)
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = $"""
             SELECT
                 path, file_name, title, artist, album, album_artist, genre, format, bitrate,
-                duration, sort_title, id, is_favorite, year, track_number, track_total,
+                duration, sort_title, id, COALESCE((SELECT ps.is_favorite FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), is_favorite), year, track_number, track_total,
                 disc_number, disc_total, sample_rate, bit_depth, channels, composer, bpm,
                 file_size, added_at, replay_gain_track, replay_gain_album, artist_id, album_id,
-                user_rating, musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
+                COALESCE((SELECT ps.user_rating FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), user_rating), musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
                 musicbrainz_rating_fetched_at, musicbrainz_genres, musicbrainz_tags,
                 (SELECT af.camelot_key FROM track_audio_features af
                  WHERE af.track_id = tracks.id AND af.version = {AudioFeatureAnalysisService.CurrentVersion})
@@ -2211,6 +2217,7 @@ public sealed class AudioDatabase : IDisposable
             """;
         Add(cmd, "$album_id", albumId);
         Add(cmd, "$artist_id", artistId);
+        Add(cmd, "$profile", ActiveProfileId);
         using var reader = cmd.ExecuteReader();
         var result = new List<TrackListInfo>();
         while (reader.Read())
@@ -2292,7 +2299,7 @@ public sealed class AudioDatabase : IDisposable
         return result.OrderBy(t => order[t.Id]).ToList();
     }
 
-    /// <summary>Loads compact track metadata for the specified local file paths.</summary>
+    /// <summary>Loads compact track metadata and active-profile personal state for the specified local file paths.</summary>
     /// <param name="paths">Absolute paths to resolve; duplicates are queried once.</param>
     /// <returns>Matching tracks in unspecified order.</returns>
     public List<TrackListInfo> GetTrackListByPaths(IEnumerable<string> paths)
@@ -2318,16 +2325,17 @@ public sealed class AudioDatabase : IDisposable
             cmd.CommandText = $"""
                 SELECT
                     path, file_name, title, artist, album, album_artist, genre, format, bitrate,
-                    duration, sort_title, id, is_favorite, year, track_number, track_total,
+                    duration, sort_title, id, COALESCE((SELECT ps.is_favorite FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), is_favorite), year, track_number, track_total,
                     disc_number, disc_total, sample_rate, bit_depth, channels, composer, bpm,
                     file_size, added_at, replay_gain_track, replay_gain_album, artist_id, album_id,
-                    user_rating, musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
+                    COALESCE((SELECT ps.user_rating FROM profile_track_state ps WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), user_rating), musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_track_id,
                     musicbrainz_rating_fetched_at, musicbrainz_genres, musicbrainz_tags,
                     (SELECT af.camelot_key FROM track_audio_features af
                      WHERE af.track_id = tracks.id AND af.version = {AudioFeatureAnalysisService.CurrentVersion})
                 FROM tracks
                 WHERE path IN ({string.Join(", ", parameters)});
                 """;
+            Add(cmd, "$profile", ActiveProfileId);
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
                 result.Add(MapTrackListInfo(reader));

@@ -1570,7 +1570,10 @@ pwsh -NoProfile -File scripts/verify-all.ps1
 The server test project also runs production track routes through an in-memory
 HTTP host with temporary SQLite: paging, detail/ID resolution, authentication
 and profile-isolated favorites/ratings. It starts no scans, watchers or FFmpeg
-and uses no personal catalog or listening TCP port.
+and uses no personal catalog or listening TCP port. Core profile regressions
+also cover full lists, album/artist selections and path/ID/page resolution:
+explicit false favorites and zero ratings override legacy shared values, while
+absent personal state retains compatibility fallback.
 
 ### Windows headless workflow smoke
 

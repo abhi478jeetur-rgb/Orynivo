@@ -360,7 +360,9 @@ areas.
 - Use `GetTrackListPage` when only one ordered page is required; do not load the
   complete track list and page it in managed memory.
 
-- GetTrackListPage and GetTrackListByIds must overlay active-profile favorites
-  and user ratings in SQLite with the established legacy-column fallback.
-  Preserve bounded paging/batching and caller ID order; never materialize the
-  whole library to apply personal state after paging.
+- All compact track readers (full list, album, paths, IDs and pages) must
+  overlay active-profile favorites and user ratings in SQLite with the
+  established legacy-column fallback. Explicit false/zero state overrides legacy
+  values; absent state keeps fallback. Preserve bounded paging/batching and
+  caller ID order; never materialize the whole library to apply personal state
+  after paging.

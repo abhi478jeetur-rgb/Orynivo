@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Complete active-profile favorites/rating handling for compact full-track,
+  album-track and path-resolved lists. Explicit false favorites and zero ratings
+  now override legacy shared values consistently with paging and ID resolution.
+
 - Add in-memory integration checks for track paging, detail/ID resolution and
   profile-scoped favorites through the production authentication pipeline. Paged
   and ID-resolved tracks now apply the active profile's favorites and ratings

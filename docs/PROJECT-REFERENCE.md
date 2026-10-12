@@ -3293,3 +3293,14 @@ Tests seed synthetic SQLite, use fixed synthetic keys, disable host logging and
 release only their own SQLite pool. They do not start Program, hosted services,
 watchers, scans, FFmpeg or a listening TCP port. Playlist/streaming endpoint
 integration and generated-library measurements remain open.
+
+### Compact track profile consistency
+
+All five compact track query methods (GetTrackList, GetTrackListByAlbum,
+GetTrackListByPaths, GetTrackListByIds and GetTrackListPage) read active-profile
+favorites and personal ratings directly in SQLite. Explicit false and zero
+values override legacy columns; absent profile fields retain the established
+legacy fallback. Four synthetic Core profile cases check standard, alpha, beta
+and uninitialized profiles across all readers, including album artist filtering,
+duplicate/missing path or ID input and existing page/order semantics. Other DTO
+and entity query paths are outside this compact-track regression scope.
