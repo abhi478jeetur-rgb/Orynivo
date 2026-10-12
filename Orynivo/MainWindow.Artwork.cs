@@ -44,13 +44,18 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    /// <summary>Decodes published artwork while permitting atomic replacement and old-format cleanup.</summary>
+    /// <param name="path">Published local artwork path.</param>
+    /// <param name="decodeWidth">Requested decode width, or zero for original dimensions.</param>
+    /// <param name="ignoreCache">Compatibility flag retained for existing artwork callers.</param>
+    /// <returns>The decoded image, or null for missing or invalid artwork.</returns>
     private static IImage? CreateArtworkImage(string? path, int decodeWidth, bool ignoreCache = false)
     {
         if (string.IsNullOrWhiteSpace(path) || !File.Exists(path))
             return null;
         try
         {
-            using var stream = File.OpenRead(path);
+            using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read | FileShare.Delete);
             return decodeWidth > 0
                 ? Bitmap.DecodeToWidth(stream, decodeWidth)
                 : new Bitmap(stream);

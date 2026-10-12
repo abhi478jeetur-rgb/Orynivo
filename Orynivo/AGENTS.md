@@ -39,6 +39,16 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- ArtistImageIntentOwnership retains per-identity rejection only for live
+  disposable observations. A later unrelated admission must never revive an old
+  matching image. Observe identities before cancellation callbacks and release
+  on every completion/early return/failure. Local profiles observe their known
+  ID and bind canonical metadata after readback; never borrow a previous
+  artist's name. Manual synchronization notifies exact local IDs on the caller
+  context before off-thread mutations. Own donor propagation renews only its own
+  observation. Keep source IDs/names in memory and retain no mutation history
+  for completed requests.
+
 - Missing artist artwork synchronization captures original copied sources and
   enclosing detail ownership before artist write admission. Hold admission
   through authoritative donor/target reads, image capture and mutations. Skip

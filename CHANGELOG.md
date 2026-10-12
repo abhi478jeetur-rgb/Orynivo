@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist image rejection now stays attached to each running profile or artwork
+  operation. Later changes to another artist cannot revive an older image.
+  Observations are released on completion, without keeping mutation history.
+  Local metadata binds the resolved canonical name and manual synchronization
+  notifies exact local identities before writes. Artwork decoding permits atomic
+  cache replacement and old-format cleanup during concurrent reads.
+
 - Missing artist artwork synchronization now shares artist write admission
   through current metadata reads, image capture and local/server writes. Recheck
   donor availability and target image/manual state, retain current biography and

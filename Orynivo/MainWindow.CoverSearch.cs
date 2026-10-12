@@ -559,7 +559,7 @@ public partial class MainWindow : Window
             },
             IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
 
-    /// <summary>Stores images using the source set captured before waiting for manual-write admission.</summary>
+    /// <summary>Stores images using captured sources and notifies exact local image identities before mutation.</summary>
     /// <param name="artistName">Artist name used for normalized matching.</param>
     /// <param name="imageData">Selected image bytes.</param>
     /// <param name="mimeType">Image MIME type.</param>
@@ -589,6 +589,7 @@ public partial class MainWindow : Window
             foreach (var artist in localArtists)
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                AdmitArtistImageWrite(null, artist.Id, artist.Artist);
                 var imagePath = await ArtistImageSearchService.SaveImageAsync(
                     artist.Id,
                     imageData,

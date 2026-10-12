@@ -55,7 +55,8 @@ public partial class MainWindow : Window
         bool forceRefresh,
         string? profileLookupName = null)
     {
-        var manualImage = _artistImageWrites.CaptureCurrent();
+        var imageArtistName = _artistInfoDisplayedId == artistId ? ArtistInfoTitleButton.Content as string : null;
+        using var manualImage = _artistImageWrites.Observe((null, artistId, imageArtistName));
         var restore = _navigationRestores.Context;
         if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         var tag = _currentTopLevelTag;
@@ -67,7 +68,6 @@ public partial class MainWindow : Window
             _currentTopLevelTag == tag && detailVersion == _artistDetailLoadVersion &&
             _artistInfoUnifiedArtistName == unifiedName &&
             (restore is null || _navigationRestores.IsCurrent(restore));
-        var imageArtistName = _artistInfoDisplayedId == artistId ? ArtistInfoTitleButton.Content as string : null;
         bool CanPublishImage() => CanPublish() && !IsArtistImageSuperseded(manualImage, null, artistId, imageArtistName);
         if (!CanPublish())
         {
@@ -112,6 +112,7 @@ public partial class MainWindow : Window
             }
 
             imageArtistName = artist.Artist;
+            manualImage.BindCanonicalName(null, artistId, imageArtistName);
             ArtistInfoTitleButton.Content = artist.Artist;
             SetArtistInfoFavoriteState(artist.IsFavorite);
             var language = GetProfileLanguageCode();
@@ -229,7 +230,6 @@ public partial class MainWindow : Window
         bool forceRefresh,
         string? profileLookupName = null)
     {
-        var manualImage = _artistImageWrites.CaptureCurrent();
         var restore = _navigationRestores.Context;
         if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         if (ResolveRowOrynivoServer(row) is not { } server ||
@@ -242,6 +242,7 @@ public partial class MainWindow : Window
         var tag = _currentTopLevelTag;
         var detailVersion = _artistDetailLoadVersion;
         var unifiedName = _artistInfoUnifiedArtistName;
+        using var manualImage = _artistImageWrites.Observe((server.Id, artistId, row.Title));
         var sourceIsCurrent = CreateArtistProfileSourceGuard(server);
         if (!sourceIsCurrent()) return;
         var cts = BeginArtistProfileLoad(out var request);
@@ -455,7 +456,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        var manualImage = _artistImageWrites.CaptureCurrent();
+        using var manualImage = _artistImageWrites.Observe((row.OrynivoServer?.Id, artistId, row.Artist));
         var restore = _navigationRestores.Context;
         if (restore is not null && !_navigationRestores.IsCurrent(restore)) return;
         var tag = _currentTopLevelTag;
@@ -771,7 +772,7 @@ public partial class MainWindow : Window
         var tag = _currentTopLevelTag;
         var artistName = row.Title;
         var imageIsManual = row.ImageIsManual;
-        var manualImage = _artistImageWrites.CaptureCurrent();
+        using var manualImage = _artistImageWrites.Observe((null, artistId, artistName));
         var tableSource = ContentDataGrid.IsVisible ? ContentDataGrid.ItemsSource : null;
         var artworkSource = ArtistArtworkListBox.IsVisible ? ArtistArtworkListBox.ItemsSource : null;
         bool CanPublish() => ReferenceEquals(_backgroundArtistLoadCts, background) &&

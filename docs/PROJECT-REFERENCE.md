@@ -3197,3 +3197,23 @@ operation's own observation; later user changes still reject subsequent writes.
 Catalog invalidation runs in finally after admitted changes, including
 cancellation after file publication. This is window-scoped ordering, not a
 transaction or cross-client lock.
+
+### Artist image intent observation lifetime
+
+`ArtistImageIntentOwnership` replaces last-target manual image epochs with
+disposable, dispatcher-affine observations for live operations. Each observed
+identity retains its rejection independently of later unrelated writes. Fixed
+source-local IDs and normalized names match across libraries; no mutation
+history survives completed observations. Profile loaders, background rows and
+missing artwork copying dispose observations on every exit. Local profiles bind
+resolved canonical metadata after readback without borrowing the previous
+artist's name. Manual upload/deletion fan-out notifies exact local IDs on the
+caller context before file/SQLite work, protecting profiles whose canonical name
+is still unresolved. Manual donor copying renews only its own observation. The
+pure helper is covered by tracked identity/lifetime tests and actual offline
+overlap fixtures. Write ordering remains window-scoped.
+
+Local artwork decoding opens read streams with deletion sharing. Atomic cache
+replacement and variant cleanup can proceed while an existing reader finishes
+decoding its original published bytes. Enclosing image guards still decide
+whether that decoded result may publish.

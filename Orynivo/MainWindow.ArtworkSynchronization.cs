@@ -21,7 +21,6 @@ public partial class MainWindow
         if (sources.Count < 2) return;
         var key = ArtistNameNormalizer.CreateComparisonKey(artistName);
         if (key.Length == 0) return;
-        var manualImage = _artistImageWrites.CaptureCurrent();
         var captured = sources.Select(item =>
         {
             var original = item.Server;
@@ -34,6 +33,8 @@ public partial class MainWindow
             return (item.Artist, Server: connection,
                 IsCurrent: original is null ? (Func<bool>)(() => true) : CreateArtistProfileSourceGuard(original));
         }).ToArray();
+        using var manualImage = _artistImageWrites.Observe(captured.Select(item =>
+            (item.Server?.Id, (long?)item.Artist.Id, (string?)artistName)).ToArray());
         bool CanContinue() => !cancellationToken.IsCancellationRequested &&
             (canContinue?.Invoke() ?? true) && !captured.Any(item =>
                 IsArtistImageSuperseded(manualImage, item.Server?.Id, item.Artist.Id, artistName));
@@ -78,7 +79,7 @@ public partial class MainWindow
                             if (source.Artist.ImageIsManual)
                             {
                                 AdmitArtistImageWrite(target.Server?.Id, artist.Id, artistName);
-                                manualImage = _artistImageWrites.CaptureCurrent();
+                                manualImage.Renew();
                             }
                             if (target.Server is null)
                             {

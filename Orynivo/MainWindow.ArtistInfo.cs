@@ -284,36 +284,24 @@ public partial class MainWindow : Window
     private readonly ArtistImageWriteQueue _artistImageWriteQueue = new();
 
     /// <summary>Observes admitted manual image changes separately from unconfirmed selections.</summary>
-    private readonly NavigationLoadOwnership _artistImageWrites = new();
+    private readonly ArtistImageIntentOwnership _artistImageWrites = new();
 
-    /// <summary>Retains the opaque local/server artist identity of the latest admitted manual change.</summary>
-    private (string? ServerId, long? ArtistId) _artistImageWriteTarget;
-
-    /// <summary>Retains normalized matching identity across local and server artist records.</summary>
-    private string _artistImageWriteNameKey = string.Empty;
-
-    /// <summary>Admits a manual image mutation for its original source-local artist identity.</summary>
-    /// <param name="serverId">The owning server ID, or null for the local library.</param>
-    /// <param name="artistId">The owning artist ID.</param>
-    /// <param name="artistName">The original displayed name used for cross-source matching.</param>
+    /// <summary>Admits image intent and permanently supersedes matching active artist observations.</summary>
+    /// <param name="serverId">Opaque owning source ID, or null for local artists.</param>
+    /// <param name="artistId">Source-local artist ID.</param>
+    /// <param name="artistName">Canonical artist name for cross-source matching.</param>
     private void AdmitArtistImageWrite(string? serverId, long? artistId, string artistName)
-    {
-        _artistImageWriteTarget = (serverId, artistId);
-        _artistImageWriteNameKey = ArtistNameNormalizer.CreateComparisonKey(artistName);
-        _artistImageWrites.Begin(CancellationToken.None);
-    }
+        => _artistImageWrites.Admit(serverId, artistId, artistName);
 
-    /// <summary>Rejects an older profile image only when the intervening manual change targets that artist.</summary>
-    /// <param name="observation">Manual-image ownership observed before profile admission.</param>
-    /// <param name="serverId">The profile's server ID, or null for the local library.</param>
-    /// <param name="artistId">The profile's source-local artist ID.</param>
-    /// <param name="artistName">Optional canonical name for normalized cross-source matching.</param>
-    /// <returns>Whether the profile image was superseded by a same-artist manual mutation.</returns>
-    private bool IsArtistImageSuperseded(NavigationLoadOwnership.Request observation, string? serverId, long artistId,
-        string? artistName = null)
-        => !_artistImageWrites.IsCurrent(observation) && (_artistImageWriteTarget == (serverId, artistId) ||
-            (_artistImageWriteNameKey.Length > 0 &&
-             ArtistNameNormalizer.CreateComparisonKey(artistName) == _artistImageWriteNameKey));
+    /// <summary>Checks retained same-artist rejection across any intervening unrelated image changes.</summary>
+    /// <param name="observation">Disposable observation retained by the profile operation.</param>
+    /// <param name="serverId">Opaque source ID, or null for local artists.</param>
+    /// <param name="artistId">Source-local artist ID.</param>
+    /// <param name="artistName">Optional canonical cross-source identity.</param>
+    /// <returns>Whether the old image was superseded or its observation was released.</returns>
+    private bool IsArtistImageSuperseded(ArtistImageIntentOwnership.Observation observation,
+        string? serverId, long artistId, string? artistName = null)
+        => observation.WasSupersededFor(serverId, artistId, artistName);
 
     /// <summary>Captures the displayed artist, source and playback context for a manual image action.</summary>
     /// <returns>A predicate rejecting replacement image actions, profiles, sources or navigation.</returns>
@@ -556,7 +544,7 @@ public partial class MainWindow : Window
         CancellationToken cancellationToken = default)
         => SynchronizeUnifiedArtistImageDeletionCoreAsync(artistName, CaptureManualArtistImageSources(), cancellationToken);
 
-    /// <summary>Deletes images using the source set captured before waiting for manual-write admission.</summary>
+    /// <summary>Deletes images using captured sources and notifies exact local image identities before off-thread mutations.</summary>
     /// <param name="artistName">Artist name used for normalized matching.</param>
     /// <param name="sources">Copied connections and original configuration ownership guards.</param>
     /// <param name="cancellationToken">Cancellation between operations.</param>
@@ -572,12 +560,21 @@ public partial class MainWindow : Window
 
         try
         {
+            var localArtists = await Task.Run(() =>
+            {
+                using var db = AudioDatabase.OpenDefault();
+                cancellationToken.ThrowIfCancellationRequested();
+                return db.GetArtistsLite().Where(candidate =>
+                    ArtistNameNormalizer.CreateComparisonKey(candidate.Artist) == comparisonKey).ToList();
+            }, cancellationToken);
+            cancellationToken.ThrowIfCancellationRequested();
+            foreach (var artist in localArtists)
+                AdmitArtistImageWrite(null, artist.Id, artist.Artist);
             await Task.Run(() =>
             {
                 using var db = AudioDatabase.OpenDefault();
                 cancellationToken.ThrowIfCancellationRequested();
-                foreach (var artist in db.GetArtistsLite().Where(candidate =>
-                             ArtistNameNormalizer.CreateComparisonKey(candidate.Artist) == comparisonKey))
+                foreach (var artist in localArtists)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
                     if (db.ClearArtistImage(artist.Id))
