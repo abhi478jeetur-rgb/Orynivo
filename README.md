@@ -1589,6 +1589,12 @@ production transcode runner. Cancellation and failed response writes must stop
 and await that child before returning. These cases validate process cleanup, not
 FFmpeg codecs, physical audio or a network-disconnect scenario.
 
+Five composed fake-player cases also cover queue changes during held gapless
+preparation and output replacement at simulated playing positions. They preserve
+resume position/pause and wait for complete output release. These are software
+ownership tests without real audio devices. See the
+[workflow verification scopes](docs/WORKFLOW-TEST-COVERAGE.md).
+
 ### Synthetic catalog measurements
 
 ```powershell

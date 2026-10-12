@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Add composed fake-player workflows for gapless queue edits and output
+  switching at simulated playing positions, preserving current queue snapshots,
+  resume position/pause and unique disposal through the production lifecycle
+  helpers.
+
 - Add an opt-in synthetic catalog measurement tool for 1,000 and 100,000 tracks,
   recording warm query samples and managed allocations without personal media.
   Document repeated observations and bounded-read guidance without CI time

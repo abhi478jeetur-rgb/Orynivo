@@ -168,6 +168,106 @@ public sealed class PlaybackSessionLifecycleTests
         session.Detach();
     }
 
+    /// <summary>Output switching at a simulated playing position preserves captured position and pause after complete release.</summary>
+    /// <param name="seconds">Initial simulated playing position.</param>
+    /// <param name="paused">Captured transport state.</param>
+    /// <returns>The deterministic lifecycle test.</returns>
+    [Theory]
+    [InlineData(23, false)]
+    [InlineData(23, true)]
+    [InlineData(67, false)]
+    [InlineData(67, true)]
+    public async Task OutputSwitch_PreservesAdvancedPositionAndPause(int seconds, bool paused)
+    {
+        var fixture = new Lifecycle();
+        var old = new Output(); var replacement = new Output();
+        old.SeekRelease.SetResult();
+        try
+        {
+            Assert.Same(old, await fixture.Start(Task.FromResult<(IAudioPlayer, AudioFileInfo)?>((old, Info)), TimeSpan.FromSeconds(seconds), paused));
+            old.AdvanceTo(TimeSpan.FromSeconds(seconds + 2));
+            var capturedPosition = old.Position; var capturedPause = old.IsPaused;
+            var oldToken = fixture.Session.Token;
+            var drain = fixture.StopAsync();
+            await old.DisposeEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.True(oldToken.IsCancellationRequested);
+            Assert.Null(fixture.Session.Player);
+            Assert.False(drain.IsCompleted);
+            old.DisposeRelease.Set(); await drain.WaitAsync(TimeSpan.FromSeconds(10));
+            var ready = fixture.Start(Task.FromResult<(IAudioPlayer, AudioFileInfo)?>((replacement, Info)), capturedPosition, capturedPause);
+            await replacement.SeekEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(ready.IsCompleted);
+            Assert.False(replacement.IsPaused);
+            replacement.SeekRelease.SetResult();
+            Assert.Same(replacement, await ready.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(TimeSpan.FromSeconds(seconds + 2), replacement.Position);
+            Assert.Equal(paused, replacement.IsPaused);
+            Assert.False(fixture.Session.Token.IsCancellationRequested);
+            Assert.False(replacement.Completion.Task.IsCompleted);
+            Assert.Equal(1, old.Disposals);
+        }
+        finally
+        {
+            old.SeekRelease.TrySetResult(); replacement.SeekRelease.TrySetResult();
+            old.DisposeRelease.Set(); replacement.DisposeRelease.Set();
+            await fixture.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.Equal(1, replacement.Disposals);
+    }
+
+    /// <summary>Queue edits during held gapless seek cause one new output using the final queue while retaining simulated position.</summary>
+    /// <returns>The deterministic composed workflow test.</returns>
+    [Fact]
+    public async Task GaplessQueueEdit_RebuildsOwnedOutputAtCurrentPosition()
+    {
+        var fixture = new Lifecycle();
+        var first = new Output(); var final = new Output();
+        first.DisposeRelease.Set(); final.DisposeRelease.Set();
+        var outputs = new Queue<Output>([first, final]);
+        var queue = new List<int> { 1, 2, 3 };
+        int[] prepared = [];
+        var snapshots = new List<int[]>();
+        async Task<bool> Observe(Task<IAudioPlayer?> ready) => (await ready) is not null;
+        (long Intent, Task<bool> Ready) Prepare()
+        {
+            var position = fixture.Session.Player?.Position ?? TimeSpan.FromSeconds(42);
+            var stop = fixture.StopAsync(full: false);
+            Assert.True(stop.IsCompletedSuccessfully);
+            prepared = queue.ToArray(); snapshots.Add(prepared);
+            var player = outputs.Dequeue();
+            var ready = fixture.Start(Task.FromResult<(IAudioPlayer, AudioFileInfo)?>((player, Info)), position, false);
+            return (fixture.Intent, Observe(ready));
+        }
+        var refresh = new GaplessQueueRefreshCoordinator(() => true, () => null, Prepare,
+            fixture.IsCurrent, () => prepared.SequenceEqual(queue));
+        try
+        {
+            var ready = refresh.RefreshAsync();
+            var firstToken = fixture.Session.Token;
+            queue.Remove(2); queue.Add(4);
+            Assert.Same(ready, refresh.RefreshAsync());
+            first.SeekRelease.SetResult();
+            await final.SeekEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(ready.IsCompleted);
+            Assert.True(firstToken.IsCancellationRequested);
+            Assert.Same(final, fixture.Session.Player);
+            Assert.Equal(new[] { 1, 2, 3 }, snapshots[0]);
+            Assert.Equal(new[] { 1, 3, 4 }, snapshots[1]);
+            final.SeekRelease.SetResult();
+            Assert.True(await ready.WaitAsync(TimeSpan.FromSeconds(10)));
+            Assert.Equal(TimeSpan.FromSeconds(42), final.Position);
+            Assert.Equal(2, snapshots.Count);
+            Assert.False(fixture.Session.Token.IsCancellationRequested);
+            Assert.False(final.Completion.Task.IsCompleted);
+        }
+        finally
+        {
+            first.SeekRelease.TrySetResult(); final.SeekRelease.TrySetResult();
+            first.DisposeRelease.Set(); final.DisposeRelease.Set();
+            await fixture.StopAsync().WaitAsync(TimeSpan.FromSeconds(10));
+        }
+        Assert.Equal(1, first.Disposals); Assert.Equal(1, final.Disposals);
+    }
     /// <summary>Supplies format metadata without probing media.</summary>
     private static AudioFileInfo Info => new("fixture", 48000, 2, 48000, false, "fixture", TimeSpan.FromSeconds(90));
 
@@ -182,6 +282,12 @@ public sealed class PlaybackSessionLifecycleTests
         internal PlaybackSessionCoordinator Session { get; }
         /// <summary>Gets the most recently admitted audible lifetime.</summary>
         internal Task? Lifetime { get; private set; }
+        /// <summary>Gets the current authoritative start intent for the refresh adapter.</summary>
+        internal long Intent => _starts.Current;
+        /// <summary>Checks whether a refresh still owns the admitted start.</summary>
+        /// <param name="intent">Captured start.</param>
+        /// <returns>Whether the captured start remains current.</returns>
+        internal bool IsCurrent(long intent) => _starts.IsCurrent(intent);
         /// <summary>Creates window-free lifecycle composition.</summary>
         internal Lifecycle() => Session = new(_starts, new(), _ => { });
 
@@ -223,6 +329,9 @@ public sealed class PlaybackSessionLifecycleTests
     /// <summary>Provides independently controlled seek, audible completion and worker disposal without hardware.</summary>
     private sealed class Output : IAudioPlayer
     {
+        /// <summary>Simulates backend progress without completing playback or changing ownership.</summary>
+        /// <param name="position">Current simulated playing position.</param>
+        internal void AdvanceTo(TimeSpan position) => Position = position;
         /// <summary>Signals backend seek admission.</summary>
         internal readonly TaskCompletionSource SeekEntered = new(TaskCreationOptions.RunContinuationsAsynchronously);
         /// <summary>Completes or faults the controlled seek.</summary>

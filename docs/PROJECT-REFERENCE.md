@@ -3368,3 +3368,17 @@ personal data. Allocation counts exclude native SQLite memory and process RSS.
 Cleanup validates its temporary parent/prefix and clears only its own pools.
 This opt-in tool is not a CI latency gate. The maintained methodology and dated
 observations are in [CATALOG-MEASUREMENTS.md](CATALOG-MEASUREMENTS.md).
+
+### Composed playback workflow verification
+
+PlaybackSessionLifecycleTests composes production start/session ownership,
+preparation/readiness, retirement/drain and GaplessQueueRefreshCoordinator with
+controlled fake outputs. Four output-switch cases capture simulated current
+positions 25/69 seconds in running/paused state, wait for held old disposal,
+then seek and apply pause on the replacement before readiness. One queue-edit
+case changes synthetic queue input during held seek; all callers join until a
+second owned preparation captures the final queue and preserves position. Old
+tokens cancel, each output is disposed once and audible-lifetime tasks remain
+distinct from readiness. These checks do not initialize MainWindow, enumerate
+hardware or produce physical audio. The maintained evidence matrix is
+[WORKFLOW-TEST-COVERAGE.md](WORKFLOW-TEST-COVERAGE.md).
