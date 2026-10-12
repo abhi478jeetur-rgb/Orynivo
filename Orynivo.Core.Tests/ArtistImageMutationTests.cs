@@ -238,6 +238,36 @@ public sealed class ArtistImageMutationTests
         await ArtistImageSearchService.DeleteImageAsync(id);
     }
 
+    /// <summary>Negative download identities retain stable file names and cleanup under custom locale signs.</summary>
+    /// <returns>A task completing culture-independent save, format cleanup and deletion verification.</returns>
+    [Fact]
+    public async Task NegativeCacheFileNamesRemainCultureIndependent()
+    {
+        var id = -Interlocked.Add(ref _nextId, 2);
+        var previous = System.Globalization.CultureInfo.CurrentCulture;
+        var custom = (System.Globalization.CultureInfo)System.Globalization.CultureInfo.InvariantCulture.Clone();
+        custom.NumberFormat.NegativeSign = "~";
+        string? path = null;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = custom;
+            var first = await ArtistImageSearchService.SaveImageAsync(id, [1], "image/jpeg");
+            Assert.Equal(id.ToString(System.Globalization.CultureInfo.InvariantCulture) + ".jpg", Path.GetFileName(first));
+            System.Globalization.CultureInfo.CurrentCulture = System.Globalization.CultureInfo.InvariantCulture;
+            path = await ArtistImageSearchService.SaveImageAsync(id, [2], "image/png");
+            Assert.False(File.Exists(first));
+            System.Globalization.CultureInfo.CurrentCulture = custom;
+            await ArtistImageSearchService.DeleteImageAsync(id);
+            Assert.False(File.Exists(path));
+        }
+        finally
+        {
+            System.Globalization.CultureInfo.CurrentCulture = previous;
+            await ArtistImageSearchService.DeleteImageAsync(id);
+        }
+        Assert.Equal(0, ArtistImageMutationGate.ActiveIdentityCount);
+    }
+
     /// <summary>Stages partial bytes before a deterministic completion, failure or cancellation.</summary>
     private sealed class ControlledImageStream : MemoryStream
     {

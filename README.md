@@ -1120,6 +1120,10 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Server artist-detail profile downloads and image capture also share write
+  ordering, retaining later manual image changes and current biographies. They
+  recheck server manual-image state and keep downloaded files separate from
+  positive local artist cache IDs.
 - Local foreground profiles order download, database persistence and image
   capture together with manual changes, preserving later manual image choices.
 - Primary server artist-detail profile uploads also share image write ordering;

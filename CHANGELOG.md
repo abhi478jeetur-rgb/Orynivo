@@ -8,6 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Server artist-detail profile downloads and image-byte capture share write
+  ordering with manual image changes. Image policy is checked after waiting;
+  obsolete capture is rejected while retaining biography data. Waiting downloads
+  reject abandoned views, changed sources and cancellation before cache writes.
+  Server manual-image state is checked after admission; unavailable state
+  protects existing images. Server downloads use source-derived negative cache
+  identifiers so matching numeric IDs cannot replace positive local artist
+  files. Cache file names remain culture-independent.
+
 - Local foreground artist profiles order download, SQLite persistence and image
   byte capture together with manual image changes. Download policy is checked
   after waiting; later manual uploads/deletions finish last. Current biographies

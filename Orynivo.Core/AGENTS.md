@@ -310,7 +310,9 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
   diagnostics. `ArtistProfileService` prefers that image only when automatic
   image refresh is allowed; manual artist images must remain untouched.
   `ArtistImageSearchService` owns writes and explicit deletion of the
-  provider-local `artist-images/<id>.*` cache variants. Shared in-process
+  provider-local `artist-images/<id>.*` cache variants. Cache file stems and
+  save/delete wildcard patterns must use invariant-culture numeric artist IDs,
+  including negative server download cache identities. Shared in-process
   mutation admission uses canonical data-directory plus artist identity, never
   logged or persisted. Hold ownership through unique staging, publication and
   old-format cleanup; remove idle gates after all active/waiting reservations

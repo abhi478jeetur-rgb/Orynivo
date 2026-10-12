@@ -316,22 +316,21 @@ public partial class MainWindow : Window
             if (needsDownload)
             {
                 ArtistInfoStatusTextBlock.Text = LocalizationManager.Current.ArtistInfoDownloading;
-                var profile = await ArtistProfileService.DownloadAsync(
-                    artistId,
-                    profileLookupName ?? row.Title ?? string.Empty,
-                    language,
-                    downloadImage: CanPublishImage() && !row.ImageIsManual,
-                    cancellationToken: cts.Token);
+                var downloaded = await DownloadServerArtistProfileInWriteOrderAsync(
+                    row.Title, row.ImageIsManual, cts.Token, CanPublish, CanPublishImage,
+                    downloadImage => ArtistProfileService.DownloadAsync(
+                        ServerArtistProfileCacheIdentity.Create(server.Id, artistId),
+                        profileLookupName ?? row.Title ?? string.Empty, language,
+                        downloadImage: downloadImage, cancellationToken: cts.Token),
+                    async () =>
+                    {
+                        var current = await _orynivoClient.GetArtistAsync(server, artistId, cts.Token);
+                        return current?.ImageIsManual ?? true;
+                    });
                 if (!CanPublish()) return;
-
-                byte[]? imageData = null;
-                string? imageMimeType = null;
-                if (!string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
-                {
-                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, cts.Token);
-                    if (!CanPublish()) return;
-                    imageMimeType = GuessImageMimeType(profile.ImagePath);
-                }
+                var profile = downloaded.Profile;
+                var imageData = downloaded.ImageData;
+                var imageMimeType = downloaded.ImageMimeType;
 
                 var refreshed = await UpdateArtistProfileInWriteOrderAsync(
                     server, artistId, row.Title, profile?.Biography, profile?.SourceUrl,
@@ -620,6 +619,46 @@ public partial class MainWindow : Window
             candidate.Id == id && candidate.Name == name && candidate.BaseUrl == url &&
             candidate.ApiKey == key && candidate.ProfileId == profile;
         return () => Matches(server) && (_settings.OrynivoServers ?? []).Any(Matches);
+    }
+
+    /// <summary>Orders server-view profile downloads and byte capture with manual artist-image batches.</summary>
+    /// <param name="artistName">Original canonical artist name for shared mutation ordering.</param>
+    /// <param name="imageIsManual">Whether the original row already retains a manual image.</param>
+    /// <param name="cancellationToken">Cancellation before download or image capture.</param>
+    /// <param name="canPublish">Original view and source ownership guard.</param>
+    /// <param name="canPublishImage">Additional image ownership guard.</param>
+    /// <param name="download">Downloads with the image policy determined after waiting.</param>
+    /// <param name="readManualImageState">Optional authoritative manual-image check after waiting; unavailable state must protect the image.</param>
+    /// <returns>The downloaded profile and captured bytes, or empty values after abandonment.</returns>
+    private async Task<(ArtistProfileDownload? Profile, byte[]? ImageData, string? ImageMimeType)>
+        DownloadServerArtistProfileInWriteOrderAsync(string? artistName, bool imageIsManual,
+            CancellationToken cancellationToken, Func<bool> canPublish, Func<bool> canPublishImage,
+            Func<bool, Task<ArtistProfileDownload?>> download, Func<Task<bool>>? readManualImageState = null)
+    {
+        (ArtistProfileDownload? Profile, byte[]? ImageData, string? ImageMimeType) result = default;
+        await _artistImageWriteQueue.RunAsync(ArtistNameNormalizer.CreateComparisonKey(artistName),
+            () => !cancellationToken.IsCancellationRequested && canPublish(), async () =>
+            {
+                if (canPublishImage() && !imageIsManual && readManualImageState is not null)
+                {
+                    imageIsManual = await readManualImageState();
+                    if (!canPublish() || cancellationToken.IsCancellationRequested) return false;
+                }
+                var profile = await download(canPublishImage() && !imageIsManual);
+                if (!canPublish() || cancellationToken.IsCancellationRequested) return false;
+                byte[]? imageData = null;
+                string? mimeType = null;
+                if (canPublishImage() && !string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
+                {
+                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, cancellationToken);
+                    if (!canPublish()) return false;
+                    if (!canPublishImage()) imageData = null;
+                    else mimeType = GuessImageMimeType(profile.ImagePath);
+                }
+                result = (profile, imageData, mimeType);
+                return true;
+            });
+        return result;
     }
 
     /// <summary>Orders local foreground download, persistence and image capture with manual image batches.</summary>

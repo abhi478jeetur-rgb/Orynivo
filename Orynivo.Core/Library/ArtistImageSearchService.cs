@@ -160,7 +160,7 @@ public static class ArtistImageSearchService
     }
 
     /// <summary>Stages a caller-owned image stream under exclusive artist-cache mutation ownership.</summary>
-    /// <param name="artistId">Database artist ID used as the file-name stem.</param>
+    /// <param name="artistId">Artist or temporary cache identifier used as the invariant numeric file-name stem.</param>
     /// <param name="source">Readable image stream, left open for its owner.</param>
     /// <param name="mimeType">MIME type used to select the cached extension.</param>
     /// <param name="cancellationToken">Cancellation before publication, including staging copy.</param>
@@ -175,12 +175,13 @@ public static class ArtistImageSearchService
             _ => ".jpg"
         };
         var directory = Path.GetFullPath(AppPaths.GetDataPath("artist-images"));
+        var artistStem = artistId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var mutation = await ArtistImageMutationGate.EnterAsync(
-            Path.Combine(directory, artistId.ToString(System.Globalization.CultureInfo.InvariantCulture)), cancellationToken)
+            Path.Combine(directory, artistStem), cancellationToken)
             .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(directory);
-        var targetPath = Path.Combine(directory, artistId + extension);
+        var targetPath = Path.Combine(directory, artistStem + extension);
         var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
         try
         {
@@ -192,7 +193,7 @@ public static class ArtistImageSearchService
             }
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(temporaryPath, targetPath, true);
-            foreach (var existingPath in Directory.EnumerateFiles(directory, artistId + ".*"))
+            foreach (var existingPath in Directory.EnumerateFiles(directory, artistStem + ".*"))
             {
                 if (!string.Equals(existingPath, targetPath, StringComparison.OrdinalIgnoreCase))
                     File.Delete(existingPath);
@@ -206,23 +207,24 @@ public static class ArtistImageSearchService
     }
 
     /// <summary>Deletes cached artist variants through the shared mutation gate; use asynchronously on UI callers.</summary>
-    /// <param name="artistId">Database artist ID used as the cached file-name stem.</param>
+    /// <param name="artistId">Artist or temporary cache identifier used as the invariant numeric cached file-name stem.</param>
     public static void DeleteImage(long artistId)
         => DeleteImageAsync(artistId).GetAwaiter().GetResult();
 
     /// <summary>Deletes cached image variants after exclusive same-artist mutation admission.</summary>
-    /// <param name="artistId">Database artist ID used as the cached file-name stem.</param>
+    /// <param name="artistId">Artist or temporary cache identifier used as the invariant numeric cached file-name stem.</param>
     /// <param name="cancellationToken">Cancellation before deletion admission.</param>
     /// <returns>A task completing serialized variant deletion.</returns>
     public static async Task DeleteImageAsync(long artistId, CancellationToken cancellationToken = default)
     {
         var directory = Path.GetFullPath(AppPaths.GetDataPath("artist-images"));
+        var artistStem = artistId.ToString(System.Globalization.CultureInfo.InvariantCulture);
         using var mutation = await ArtistImageMutationGate.EnterAsync(
-            Path.Combine(directory, artistId.ToString(System.Globalization.CultureInfo.InvariantCulture)), cancellationToken)
+            Path.Combine(directory, artistStem), cancellationToken)
             .ConfigureAwait(false);
         cancellationToken.ThrowIfCancellationRequested();
         if (!Directory.Exists(directory)) return;
-        foreach (var path in Directory.EnumerateFiles(directory, artistId + ".*")) File.Delete(path);
+        foreach (var path in Directory.EnumerateFiles(directory, artistStem + ".*")) File.Delete(path);
     }
 
     private static string CleanTitle(string? title)

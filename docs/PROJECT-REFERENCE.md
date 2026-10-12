@@ -1963,10 +1963,19 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   persistence and image-byte capture. Determine download policy after waiting,
   preserve current biography after image supersession, and capture image bytes
   before releasing ownership. Unified synchronization is admitted afterwards to
-  avoid nested same-artist waits. Server direct downloads, Now Playing provider
-  uploads, automatic row jobs, Settings/context-menu writers and other
-  windows/clients still require coordination. This does not provide a
-  transaction.
+  avoid nested same-artist waits. Server artist-detail downloads use
+  DownloadServerArtistProfileInWriteOrderAsync for ordered download and byte
+  capture, checking policy after waiting and retaining biography after image
+  supersession. Check authoritative server manual-image state after waiting and
+  protect images when that state is unavailable.
+  ServerArtistProfileCacheIdentity derives stable negative download cache IDs
+  from opaque server ID and artist ID using SHA-256; positive local SQLite
+  artist cache files remain separate. Real artist IDs remain unchanged in API
+  requests. Cache file stems and save/delete wildcard patterns use invariant
+  numeric formatting. Release before the separately guarded/ordered primary
+  upload and unified synchronization. Now Playing provider uploads, automatic
+  row jobs, Settings/context-menu writers and other windows/clients still
+  require coordination. This does not provide a transaction.
 - Foreground profiles separately observe admitted manual-image changes. Advance
   manual-image write ownership after accepted selection or at deletion
   admission; cancelled selection keeps profile images admitted. Older profiles

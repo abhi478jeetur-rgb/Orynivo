@@ -693,9 +693,19 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   biography persistence after image supersession and read image bytes before
   releasing ownership so later manual cleanup cannot remove the file mid-read.
   Release before unified synchronization to avoid nested same-artist queue
-  waits. Server direct downloads, Now Playing provider uploads, automatic row
-  jobs, Settings/context-menu and cross-window/client ordering remain separate
-  work.
+  waits. Server artist-detail downloads use
+  DownloadServerArtistProfileInWriteOrderAsync for download and image-byte
+  capture under the same queue. Determine image policy after waiting and recheck
+  view/source/image ownership after awaits; retain biography after image
+  supersession. Refresh authoritative server manual-image state after waiting
+  before external image lookup; unknown state must protect the image. Use
+  ServerArtistProfileCacheIdentity with opaque server ID and source-local artist
+  ID for negative download cache identifiers; never reuse positive local SQLite
+  IDs for server profile image files. The server API still uses its real artist
+  ID. Never derive this identity from URLs or credentials. Release before the
+  separately ordered primary upload and unified synchronization, both of which
+  recheck ownership. Now Playing provider uploads, automatic row jobs,
+  Settings/context-menu and cross-window/client ordering remain separate work.
 - Foreground profiles observe admitted manual-image changes separately from
   dialog/action admission. Advance manual-image write ownership only after an
   accepted selection or at deletion admission; cancelled selection must not
