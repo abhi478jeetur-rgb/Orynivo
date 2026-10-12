@@ -52,8 +52,9 @@ affect the pure desktop unit tests.
   owning UI dispatcher; release all captured transport gates during teardown.
 
 - Fresh-profile setup checks run before catalog seeding. Detach only the
-  compiled hint into a bounded host; verify wrapped localized captions, focus
-  admission and explicit automation names. Activate the routed Click event
-  through the existing Settings host and deactivate every opened view. Never
-  start a scan, open a picker, connect a real server or enumerate audio devices.
-  Distinguish these checks from native Tab/pointer and audible playback proof.
+  compiled hint or output-profile setup panel into a bounded host; verify
+  wrapped localized captions, focus admission and explicit automation names.
+  Activate the routed Click event through the existing Settings host and
+  deactivate every opened view. Never start a scan, open a picker, connect a
+  real server or enumerate audio devices. Distinguish these checks from native
+  Tab/pointer and audible playback proof.

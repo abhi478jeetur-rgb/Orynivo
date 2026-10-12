@@ -49,6 +49,8 @@ the ability to reach that library from any device on the local network.
 - Local library, playlists, smart playlists and full-text search
 - Empty-library guidance opens Directories, Orynivo servers or Output device in
   Settings, with localized, wrapped and keyboard-focusable setup actions.
+- Output Settings keeps the profile selector full-width and wraps its actions
+  below it so longer translations remain visible in narrow layouts.
 - Unified artist detail pages with an album-style image-and-biography hero,
   synchronized favorites, image management, refreshable biographies, and
   combined local/Orynivo Server albums. Their cards include cover search,

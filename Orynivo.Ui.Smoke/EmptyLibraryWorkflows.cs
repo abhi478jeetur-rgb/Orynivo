@@ -127,6 +127,7 @@ internal static class EmptyLibraryWorkflows
                     !view.FindControl<Button>("DeleteOutputProfileButton")!.IsEnabled,
                     "Empty output setup does not expose a usable create action.");
                 Console.WriteLine("PASS: output setup without profiles permits creation and disables selection-only actions");
+                CheckOutputLayout(view);
             }
             finally
             {
@@ -138,6 +139,59 @@ internal static class EmptyLibraryWorkflows
         {
             typeof(MainWindow).GetMethod("CloseEmbeddedSettings", Private)!.Invoke(window, null);
             Dispatcher.UIThread.RunJobs();
+        }
+    }
+
+    /// <summary>Checks the compiled output selector and wrapping actions in a bounded host.</summary>
+    /// <param name="view">The existing synthetic Settings view with no selected output.</param>
+    private static void CheckOutputLayout(SettingsView view)
+    {
+        var panel = view.FindControl<StackPanel>("OutputProfileSetupPanel")!;
+        var parent = (StackPanel)panel.Parent!;
+        var index = parent.Children.IndexOf(panel);
+        parent.Children.Remove(panel);
+        var host = new Window { Width = 240, Height = 500, Content = panel };
+        try
+        {
+            host.Show();
+            foreach (var theme in new[] { AppTheme.Light, AppTheme.Dark })
+            foreach (var language in Enum.GetValues<Language>())
+            foreach (var width in new[] { 240d, 640d })
+            {
+                ThemeManager.Apply(theme);
+                LocalizationManager.Apply(language);
+                host.Width = width;
+                Dispatcher.UIThread.RunJobs();
+                panel.Measure(new Size(width, 500));
+                panel.Arrange(new Rect(0, 0, width, panel.DesiredSize.Height));
+                Dispatcher.UIThread.RunJobs();
+                var selector = view.FindControl<ComboBox>("OutputProfileComboBox")!;
+                Check(selector.Bounds.Width >= width - 1 && selector.Bounds.Height > 0,
+                    "Output selector lost its usable width.");
+                foreach (var name in new[] { "ConfigureOutputProfileButton", "CreateOutputProfileButton",
+                             "DeleteOutputProfileButton" })
+                {
+                    var button = view.FindControl<Button>(name)!;
+                    var text = (TextBlock)button.Content!;
+                    var point = button.TranslatePoint(default, panel);
+                    Check(point.HasValue && point.Value.X >= 0 && point.Value.Y >= 0 &&
+                        point.Value.X + button.Bounds.Width <= width + 1 &&
+                        point.Value.Y + button.Bounds.Height <= panel.Bounds.Height + 1 &&
+                        text.Bounds.Height > 0 && text.Bounds.Height + 1 >= text.DesiredSize.Height,
+                        "Output action or translated caption is clipped.");
+                    Check(ControlAutomationPeer.CreatePeerForElement(button)!.GetName() == text.Text,
+                        "Output action lacks its localized accessible name.");
+                }
+            }
+            Console.WriteLine("PASS: output selector and translated actions fit narrow and wide Settings layouts");
+        }
+        finally
+        {
+            host.Content = null;
+            host.Close();
+            parent.Children.Insert(index, panel);
+            LocalizationManager.Apply(Language.English);
+            ThemeManager.Apply(AppTheme.Dark);
         }
     }
 

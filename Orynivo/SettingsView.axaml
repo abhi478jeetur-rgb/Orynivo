@@ -445,46 +445,46 @@
                                FontSize="{DynamicResource FontSizeCaption}"
                                FontWeight="SemiBold"
                                Margin="0,0,0,6"/>
-                    <Grid Margin="0,0,0,10">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="Auto"/>
-                        </Grid.ColumnDefinitions>
+                    <StackPanel x:Name="OutputProfileSetupPanel" Margin="0,0,0,10" Spacing="8">
                         <ComboBox x:Name="OutputProfileComboBox"
                                   Height="30"
                                   HorizontalAlignment="Stretch"
                                   SelectionChanged="OutputProfileComboBox_OnSelectionChanged"/>
-                        <Button x:Name="ConfigureOutputProfileButton"
-                                Grid.Column="1"
-                                Height="30"
-                                MinWidth="160"
-                                Margin="8,0,0,0"
-                                Padding="12,0"
-                                IsEnabled="False"
-                                Theme="{StaticResource SettingsButtonTheme}"
-                                Content="{DynamicResource L_OutputProfileConfigure}"
-                                Click="ConfigureOutputProfileButton_OnClick"/>
-                        <Button x:Name="CreateOutputProfileButton" Grid.Column="2"
-                                Height="30"
-                                MinWidth="140"
-                                Margin="8,0,0,0"
-                                Padding="12,0"
-                                Theme="{StaticResource SettingsButtonTheme}"
-                                Content="{DynamicResource L_OutputProfileCreate}"
-                                Click="CreateOutputProfileButton_OnClick"/>
-                        <Button x:Name="DeleteOutputProfileButton"
-                                Grid.Column="3"
-                                Height="30"
-                                MinWidth="130"
-                                Margin="8,0,0,0"
-                                Padding="12,0"
-                                IsEnabled="False"
-                                Theme="{StaticResource SettingsButtonTheme}"
-                                Content="{DynamicResource L_OutputProfileDelete}"
-                                Click="DeleteOutputProfileButton_OnClick"/>
-                    </Grid>
+                        <WrapPanel x:Name="OutputProfileActionsPanel">
+                            <Button x:Name="ConfigureOutputProfileButton"
+                                    MinHeight="30"
+                                    MaxWidth="220"
+                                    Margin="0,0,8,8"
+                                    Padding="12,5"
+                                    AutomationProperties.Name="{DynamicResource L_OutputProfileConfigure}"
+                                    IsEnabled="False"
+                                    Theme="{StaticResource SettingsButtonTheme}"
+                                    Click="ConfigureOutputProfileButton_OnClick">
+                                <TextBlock Text="{DynamicResource L_OutputProfileConfigure}" TextWrapping="Wrap"/>
+                            </Button>
+                            <Button x:Name="CreateOutputProfileButton"
+                                    MinHeight="30"
+                                    MaxWidth="220"
+                                    Margin="0,0,8,8"
+                                    Padding="12,5"
+                                    AutomationProperties.Name="{DynamicResource L_OutputProfileCreate}"
+                                    Theme="{StaticResource SettingsButtonTheme}"
+                                    Click="CreateOutputProfileButton_OnClick">
+                                <TextBlock Text="{DynamicResource L_OutputProfileCreate}" TextWrapping="Wrap"/>
+                            </Button>
+                            <Button x:Name="DeleteOutputProfileButton"
+                                    MinHeight="30"
+                                    MaxWidth="220"
+                                    Margin="0,0,8,8"
+                                    Padding="12,5"
+                                    AutomationProperties.Name="{DynamicResource L_OutputProfileDelete}"
+                                    IsEnabled="False"
+                                    Theme="{StaticResource SettingsButtonTheme}"
+                                    Click="DeleteOutputProfileButton_OnClick">
+                                <TextBlock Text="{DynamicResource L_OutputProfileDelete}" TextWrapping="Wrap"/>
+                            </Button>
+                        </WrapPanel>
+                    </StackPanel>
                     <TextBlock x:Name="OutputProfileSummaryTextBlock"
                                Margin="0,6,0,0"
                                FontSize="{DynamicResource FontSizeMeta}"

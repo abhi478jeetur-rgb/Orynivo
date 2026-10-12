@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Keep the output profile selector full-width and wrap Create output, Configure
+  output and Delete output below it. Translated captions can grow vertically
+  instead of clipping in narrow Settings layouts.
+
 - Add an Output device entry to empty-library setup, reusing existing audio
   Settings. Verify that profiles without outputs can create one while
   selection-only actions remain disabled.

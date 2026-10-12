@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Output Settings keeps the profile selector full-width above wrapping actions.
+  Captions must wrap vertically and retain localized automation names; do not
+  restore the fixed-width, single-row action grid.
+
 - Empty-library setup uses the shared embedded Settings Library and
   OrynivoServers sections, plus AudioDevice through the shared transport
   Settings action. Keep its buttons keyboard accessible with explicit localized
