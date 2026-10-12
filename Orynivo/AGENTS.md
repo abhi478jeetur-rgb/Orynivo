@@ -669,8 +669,16 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   upload to the copied owning server and current failure feedback. Recheck after
   direct upload before further synchronization; invalidate catalogs after
   accepted direct writes and only clean the owning source cache while valid.
-  Separate library context-menu artwork adapters and profile/manual-write
-  overlap still require their audits.
+  `ArtistImageWriteQueue` reserves complete manual detail mutation batches by
+  normalized artist name before waiting. Recheck the original action guard after
+  preceding work completes and before any local or owning-server mutation. Hold
+  ordering through file/SQLite work and complete remote fan-out; preserve the
+  caller synchronization context. Capture copied destination sets before waiting
+  and exclude newly added sources. Rejected, failed and cancelled batches
+  release later work; remove idle entries. Unrelated artist names remain
+  independent. UI publication remains separately guarded after queued data work.
+  Context-menu, Settings, automatic profile/row writes, cross-window and
+  cross-client ordering remain separate acceptance work.
 - Foreground profiles observe admitted manual-image changes separately from
   dialog/action admission. Advance manual-image write ownership only after an
   accepted selection or at deletion admission; cancelled selection must not
@@ -682,7 +690,7 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   artist identity and normalized name with the manual mutation; do not suppress
   a different artist opened during cancellation reentry, while equivalent
   local/server identities still share image protection. Already-admitted
-  file/server writes and automatic row jobs remain separate acceptance work.
+  automatic file/server writes and row jobs remain separate acceptance work.
 - Local artist edits capture displayed identity/title, sidebar/detail/name,
   profile observation and outer Back before background artist lookup. Recheck
   before opening a merge dialog and after its choice before transaction

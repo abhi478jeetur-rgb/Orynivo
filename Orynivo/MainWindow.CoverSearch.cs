@@ -499,26 +499,43 @@ public partial class MainWindow : Window
     /// <param name="mimeType">Image MIME type.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the synchronization.</returns>
-    private async Task SynchronizeUnifiedArtistImageAsync(
+    private Task SynchronizeUnifiedArtistImageAsync(
         string? artistName,
         byte[] imageData,
         string? mimeType,
         CancellationToken cancellationToken = default)
+        => SynchronizeUnifiedArtistImageCoreAsync(artistName, imageData, mimeType,
+            CaptureManualArtistImageSources(), cancellationToken);
+
+    /// <summary>Captures manual-image destinations before local work or ordered admission waits.</summary>
+    /// <returns>In-memory copied connections and guards excluding subsequently added sources.</returns>
+    private (OrynivoServerSettings Server, Func<bool> IsCurrent)[] CaptureManualArtistImageSources()
+        => (_settings.OrynivoServers ?? []).Select(server => (
+            Server: new OrynivoServerSettings
+            {
+                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+                StreamingFormat = server.StreamingFormat, StreamingBitrateKbps = server.StreamingBitrateKbps
+            },
+            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
+
+    /// <summary>Stores images using the source set captured before waiting for manual-write admission.</summary>
+    /// <param name="artistName">Artist name used for normalized matching.</param>
+    /// <param name="imageData">Selected image bytes.</param>
+    /// <param name="mimeType">Image MIME type.</param>
+    /// <param name="sources">Copied connections and original configuration ownership guards.</param>
+    /// <param name="cancellationToken">Cancellation between operations.</param>
+    /// <returns>A task completing the manual image batch.</returns>
+    private async Task SynchronizeUnifiedArtistImageCoreAsync(string? artistName, byte[] imageData,
+        string? mimeType, (OrynivoServerSettings Server, Func<bool> IsCurrent)[] sources,
+        CancellationToken cancellationToken)
     {
         var comparisonKey = ArtistNameNormalizer.CreateComparisonKey(artistName);
         if (comparisonKey.Length == 0)
             return;
 
         cancellationToken.ThrowIfCancellationRequested();
-        var sources = (_settings.OrynivoServers ?? []).Select(server => (
-            Server: new OrynivoServerSettings
-            {
-                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
-                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
-                StreamingFormat = server.StreamingFormat,
-                StreamingBitrateKbps = server.StreamingBitrateKbps
-            },
-            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
+
         try
         {
             var localArtists = await Task.Run(() =>

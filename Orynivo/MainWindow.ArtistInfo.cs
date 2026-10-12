@@ -280,6 +280,9 @@ public partial class MainWindow : Window
     /// <summary>Owns manual image publication independently from profile observations.</summary>
     private readonly NavigationLoadOwnership _artistImageActions = new();
 
+    /// <summary>Orders complete admitted manual-image batches for equivalent artist names.</summary>
+    private readonly ArtistImageWriteQueue _artistImageWriteQueue = new();
+
     /// <summary>Observes admitted manual image changes separately from unconfirmed selections.</summary>
     private readonly NavigationLoadOwnership _artistImageWrites = new();
 
@@ -386,25 +389,31 @@ public partial class MainWindow : Window
             if (!canPublish() || image is null) return;
             AdmitArtistImageWrite(nowPlaying || remoteRow is not null ? server?.Id : null,
                 nowPlaying || remoteRow is not null ? owningArtistId : localId, artistName);
-            if (requireOwningServerUpload && connection is not null && owningArtistId is long remoteArtistId)
+            var sources = CaptureManualArtistImageSources();
+            var applied = await _artistImageWriteQueue.RunAsync(
+                ArtistNameNormalizer.CreateComparisonKey(artistName), canPublish, async () =>
             {
-                var uploaded = await _orynivoClient.UploadArtistImageAsync(
-                    connection, remoteArtistId, image.Value.Data, image.Value.MimeType);
-                if (!uploaded)
+                if (requireOwningServerUpload && connection is not null && owningArtistId is long remoteArtistId)
                 {
-                    if (canPublish())
+                    var uploaded = await _orynivoClient.UploadArtistImageAsync(
+                        connection, remoteArtistId, image.Value.Data, image.Value.MimeType);
+                    if (!uploaded)
                     {
-                        ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
-                        ArtistInfoImageStatusText.IsVisible = true;
+                        if (canPublish())
+                        {
+                            ArtistInfoImageStatusText.Text = LocalizationManager.Current.ArtistImageDownloadFailed;
+                            ArtistInfoImageStatusText.IsVisible = true;
+                        }
+                        return false;
                     }
-                    return;
+                    InvalidateUnifiedLibraryViewCache();
+                    if (sourceIsCurrent()) DeleteOrynivoArtistListCache(connection);
+                    if (!canPublish()) return false;
                 }
-                InvalidateUnifiedLibraryViewCache();
-                if (sourceIsCurrent()) DeleteOrynivoArtistListCache(connection);
-                if (!canPublish()) return;
-            }
-            await SynchronizeUnifiedArtistImageAsync(artistName, image.Value.Data, image.Value.MimeType);
-            if (!canPublish()) return;
+                await SynchronizeUnifiedArtistImageCoreAsync(artistName, image.Value.Data, image.Value.MimeType, sources, default);
+                return true;
+            });
+            if (!applied || !canPublish()) return;
             var bitmap = await Task.Run(() =>
             {
                 using var stream = new MemoryStream(image.Value.Data);
@@ -472,8 +481,14 @@ public partial class MainWindow : Window
             AdmitArtistImageWrite(_nowPlayingRemoteArtistInfo ? _currentOrynivoTrackRow?.OrynivoServer?.Id :
                 remoteRow is not null ? (remoteRow.OrynivoServer ?? _activeOrynivoServer)?.Id : null,
                 _nowPlayingRemoteArtistInfo ? _currentOrynivoTrackRow?.ArtistId : remoteRow?.Id ?? localId, artistName);
-            await SynchronizeUnifiedArtistImageDeletionAsync(artistName);
-            if (!canPublish()) return;
+            var sources = CaptureManualArtistImageSources();
+            var deleted = await _artistImageWriteQueue.RunAsync(
+                ArtistNameNormalizer.CreateComparisonKey(artistName), canPublish, async () =>
+                {
+                    await SynchronizeUnifiedArtistImageDeletionCoreAsync(artistName, sources, default);
+                    return true;
+                });
+            if (!deleted || !canPublish()) return;
             ArtistInfoImage.Source = null;
             ArtistInfoImagePlaceholder.IsVisible = true;
             ArtistInfoImageStatusText.IsVisible = false;
@@ -536,24 +551,25 @@ public partial class MainWindow : Window
     /// <param name="artistName">Artist display name used for normalized identity matching.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the synchronized deletion.</returns>
-    private async Task SynchronizeUnifiedArtistImageDeletionAsync(
+    private Task SynchronizeUnifiedArtistImageDeletionAsync(
         string artistName,
         CancellationToken cancellationToken = default)
+        => SynchronizeUnifiedArtistImageDeletionCoreAsync(artistName, CaptureManualArtistImageSources(), cancellationToken);
+
+    /// <summary>Deletes images using the source set captured before waiting for manual-write admission.</summary>
+    /// <param name="artistName">Artist name used for normalized matching.</param>
+    /// <param name="sources">Copied connections and original configuration ownership guards.</param>
+    /// <param name="cancellationToken">Cancellation between operations.</param>
+    /// <returns>A task completing the deletion batch.</returns>
+    private async Task SynchronizeUnifiedArtistImageDeletionCoreAsync(string artistName,
+        (OrynivoServerSettings Server, Func<bool> IsCurrent)[] sources, CancellationToken cancellationToken)
     {
         var comparisonKey = ArtistNameNormalizer.CreateComparisonKey(artistName);
         if (comparisonKey.Length == 0)
             return;
 
         cancellationToken.ThrowIfCancellationRequested();
-        var sources = (_settings.OrynivoServers ?? []).Select(server => (
-            Server: new OrynivoServerSettings
-            {
-                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
-                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
-                StreamingFormat = server.StreamingFormat,
-                StreamingBitrateKbps = server.StreamingBitrateKbps
-            },
-            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
+
         try
         {
             await Task.Run(() =>

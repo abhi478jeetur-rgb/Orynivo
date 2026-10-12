@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Artist-detail image search, upload and deletion order their complete manual
+  write batches per normalized artist within the window. Later changes wait
+  through earlier file, SQLite and server work; obsolete waiting actions perform
+  no writes. Queued work retains its original destination set.
+
 - Artist image cache saves and deletions serialize per artist and data directory
   within the process. Unique staging files are cleaned after cancellation or
   failed publication; cancelled waiters preserve the current image. The existing

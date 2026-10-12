@@ -1118,6 +1118,9 @@ byte-range streaming without FFmpeg.
   navigation.
 - Manual image changes reject older profile-image updates while allowing the
   current biography and loading state to finish.
+- Artist-detail search, upload and deletion order complete manual changes per
+  artist, including file, database and server writes. Superseded waiting actions
+  perform no writes.
 - Artist renaming in the artist information view, including a transactional
   merge flow with an explicit choice of which artist profile to retain
 - Cross-server artist renames retain their original connections and skip changed

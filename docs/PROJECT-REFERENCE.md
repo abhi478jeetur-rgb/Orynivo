@@ -1937,8 +1937,17 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   failure feedback. Recheck afterward before subsequent
   synchronization/publication. Accepted direct writes invalidate catalogs even
   after navigation; only clean the source cache while its identity is valid.
-  Separate library context-menu artwork adapters and profile/manual-write
-  overlap still need their audits.
+  Separate library context-menu artwork adapters and automatic-profile/manual
+  data-write overlap still need their audits.
+- `Orynivo/ArtistImageWriteQueue.cs` orders complete manual artist-detail image
+  search/upload/deletion batches per normalized name within one window. Reserve
+  before waiting, recheck original publication/source ownership before the first
+  write, and retain ordering through local file/SQLite work and server fan-out.
+  Owning-server search uploads share the queue. Capture destination connections
+  before waiting; new servers are excluded. Idle entries are removed and failed
+  or obsolete batches release successors. The caller synchronization context
+  remains intact for ownership checks. This does not coordinate automatic jobs,
+  Settings/context-menu writers, other windows/clients or provide a transaction.
 - Foreground profiles separately observe admitted manual-image changes. Advance
   manual-image write ownership after accepted selection or at deletion
   admission; cancelled selection keeps profile images admitted. Older profiles
