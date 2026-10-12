@@ -166,6 +166,7 @@ public partial class MainWindow : Window
                 null,
                 entry.DurationSeconds is > 0 ? TimeSpan.FromSeconds(entry.DurationSeconds.Value) : null);
 
+        _queueEdits.Invalidate();
         _queue.Clear();
         _queue.Add(queueItem);
         _queueIndex = 0;
@@ -281,6 +282,7 @@ public partial class MainWindow : Window
         {
             EntityType = "PlexAlbum",
             ExternalId = albumKey,
+            PlexServerId = server.Id,
             Title = title,
             Artist = artist
         };
@@ -303,6 +305,7 @@ public partial class MainWindow : Window
         {
             EntityType = "PlexArtist",
             ExternalId = artistKey,
+            PlexServerId = server.Id,
             Title = title
         };
         await OpenPlexChildrenFromHistoryAsync(server, token, parent);
@@ -315,7 +318,7 @@ public partial class MainWindow : Window
     /// </summary>
     /// <param name="server">The Plex server to activate.</param>
     /// <param name="token">The Plex access token, or <see langword="null"/>.</param>
-    /// <param name="parent">The synthesized parent row (album or artist) to expand.</param>
+    /// <param name="parent">The source-owned synthesized album or artist row to expand.</param>
     /// <returns>A task representing the asynchronous navigation.</returns>
     private async Task OpenPlexChildrenFromHistoryAsync(
         PlexServerSettings server,
@@ -327,36 +330,18 @@ public partial class MainWindow : Window
 
         _activePlexServer = server;
         _activePlexToken = token;
+        _activePlexSectionKey = null;
         _activePlexSectionTitle = server.Name;
+        _activePlexView = parent.EntityType == "PlexArtist" ? "Artists" : "Albums";
         _plexNavigationStack.Clear();
 
         // Reveal the Plex table and hide every other full-area view, mirroring the
         // remote-library entry path so the previous view does not cover Plex content.
-        ContentDataGrid.IsVisible = true;
+        ShowPlexContentTable();
         ContentDataGrid.ItemsSource = null;
-        FolderTreeView.IsVisible = false;
-        AlbumArtworkListBox.IsVisible = false;
-        ArtistArtworkListBox.IsVisible = false;
-        SearchResultsScrollViewer.IsVisible = false;
-        DashboardScrollViewer.IsVisible = false;
-        InternetRadioView.IsVisible = false;
-        PodcastView.IsVisible = false;
-        LyricsView.IsVisible = false;
-        ArtistInfoView.IsVisible = false;
-        PodcastInfoView.IsVisible = false;
-        PlexLoadMoreButton.IsVisible = false;
-        TrackFilterButton.IsVisible = false;
-        SaveSmartPlaylistButton.IsVisible = false;
-        HideAlbumDetailHeader();
-        UpdateLibraryIntroCard(null);
 
-        await ShowPlexChildrenAsync(parent);
-
-        // Base level: further intra-Plex drill-downs push their own state, but Back from
-        // this first level should return to the originating view via the global stack.
-        _plexNavigationStack.Clear();
+        // The first history detail returns through global Back. Later child loads
+        // own their Plex states; this continuation must not clear newer history.
+        await ShowPlexChildrenAsync(parent, captureParent: false);
     }
 }
-
-
-

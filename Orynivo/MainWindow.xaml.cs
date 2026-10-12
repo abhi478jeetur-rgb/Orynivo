@@ -43,8 +43,8 @@ public partial class MainWindow : Window
     private const float PcmOutputBoostFactor = 1.9952623f;
     internal const string LocalSourceKey = "local";
     private int _plexNavigationLoadVersion;
-    private int _plexViewLoadVersion;
-    private int _unifiedLibraryLoadVersion;
+    /// <summary>Gets load ownership used by the shared view retry indicator.</summary>
+    private int _unifiedLibraryLoadVersion => _unifiedLibraryLoads.Version;
     private CancellationTokenSource? _unifiedLibraryAppendCts;
     private CancellationTokenSource? _folderViewCts;
     private const int PlexPageSize = 500;
@@ -54,6 +54,7 @@ public partial class MainWindow : Window
     private string? _activePlexSectionKey;
     private string? _activePlexSectionTitle;
     private string _activePlexView = "Artists";
+    private bool _plexDetailVisible;
     private int _plexLoadedCount;
     private int _plexTotalCount;
     private CancellationTokenSource? _plexViewCts;
@@ -114,14 +115,26 @@ public partial class MainWindow : Window
     // Felder
     // ------------------------------------------------------------------
 
-    private IAudioPlayer?  _player;
+    /// <summary>Gets active output from the single session owner.</summary>
+    private IAudioPlayer? _player => _playbackSession.Player;
+    private readonly PlaybackSessionCoordinator _playbackSession;
+    private readonly PlaybackStartOwnership _playbackStarts = new();
+    private readonly PlaybackPlayerFactory _playbackPlayerFactory;
+    private long _outputProfileSelectionVersion;
+    private readonly PlaybackPreparationTracker _playbackPreparations = new();
+    private readonly PlaybackShutdownCoordinator _playbackShutdown = new();
+    /// <summary>Gets the shared shutdown admission state used by existing playback guards.</summary>
+    private bool _playbackShuttingDown => _playbackShutdown.IsShuttingDown;
+    private bool _playbackCloseReady;
+    private bool _playbackCloseRequested;
+    private readonly AudioPlayerRetirement _audioPlayerRetirement = new(
+        exception => CrashLogger.Log(exception, "Background audio-player disposal"));
     private bool _audioDeviceExplicitlyReleased;
     private string? _releasedOutputPath;
     private RadioStationRecord? _releasedOutputRadioStation;
     private PodcastPlayback? _releasedOutputPodcastPlayback;
     private TimeSpan _releasedOutputPosition;
     private bool _releasedOutputWasPaused;
-    private CancellationTokenSource? _playbackCts;
     private readonly SettingsStore _settingsStore = new();
     private AppSettings _settings = new();
     private readonly Scrobbling.LastFmScrobblingService _lastFmScrobbler =
@@ -174,7 +187,6 @@ public partial class MainWindow : Window
     private bool _updatingAlbumTrackScope;
     private readonly List<DataGrid> _albumFolderGroupGrids = [];
     private readonly Stack<NavigationState> _navigationStack = [];
-    private bool _restoringNavigationHistory;
     private readonly DispatcherTimer _searchTimer;
     private bool _trackFavoritesOnly;
     private bool _artistFavoritesOnly;
@@ -187,7 +199,8 @@ public partial class MainWindow : Window
     private readonly HashSet<int> _selectedTrackBitrates = [];
     private readonly HashSet<string> _selectedTrackSources = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _expandedTrackFilterSections = new(StringComparer.Ordinal);
-    private readonly HashSet<long> _artistProfilesLoading = [];
+    /// <summary>Tracks the background owner of each automatic artist-profile refresh.</summary>
+    private readonly Dictionary<long, CancellationTokenSource> _artistProfilesLoading = [];
     private bool _isDraggingAlphabetIndex;
     private bool _alphabetScrollUpdatePending;
     private bool _isAlphabetProgrammaticScroll;
@@ -319,16 +332,59 @@ public partial class MainWindow : Window
         long LibraryChangedAt,
         long CachedAt,
         List<LibraryCatalogAlbum> Albums);
+    /// <summary>Retains the exact Plex parent binding, selection and table position in memory.</summary>
+    /// <param name="Title">Parent heading captured before child loading.</param>
+    /// <param name="View">Parent Plex table mode.</param>
+    /// <param name="Rows">Parent rows retaining their source identity.</param>
+    /// <param name="SelectedRow">Exact selected parent row, avoiding numeric ID collisions.</param>
+    /// <param name="VerticalOffset">Parent table scroll position before loading.</param>
+    /// <param name="ServerId">Owning Plex source identifier.</param>
+    /// <param name="ServerName">Copied source name used to reject changed configuration.</param>
+    /// <param name="BaseUrl">Copied source connection, retained in memory only.</param>
+    /// <param name="Token">Transient credential identity, never persisted or logged.</param>
+    /// <param name="Section">Owning library section, or null for history detail.</param>
+    /// <param name="NavigationTag">Sidebar context captured before loading.</param>
+    /// <param name="IsDetail">Whether the binding is a child detail rather than the library root.</param>
+    /// <param name="SectionTitle">Owning library heading.</param>
+    /// <param name="LoadedCount">Retained library paging offset.</param>
+    /// <param name="TotalCount">Retained library paging total.</param>
     private sealed record PlexNavigationState(
         string Title,
         string View,
-        IReadOnlyList<ContentRow> Rows);
+        IReadOnlyList<ContentRow> Rows,
+        ContentRow? SelectedRow,
+        double? VerticalOffset,
+        string ServerId,
+        string ServerName,
+        string BaseUrl,
+        string? Token,
+        string? Section,
+        string? NavigationTag,
+        bool IsDetail,
+        string? SectionTitle,
+        int LoadedCount,
+        int TotalCount);
     private sealed record PlaylistActionTag(ILibraryPlaylistProvider Provider, long PlaylistId, PlaylistSelection Selection);
     private sealed record NewPlaylistActionTag(ILibraryPlaylistProvider Provider, PlaylistSelection Selection);
     private sealed record OrynivoPlaylistMenuTag(OrynivoServerSettings Server, long PlaylistId, IReadOnlyList<long> TrackIds);
     private sealed record RemovePlaylistEntryTag(long PlaylistEntryId);
     private sealed record RemoveOrynivoPlaylistEntryTag(OrynivoServerSettings Server, long PlaylistEntryId);
     private sealed record PodcastPlayback(PodcastRecord Podcast, PodcastEpisode Episode);
+    /// <summary>Retains the existing in-memory global Back payload and optional source-owned Plex detail.</summary>
+    /// <param name="View">Saved view discriminator or sidebar tag.</param>
+    /// <param name="SelectedId">Selected provider-local identifier.</param>
+    /// <param name="ArtistFilterId">Active artist identifier.</param>
+    /// <param name="ArtistFilterName">Active artist name.</param>
+    /// <param name="SearchQuery">Saved query or detail heading.</param>
+    /// <param name="VerticalOffset">Saved visible vertical position.</param>
+    /// <param name="NavigationTag">Owning source navigation tag.</param>
+    /// <param name="SelectedSourceKey">Selected row source identity.</param>
+    /// <param name="GenreKey">Saved cloud branch.</param>
+    /// <param name="GenreAlbums">Saved cloud recommendation mode.</param>
+    /// <param name="LogicalAlbumIds">Local logical album identifiers.</param>
+    /// <param name="LogicalAlbumParts">Source-aware logical album parts.</param>
+    /// <param name="PlexState">Optional transient Plex detail binding.</param>
+    /// <param name="PlexParents">Existing Plex parents, ordered from nearest to root.</param>
     private sealed record NavigationState(
         string View,
         long? SelectedId,
@@ -341,15 +397,21 @@ public partial class MainWindow : Window
         string? GenreKey = null,
         bool? GenreAlbums = null,
         IReadOnlyList<long>? LogicalAlbumIds = null,
-        IReadOnlyList<LogicalAlbumPart>? LogicalAlbumParts = null);
+        IReadOnlyList<LogicalAlbumPart>? LogicalAlbumParts = null,
+        PlexNavigationState? PlexState = null,
+        IReadOnlyList<PlexNavigationState>? PlexParents = null);
 
 
     // ------------------------------------------------------------------
     // Initialisierung
     // ------------------------------------------------------------------
 
+    /// <summary>Initializes the desktop window and its production playback creation adapter.</summary>
     public MainWindow()
     {
+        _playbackSession = new(_playbackStarts, _playbackShutdown,
+            exception => CrashLogger.Log(exception, "Playback cancellation"));
+        _playbackPlayerFactory = CreatePlaybackPlayerAsync;
         using var timing = StartupTimingLog.Time("MainWindow constructor");
         using (StartupTimingLog.Time("MainWindow.InitializeComponent"))
             InitializeComponent();
@@ -606,8 +668,8 @@ public partial class MainWindow : Window
             if (index < 0 || index >= _queue.Count)
                 return false;
             _queueIndex = index;
-            await StartPlaybackAsync(_queue[index].FilePath);
-            return true;
+            var player = await StartReadyPlaybackAsync(_queue[index].FilePath);
+            return player is not null && ReferenceEquals(_player, player);
         };
         _mcpBridge.SearchMobileTracksFunc = SearchMobileRemoteTracksAsync;
         _mcpBridge.BrowseMobileArtistsFunc = BrowseMobileRemoteArtistsAsync;
@@ -622,50 +684,17 @@ public partial class MainWindow : Window
                 ? _currentTrackIsFavorite
                 : null;
         _mcpBridge.EditMobileQueueFunc = EditMobileRemoteQueueAsync;
-        _mcpBridge.PlayFileFunc    = path => StartPlaybackAsync(path);
+        _mcpBridge.PlayFileFunc    = path => StartCommandPlaybackAsync(path);
         _mcpBridge.TogglePauseFunc = TogglePlaybackAsync;
         _mcpBridge.SkipNextFunc    = PlayNextAsync;
         _mcpBridge.SkipPreviousFunc = PlayPreviousAsync;
         _mcpBridge.StopFunc        = StopPlayback;
-        _mcpBridge.SeekFunc        = async seconds =>
-        {
-            if (_player?.CanSeek == true)
-                await _player.SeekAsync(TimeSpan.FromSeconds(seconds));
-        };
+        _mcpBridge.SeekFunc        = SeekFromRemoteAsync;
         _mcpBridge.SetVolumeFunc   = v => VolumeSlider.Value = Math.Clamp(v, 0, 1);
-        _mcpBridge.AppendToQueueFunc = async path =>
-        {
-            _queue.Add(CreatePlaylistItem(path));
-            ResetQueuePlaybackState();
-            PersistPlaybackQueue();
-            RefreshQueueRowsIfVisible();
-            RefreshQueueNavigationButtons();
-            await RefreshActiveGaplessQueueAsync();
-        };
-        _mcpBridge.PlayNextFunc = async path =>
-        {
-            var insertIndex = Math.Clamp(_queueIndex + 1, 0, _queue.Count);
-            _queue.Insert(insertIndex, CreatePlaylistItem(path));
-            ResetQueuePlaybackState();
-            PersistPlaybackQueue();
-            RefreshQueueRowsIfVisible();
-            RefreshQueueNavigationButtons();
-            await RefreshActiveGaplessQueueAsync();
-        };
-        _mcpBridge.ClearQueueFunc = () => ClearPlaybackQueue();
-        _mcpBridge.ReplaceQueueFunc = async paths =>
-        {
-            _queue.Clear();
-            foreach (var p in paths)
-                _queue.Add(CreatePlaylistItem(p));
-            _queueIndex = paths.Count > 0 ? 0 : -1;
-            ResetQueuePlaybackState();
-            PersistPlaybackQueue();
-            RefreshQueueRowsIfVisible();
-            RefreshQueueNavigationButtons();
-            if (paths.Count > 0)
-                await StartPlaybackAsync(paths[0]);
-        };
+        _mcpBridge.AppendToQueueFunc = path => InsertPlaybackQueueAsync(path, playNext: false);
+        _mcpBridge.PlayNextFunc = path => InsertPlaybackQueueAsync(path, playNext: true);
+        _mcpBridge.ClearQueueFunc = ClearPlaybackQueueAsync;
+        _mcpBridge.ReplaceQueueFunc = ReplacePlaybackQueueAsync;
         _mcpBridge.RefreshPlaylistsFunc = LoadNavPlaylists;
         _mcpBridge.GetOrynivoServersFunc = () => _settings.OrynivoServers ?? [];
         _mcpBridge.ResolveRemoteTrackFunc = ResolveRemoteMcpTrackAsync;
@@ -703,6 +732,14 @@ public partial class MainWindow : Window
     /// <param name="path">The tool-supplied path or remote reference.</param>
     /// <returns>The playable path, or <see langword="null"/> when a remote reference cannot be resolved.</returns>
     private async Task<string?> ResolveRemoteMcpTrackAsync(string path)
+        => await ResolveRemoteMcpTrackForPlaybackAsync(path, () => true);
+
+    /// <summary>Resolves a remote reference without registering metadata for an abandoned start.</summary>
+    /// <param name="path">The stable remote reference.</param>
+    /// <param name="isCurrent">The dispatcher-affine ownership guard.</param>
+    /// <param name="cancellationToken">Cancellation of the owning playback preparation.</param>
+    /// <returns>The resolved path, or null when unavailable or obsolete.</returns>
+    private async Task<string?> ResolveRemoteMcpTrackForPlaybackAsync(string path, Func<bool> isCurrent, CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(path))
             return path;
@@ -713,7 +750,7 @@ public partial class MainWindow : Window
 
         try
         {
-            var tracks = await _orynivoClient.GetTracksByIdsAsync(server, [trackId], CancellationToken.None);
+            var tracks = await _orynivoClient.GetTracksByIdsAsync(server, [trackId], cancellationToken);
             var track = tracks.FirstOrDefault(t => t.Id == trackId);
             if (track is null)
                 return null;
@@ -722,6 +759,8 @@ public partial class MainWindow : Window
             // Build/register on the UI thread because that cache and the transport are UI-affine.
             return await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (!isCurrent())
+                    return null;
                 var row = ToOrynivoTrackContentRow(server, track);
                 EnsureArtworkHydrated(row);
                 return row.FilePath;
@@ -816,6 +855,10 @@ public partial class MainWindow : Window
     /// <param name="e">Window close event.</param>
     protected override void OnClosed(EventArgs e)
     {
+        _navigationRestores.Invalidate();
+        CancelProviderAlbumLoad();
+        CancelTopLevelViewLoad();
+        CancelRemoteViewLoad();
         LogUiDiagnostics("OnClosed started");
         _uiDiagnosticsHeartbeatTimer?.Stop();
         _uiDiagnosticsHeartbeatTimer = null;
@@ -832,12 +875,11 @@ public partial class MainWindow : Window
         CancelAndDispose(ref _radioSearchCts);
         CancelAndDispose(ref _podcastSearchCts);
         CancelAndDispose(ref _podcastFeedCts);
-        CancelAndDispose(ref _plexViewCts);
+        CancelPlexViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         _musicBrainzBackgroundCts.Cancel();
         CancelAudioFeatureWarmup();
-        StopPlayback();
         _windowsMediaTransport?.Dispose();
         _windowsMediaTransport = null;
         base.OnClosed(e);

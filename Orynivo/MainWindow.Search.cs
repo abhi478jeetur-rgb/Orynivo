@@ -49,6 +49,7 @@ public partial class MainWindow : Window
     /// <param name="e">Text change event.</param>
     private void SearchTextBox_OnTextChanged(object sender, TextChangedEventArgs e)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         CancelLibrarySearch();
         UpdateSaveSmartPlaylistButtonState();
         _searchTimer.Stop();
@@ -67,10 +68,13 @@ public partial class MainWindow : Window
     /// <returns>A task completing after publication or abandonment.</returns>
     private Task ShowSearchResultsAsync(string query) => ShowLibrarySearchResultsAsync(query);
 
-    /// <summary>Cancels pending searches and debounce work before changing navigation or source context.</summary>
+    /// <summary>Cancels pending searches, stored-playlist publication, and debounce work before changing navigation or source context.</summary>
     /// <param name="clearResult">Whether navigation also clears the published result and retry context.</param>
-    private void CancelLibrarySearch(bool clearResult = true)
+    /// <param name="cancelPlaylist">Whether the caller also owns abandonment of the current playlist load.</param>
+    private void CancelLibrarySearch(bool clearResult = true, bool cancelPlaylist = true)
     {
+        if (cancelPlaylist)
+            CancelPlaylistLoad();
         if (clearResult)
             _searchTimer?.Stop();
         CancelAndDispose(ref _librarySearchCts);
@@ -92,6 +96,7 @@ public partial class MainWindow : Window
     /// <returns>A task completing after publication or abandonment.</returns>
     private async Task ShowLibrarySearchResultsAsync(string query, OrynivoServerSettings? onlyServer = null, bool isRetry = false)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
         if (string.IsNullOrWhiteSpace(query))
         {
             CancelLibrarySearch();
@@ -109,7 +114,7 @@ public partial class MainWindow : Window
         _librarySearchCts = new CancellationTokenSource();
         var token = _librarySearchCts.Token;
         var version = ++_librarySearchVersion;
-        var generation = _unifiedLibraryViewCache.Generation;
+        var generation = _unifiedLibraryLoads.Generation;
         _librarySearchQuery = query;
         _librarySearchOnlyServer = onlyServer;
         _librarySearchLoadResult = previousResult;
@@ -149,7 +154,7 @@ public partial class MainWindow : Window
 
         UpdateUnifiedLibraryLoadNotice();
         bool IsCurrent() => !token.IsCancellationRequested && version == _librarySearchVersion &&
-                            generation == _unifiedLibraryViewCache.Generation && SearchResultsScrollViewer.IsVisible;
+                            generation == _unifiedLibraryLoads.Generation && SearchResultsScrollViewer.IsVisible;
         try
         {
             var localTask = onlyServer is null && filters.IncludesSource(LocalSourceKey)

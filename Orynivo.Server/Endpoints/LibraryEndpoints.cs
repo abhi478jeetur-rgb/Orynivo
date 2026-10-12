@@ -19,6 +19,8 @@ public static class LibraryEndpoints
     /// <param name="app">The endpoint route builder to register routes on.</param>
     public static void MapLibraryEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapTrackCatalogEndpoints();
+        app.MapPlaylistCatalogEndpoints();
         var api = app.MapGroup("/api");
 
         // --- Aggregate library summary ----------------------------------
@@ -212,15 +214,6 @@ public static class LibraryEndpoints
 
         // --- Tracks --------------------------------------------------------
 
-        api.MapGet("/tracks", (int page = 0, int pageSize = 500) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var tracks = db.GetTrackListPage(Math.Max(0, page), Math.Clamp(pageSize, 1, 5000))
-                .Select(TrackDto)
-                .ToList();
-            return Results.Ok(tracks);
-        });
-
         api.MapGet("/tracks/facets", () =>
         {
             using var db = AudioDatabase.OpenDefault();
@@ -231,19 +224,6 @@ public static class LibraryEndpoints
         {
             using var db = AudioDatabase.OpenDefault();
             return Results.Ok(GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parent, candidates, offset));
-        });
-
-        api.MapPost("/tracks/by-ids", (long[] ids) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            return Results.Ok(db.GetTrackListByIds(ids).Select(TrackDto).ToList());
-        });
-
-        api.MapGet("/tracks/{trackId:long}", (long trackId) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var track = db.GetTrackById(trackId);
-            return track is null ? Results.NotFound() : Results.Ok(TrackRecordDto(track));
         });
 
         api.MapGet("/tracks/{trackId:long}/waveform", async (long trackId, HttpContext ctx) =>
@@ -345,15 +325,6 @@ public static class LibraryEndpoints
             return Results.Ok(db.GetTrackRating(trackId));
         });
 
-        api.MapPut("/tracks/{trackId:long}/favorite", (long trackId, FavoriteUpdateRequest request) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            if (db.GetTrackById(trackId) is null)
-                return Results.NotFound();
-            db.SetTrackFavorite(trackId, request.IsFavorite);
-            return Results.Ok(new { trackId, request.IsFavorite });
-        });
-
         api.MapPut("/tracks/{trackId:long}/genre", (long trackId, TrackGenreUpdateRequest request) =>
         {
             using var db = AudioDatabase.OpenDefault();
@@ -414,170 +385,6 @@ public static class LibraryEndpoints
                 };
             }).ToList();
             return Results.Ok(tracks);
-        });
-
-        // --- Playlists -----------------------------------------------------
-
-        api.MapGet("/playlists", () =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var playlists = db.GetAllPlaylists().Select(p => new
-            {
-                p.Id,
-                p.Name,
-                p.Description,
-                p.TrackCount,
-                p.IsSmartPlaylist,
-                p.FilterCriteria,
-                p.CreatedAt,
-                p.ModifiedAt
-            }).ToList();
-            return Results.Ok(playlists);
-        });
-
-        api.MapGet("/playlists/{playlistId:long}/tracks", (long playlistId) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var playlist = db.GetPlaylistById(playlistId);
-            if (playlist is null) return Results.NotFound();
-
-            if (playlist.IsSmartPlaylist && playlist.FilterCriteria is not null)
-                return ResolveSmartPlaylistTracks(db, playlist, favoriteOverride: null);
-
-            var entries = db.GetPlaylistTracks(playlistId).ToList();
-            var playlistTracks = entries.Select(e => new
-            {
-                PlaylistEntryId = e.Id,
-                e.Path,
-                e.Position,
-                Track = e.TrackId is long trackId
-                    ? db.GetTrackListByIds([trackId]).FirstOrDefault()
-                    : db.GetTrackListByPaths([e.Path]).FirstOrDefault()
-            }).ToList();
-            return Results.Ok(playlistTracks.Select(e => new
-            {
-                e.PlaylistEntryId,
-                e.Position,
-                e.Path,
-                Track = e.Track is null ? null : TrackDto(e.Track)
-            }).ToList());
-        });
-
-        api.MapPost("/playlists/{playlistId:long}/resolve", (long playlistId, SmartPlaylistResolveRequest request) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var playlist = db.GetPlaylistById(playlistId);
-            if (playlist is null) return Results.NotFound();
-            if (!playlist.IsSmartPlaylist || playlist.FilterCriteria is null)
-                return Results.BadRequest(new { error = "Not a smart playlist." });
-
-            // Remote favourites are client-side: the client supplies its favourite
-            // track IDs so a FavoritesOnly criterion resolves against them instead of
-            // the server's own (unset) is_favorite flags.
-            var favoriteOverride = new HashSet<long>(request.FavoriteTrackIds ?? []);
-            return ResolveSmartPlaylistTracks(db, playlist, favoriteOverride);
-        });
-
-        api.MapPost("/playlists/resolve-count", (SmartCriteriaResolveRequest request) =>
-        {
-            if (string.IsNullOrWhiteSpace(request.Criteria))
-                return Results.BadRequest();
-            SmartPlaylistCriteria? criteria;
-            try { criteria = JsonSerializer.Deserialize<SmartPlaylistCriteria>(request.Criteria); }
-            catch { return Results.BadRequest(new { error = "Invalid smart playlist criteria." }); }
-            if (criteria is null)
-                return Results.BadRequest();
-
-            using var db = AudioDatabase.OpenDefault();
-            var favoriteOverride = new HashSet<long>(request.FavoriteTrackIds ?? []);
-            var candidates = db.GetSmartPlaylistTracks()
-                .Select(t => t with { IsFavorite = favoriteOverride.Contains(t.Id) })
-                .ToList();
-            return Results.Ok(new { Count = SmartPlaylistResolver.Resolve(db, criteria, candidates).Count });
-        });
-
-        api.MapPost("/playlists", (PlaylistCreateRequest request) =>
-        {
-            var name = request.Name?.Trim();
-            if (string.IsNullOrWhiteSpace(name))
-                return Results.BadRequest();
-
-            using var db = AudioDatabase.OpenDefault();
-            var playlistId = db.CreatePlaylist(name);
-            foreach (var trackId in request.TrackIds ?? [])
-            {
-                var track = db.GetTrackById(trackId);
-                if (track is not null)
-                    db.AddTrackToPlaylist(playlistId, track.Path, track.Id);
-            }
-
-            var playlist = db.GetPlaylistById(playlistId);
-            return playlist is null ? Results.NotFound() : Results.Ok(PlaylistDto(playlist));
-        });
-
-        api.MapPost("/playlists/smart", (SmartPlaylistSaveRequest request) =>
-        {
-            var name = request.Name?.Trim();
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(request.FilterCriteria))
-                return Results.BadRequest();
-            if (!TryNormalizeSmartCriteria(request.FilterCriteria, out var json))
-                return Results.BadRequest(new { error = "Invalid smart playlist criteria." });
-
-            using var db = AudioDatabase.OpenDefault();
-            var playlistId = db.CreateSmartPlaylist(name, json);
-            var playlist = db.GetPlaylistById(playlistId);
-            return playlist is null ? Results.NotFound() : Results.Ok(PlaylistDto(playlist));
-        });
-
-        api.MapPut("/playlists/{playlistId:long}/smart", (long playlistId, SmartPlaylistSaveRequest request) =>
-        {
-            var name = request.Name?.Trim();
-            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(request.FilterCriteria))
-                return Results.BadRequest();
-            if (!TryNormalizeSmartCriteria(request.FilterCriteria, out var json))
-                return Results.BadRequest(new { error = "Invalid smart playlist criteria." });
-
-            using var db = AudioDatabase.OpenDefault();
-            var playlist = db.GetPlaylistById(playlistId);
-            if (playlist is null || !playlist.IsSmartPlaylist)
-                return Results.NotFound();
-
-            db.UpdateSmartPlaylist(playlistId, name, json);
-            var updated = db.GetPlaylistById(playlistId);
-            return updated is null ? Results.NotFound() : Results.Ok(PlaylistDto(updated));
-        });
-
-        api.MapPost("/playlists/{playlistId:long}/tracks", (long playlistId, PlaylistTrackAppendRequest request) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            var playlist = db.GetPlaylistById(playlistId);
-            if (playlist is null || playlist.IsSmartPlaylist)
-                return Results.NotFound();
-
-            foreach (var trackId in request.TrackIds ?? [])
-            {
-                var track = db.GetTrackById(trackId);
-                if (track is not null)
-                    db.AddTrackToPlaylist(playlistId, track.Path, track.Id);
-            }
-
-            return Results.NoContent();
-        });
-
-        api.MapDelete("/playlists/{playlistId:long}", (long playlistId) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            if (db.GetPlaylistById(playlistId) is null)
-                return Results.NotFound();
-            db.DeletePlaylist(playlistId);
-            return Results.NoContent();
-        });
-
-        api.MapDelete("/playlist-tracks/{playlistEntryId:long}", (long playlistEntryId) =>
-        {
-            using var db = AudioDatabase.OpenDefault();
-            db.RemoveTrackFromPlaylist(playlistEntryId);
-            return Results.NoContent();
         });
 
         // --- Search --------------------------------------------------------
@@ -698,6 +505,218 @@ public static class LibraryEndpoints
             }
 
             return Results.Ok(new { tracks, albums, artists });
+        });
+    }
+
+    /// <summary>Maps regular and smart playlist routes without starting library background services.</summary>
+    /// <param name="app">The endpoint builder for the authenticated middleware pipeline.</param>
+    /// <param name="openDatabase">Optional factory; every request owns and disposes its connection.</param>
+    public static void MapPlaylistCatalogEndpoints(this IEndpointRouteBuilder app, Func<AudioDatabase>? openDatabase = null)
+    {
+        openDatabase ??= AudioDatabase.OpenDefault;
+        var api = app.MapGroup("/api");
+        // --- Playlists -----------------------------------------------------
+
+        api.MapGet("/playlists", () =>
+        {
+            using var db = openDatabase();
+            var playlists = db.GetAllPlaylists().Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.Description,
+                p.TrackCount,
+                p.IsSmartPlaylist,
+                p.FilterCriteria,
+                p.CreatedAt,
+                p.ModifiedAt
+            }).ToList();
+            return Results.Ok(playlists);
+        });
+
+        api.MapGet("/playlists/{playlistId:long}/tracks", (long playlistId) =>
+        {
+            using var db = openDatabase();
+            var playlist = db.GetPlaylistById(playlistId);
+            if (playlist is null) return Results.NotFound();
+
+            if (playlist.IsSmartPlaylist && playlist.FilterCriteria is not null)
+                return ResolveSmartPlaylistTracks(db, playlist, favoriteOverride: null);
+
+            var entries = db.GetPlaylistTracks(playlistId).ToList();
+            var playlistTracks = entries.Select(e => new
+            {
+                PlaylistEntryId = e.Id,
+                e.Path,
+                e.Position,
+                Track = e.TrackId is long trackId
+                    ? db.GetTrackListByIds([trackId]).FirstOrDefault()
+                    : db.GetTrackListByPaths([e.Path]).FirstOrDefault()
+            }).ToList();
+            return Results.Ok(playlistTracks.Select(e => new
+            {
+                e.PlaylistEntryId,
+                e.Position,
+                e.Path,
+                Track = e.Track is null ? null : TrackDto(e.Track)
+            }).ToList());
+        });
+
+        api.MapPost("/playlists/{playlistId:long}/resolve", (long playlistId, SmartPlaylistResolveRequest request) =>
+        {
+            using var db = openDatabase();
+            var playlist = db.GetPlaylistById(playlistId);
+            if (playlist is null) return Results.NotFound();
+            if (!playlist.IsSmartPlaylist || playlist.FilterCriteria is null)
+                return Results.BadRequest(new { error = "Not a smart playlist." });
+
+            // Remote favourites are client-side: the client supplies its favourite
+            // track IDs so a FavoritesOnly criterion resolves against them instead of
+            // the server's own (unset) is_favorite flags.
+            var favoriteOverride = new HashSet<long>(request.FavoriteTrackIds ?? []);
+            return ResolveSmartPlaylistTracks(db, playlist, favoriteOverride);
+        });
+
+        api.MapPost("/playlists/resolve-count", (SmartCriteriaResolveRequest request) =>
+        {
+            if (string.IsNullOrWhiteSpace(request.Criteria))
+                return Results.BadRequest();
+            SmartPlaylistCriteria? criteria;
+            try { criteria = JsonSerializer.Deserialize<SmartPlaylistCriteria>(request.Criteria); }
+            catch { return Results.BadRequest(new { error = "Invalid smart playlist criteria." }); }
+            if (criteria is null)
+                return Results.BadRequest();
+
+            using var db = openDatabase();
+            var favoriteOverride = new HashSet<long>(request.FavoriteTrackIds ?? []);
+            var candidates = db.GetSmartPlaylistTracks()
+                .Select(t => t with { IsFavorite = favoriteOverride.Contains(t.Id) })
+                .ToList();
+            return Results.Ok(new { Count = SmartPlaylistResolver.Resolve(db, criteria, candidates).Count });
+        });
+
+        api.MapPost("/playlists", (PlaylistCreateRequest request) =>
+        {
+            var name = request.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name))
+                return Results.BadRequest();
+
+            using var db = openDatabase();
+            var playlistId = db.CreatePlaylist(name);
+            foreach (var trackId in request.TrackIds ?? [])
+            {
+                var track = db.GetTrackById(trackId);
+                if (track is not null)
+                    db.AddTrackToPlaylist(playlistId, track.Path, track.Id);
+            }
+
+            var playlist = db.GetPlaylistById(playlistId);
+            return playlist is null ? Results.NotFound() : Results.Ok(PlaylistDto(playlist));
+        });
+
+        api.MapPost("/playlists/smart", (SmartPlaylistSaveRequest request) =>
+        {
+            var name = request.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(request.FilterCriteria))
+                return Results.BadRequest();
+            if (!TryNormalizeSmartCriteria(request.FilterCriteria, out var json))
+                return Results.BadRequest(new { error = "Invalid smart playlist criteria." });
+
+            using var db = openDatabase();
+            var playlistId = db.CreateSmartPlaylist(name, json);
+            var playlist = db.GetPlaylistById(playlistId);
+            return playlist is null ? Results.NotFound() : Results.Ok(PlaylistDto(playlist));
+        });
+
+        api.MapPut("/playlists/{playlistId:long}/smart", (long playlistId, SmartPlaylistSaveRequest request) =>
+        {
+            var name = request.Name?.Trim();
+            if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(request.FilterCriteria))
+                return Results.BadRequest();
+            if (!TryNormalizeSmartCriteria(request.FilterCriteria, out var json))
+                return Results.BadRequest(new { error = "Invalid smart playlist criteria." });
+
+            using var db = openDatabase();
+            var playlist = db.GetPlaylistById(playlistId);
+            if (playlist is null || !playlist.IsSmartPlaylist)
+                return Results.NotFound();
+
+            db.UpdateSmartPlaylist(playlistId, name, json);
+            var updated = db.GetPlaylistById(playlistId);
+            return updated is null ? Results.NotFound() : Results.Ok(PlaylistDto(updated));
+        });
+
+        api.MapPost("/playlists/{playlistId:long}/tracks", (long playlistId, PlaylistTrackAppendRequest request) =>
+        {
+            using var db = openDatabase();
+            var playlist = db.GetPlaylistById(playlistId);
+            if (playlist is null || playlist.IsSmartPlaylist)
+                return Results.NotFound();
+
+            foreach (var trackId in request.TrackIds ?? [])
+            {
+                var track = db.GetTrackById(trackId);
+                if (track is not null)
+                    db.AddTrackToPlaylist(playlistId, track.Path, track.Id);
+            }
+
+            return Results.NoContent();
+        });
+
+        api.MapDelete("/playlists/{playlistId:long}", (long playlistId) =>
+        {
+            using var db = openDatabase();
+            if (db.GetPlaylistById(playlistId) is null)
+                return Results.NotFound();
+            db.DeletePlaylist(playlistId);
+            return Results.NoContent();
+        });
+
+        api.MapDelete("/playlist-tracks/{playlistEntryId:long}", (long playlistEntryId) =>
+        {
+            using var db = openDatabase();
+            db.RemoveTrackFromPlaylist(playlistEntryId);
+            return Results.NoContent();
+        });
+
+    }
+
+    /// <summary>Maps database-backed track browsing and personal favorites without starting library services.</summary>
+    /// <param name="app">The endpoint builder for the authenticated middleware pipeline.</param>
+    /// <param name="openDatabase">Optional connection factory; each request owns and disposes its connection.</param>
+    public static void MapTrackCatalogEndpoints(this IEndpointRouteBuilder app, Func<AudioDatabase>? openDatabase = null)
+    {
+        openDatabase ??= AudioDatabase.OpenDefault;
+        var api = app.MapGroup("/api");
+        api.MapGet("/tracks", (int page = 0, int pageSize = 500) =>
+        {
+            using var db = openDatabase();
+            var tracks = db.GetTrackListPage(Math.Max(0, page), Math.Clamp(pageSize, 1, 5000))
+                .Select(TrackDto)
+                .ToList();
+            return Results.Ok(tracks);
+        });
+
+        api.MapPost("/tracks/by-ids", (long[] ids) =>
+        {
+            using var db = openDatabase();
+            return Results.Ok(db.GetTrackListByIds(ids).Select(TrackDto).ToList());
+        });
+
+        api.MapGet("/tracks/{trackId:long}", (long trackId) =>
+        {
+            using var db = openDatabase();
+            var track = db.GetTrackById(trackId);
+            return track is null ? Results.NotFound() : Results.Ok(TrackRecordDto(track));
+        });
+
+        api.MapPut("/tracks/{trackId:long}/favorite", (long trackId, FavoriteUpdateRequest request) =>
+        {
+            using var db = openDatabase();
+            if (db.GetTrackById(trackId) is null)
+                return Results.NotFound();
+            db.SetTrackFavorite(trackId, request.IsFavorite);
+            return Results.Ok(new { trackId, request.IsFavorite });
         });
     }
 

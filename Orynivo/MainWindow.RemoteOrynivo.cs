@@ -166,18 +166,17 @@ public partial class MainWindow : Window
         await LoadOrynivoViewAsync();
     }
 
+    /// <summary>Adapts the typed server target parser to existing sidebar callers.</summary>
+    /// <param name="tag">Potential remote sidebar tag.</param>
+    /// <param name="serverId">Parsed server identity or empty when invalid.</param>
+    /// <param name="view">Parsed view identity or empty when invalid.</param>
+    /// <returns>Whether the tag identifies a server destination.</returns>
     private static bool TryParseOrynivoServerTag(string tag, out string serverId, out string view)
     {
-        serverId = string.Empty;
-        view = string.Empty;
-        if (!tag.StartsWith("OrynivoServer:", StringComparison.Ordinal))
-            return false;
-        var parts = tag.Split(':', 3);
-        if (parts.Length < 2 || string.IsNullOrWhiteSpace(parts[1]))
-            return false;
-        serverId = parts[1];
-        view = parts.Length == 3 && !string.IsNullOrWhiteSpace(parts[2]) ? parts[2] : "Root";
-        return true;
+        var parsed = ServerNavigationTarget.TryParse(tag, out var target);
+        serverId = target?.ServerId ?? string.Empty;
+        view = target?.View ?? string.Empty;
+        return parsed;
     }
 
     private static string GetOrynivoFavoriteKey(string serverId, string entityType, long id)
@@ -227,16 +226,48 @@ public partial class MainWindow : Window
         await LoadOrynivoViewAsync();
     }
 
+    private readonly NavigationLoadOwnership _remoteViewLoads = new();
+
+    /// <summary>Abandons remote view publication before invoking cancellation callbacks.</summary>
+    private void CancelRemoteViewLoad()
+    {
+        _remoteViewLoads.Invalidate();
+        CancelAndDispose(ref _orynivoViewCts);
+    }
+
+    /// <summary>Loads a remote view and publishes only its current navigation and catalog request.</summary>
+    /// <param name="filterArtistId">Optional owning server artist scope.</param>
+    /// <param name="filterAlbumId">Optional owning server album scope.</param>
+    /// <returns>A task completing after publication or rejection of an abandoned request.</returns>
     private async Task LoadOrynivoViewAsync(long? filterArtistId = null, long? filterAlbumId = null)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        var restoreRequest = _navigationRestores.Context;
         if (_activeOrynivoServer is null)
             return;
 
-        ShowContentLoadingSkeleton();
-        CancelAndDispose(ref _orynivoViewCts);
+        var server = _activeOrynivoServer;
+        var tag = _currentTopLevelTag;
+        var generation = _unifiedLibraryLoads.Generation;
+        var previousCancellation = _orynivoViewCts;
         _orynivoViewCts = new CancellationTokenSource();
         var ct = _orynivoViewCts.Token;
-        var server = _activeOrynivoServer;
+        var request = _remoteViewLoads.Begin(ct);
+        CancelAndDispose(ref previousCancellation);
+        bool CanPublish() => _remoteViewLoads.IsCurrent(request) &&
+            (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest)) &&
+            generation == _unifiedLibraryLoads.Generation &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal);
+        if (!CanPublish()) return;
+        ShowContentLoadingSkeleton();
+        using var loading = new ContentLoadingLease(HideContentLoadingSkeleton);
+        using var loadingCancellation = ct.Register(() =>
+        {
+            if (Dispatcher.UIThread.CheckAccess()) loading.Dispose();
+            else Dispatcher.UIThread.Post(loading.Dispose);
+        });
+        if (!CanPublish()) return;
         var provider = CreateOrynivoCatalogProvider(server);
         var view = filterAlbumId.HasValue ? "AlbumTracks"
             : filterArtistId.HasValue ? "ArtistAlbums"
@@ -276,7 +307,7 @@ public partial class MainWindow : Window
                 {
                     ApplyColumns("Artists");
                     var artists = await provider.GetArtistsAsync(ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var rows = artists.Select(artist => ToCatalogArtistContentRow(artist, server))
                     .Where(row => !_trackFavoritesOnly || row.IsFavorite)
                     .ToList();
@@ -299,7 +330,7 @@ public partial class MainWindow : Window
                         filterArtistId!.Value,
                         includeArtwork: true,
                         cancellationToken: ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var rows = MergeLogicalAlbumRows(albums.Select(album => ToCatalogAlbumContentRow(album, server)))
                         .Where(row => !_trackFavoritesOnly || row.IsFavorite)
                         .ToList();
@@ -319,7 +350,7 @@ public partial class MainWindow : Window
                 {
                     ApplyColumns("Albums");
                     var albums = await provider.GetAlbumsAsync(includeArtwork: true, cancellationToken: ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var rows = MergeLogicalAlbumRows(albums.Select(album => ToCatalogAlbumContentRow(album, server)))
                         .Where(row => !_trackFavoritesOnly || row.IsFavorite)
                         .ToList();
@@ -346,17 +377,19 @@ public partial class MainWindow : Window
                     }
                     else
                     {
-                        _orynivoTrackFacets = (await _orynivoClient.GetTrackFacetsAsync(server, ct))
+                        var loadedFacets = await _orynivoClient.GetTrackFacetsAsync(server, ct);
+                        if (!CanPublish()) return;
+                        _orynivoTrackFacets = loadedFacets
                             .Select(f => f with
                             {
                                 IsFavorite = IsOrynivoFavorite(server, "Track", f.Id),
                                 SourceKey = GetServerSourceKey(server.Id)
                             })
                             .ToList();
-                        if (ct.IsCancellationRequested) return;
+                        if (!CanPublish()) return;
                         catalogTracks = await ResolveOrynivoTrackRowsAsync(server, provider, ct);
                     }
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     // Build the columns immediately before binding, mirroring the local
                     // Tracks view. Applying them before the long-running async load lets
                     // the DataGrid run layout passes while still empty; Avalonia then
@@ -378,9 +411,9 @@ public partial class MainWindow : Window
                     FolderTreeView.IsVisible = true;
                     ShowOrynivoFolderLoadingState();
                     var tracks = await LoadOrynivoFolderTracksAsync(server, ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     var metadata = await LoadOrynivoFolderTrackMetadataAsync(server, tracks, ct);
-                    if (ct.IsCancellationRequested) return;
+                    if (!CanPublish()) return;
                     BuildOrynivoFolderTree(server, tracks, metadata);
                     ContentCountTextBlock.Text = LocalizationManager.FormatTrackCount(tracks.Count);
                     break;
@@ -390,16 +423,16 @@ public partial class MainWindow : Window
         catch (OperationCanceledException) { }
         catch
         {
-            StatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
+            if (CanPublish()) StatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
             return;
         }
         finally
         {
-            HideContentLoadingSkeleton();
-            FadeInVisibleContentSurface();
+            loading.Dispose();
+            if (CanPublish()) FadeInVisibleContentSurface(CanPublish);
         }
 
-        StatusTextBlock.Text = string.Empty;
+        if (CanPublish()) StatusTextBlock.Text = string.Empty;
     }
 
     private OrynivoServerLibraryCatalogProvider CreateOrynivoCatalogProvider(OrynivoServerSettings server)
@@ -417,13 +450,17 @@ public partial class MainWindow : Window
     /// <summary>Loads a complete remote track catalog, reusing only a current validated disk snapshot.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
+    /// <param name="favorites">Optional captured personal favorites for an isolated operation.</param>
     /// <returns>All tracks after every page succeeds, with current client favorites.</returns>
     private async Task<List<LibraryCatalogTrack>> LoadAllOrynivoTracksAsync(
         OrynivoServerSettings server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? favorites = null)
     {
         // Every writer of the shared disk cache must use strict requests.
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = favorites is null ? CreateCompleteOrynivoCatalogProvider(server)
+            : new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+                (entity, id) => favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         // The server reports when its library index last changed; reuse the
         // locally cached track list while that timestamp is unchanged so the
         // full list does not have to be downloaded on every visit.
@@ -462,7 +499,9 @@ public partial class MainWindow : Window
         // library timestamp changing, so re-apply them after loading (including
         // from the cache) instead of trusting the cached favourite flags.
         return tracks
-            .Select(track => track with { IsFavorite = IsOrynivoFavorite(server, "Track", track.Id) })
+            .Select(track => track with { IsFavorite = favorites is null
+                ? IsOrynivoFavorite(server, "Track", track.Id)
+                : favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Track", track.Id)) })
             .ToList();
     }
 
@@ -533,12 +572,16 @@ public partial class MainWindow : Window
     /// <summary>Loads remote artists without caching failures as a valid empty catalog.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
-    /// <returns>Complete artists with current client favorites.</returns>
+    /// <param name="favorites">Optional copied favorites for an isolated catalog load.</param>
+    /// <returns>Complete artists with captured favorites when supplied, otherwise current client favorites.</returns>
     private async Task<List<LibraryCatalogArtist>> LoadAllOrynivoArtistsAsync(
         OrynivoServerSettings server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? favorites = null)
     {
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = favorites is null ? CreateCompleteOrynivoCatalogProvider(server)
+            : new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+                (entity, id) => favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         var scanStatus = await _orynivoClient.GetScanStatusAsync(server, cancellationToken);
         var libraryChangedAt = scanStatus?.LibraryChangedAt;
         List<LibraryCatalogArtist>? artists = null;
@@ -564,19 +607,25 @@ public partial class MainWindow : Window
         }
 
         return artists
-            .Select(artist => artist with { IsFavorite = IsOrynivoFavorite(server, "Artist", artist.Id) })
+            .Select(artist => artist with { IsFavorite = favorites is null
+                ? IsOrynivoFavorite(server, "Artist", artist.Id)
+                : favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Artist", artist.Id)) })
             .ToList();
     }
 
     /// <summary>Loads remote albums without caching failures as a valid empty catalog.</summary>
     /// <param name="server">Owning source.</param>
     /// <param name="cancellationToken">Source cancellation.</param>
-    /// <returns>Complete albums with current client favorites.</returns>
+    /// <param name="favorites">Optional copied favorites for an isolated catalog load.</param>
+    /// <returns>Complete albums with captured favorites when supplied, otherwise current client favorites.</returns>
     private async Task<List<LibraryCatalogAlbum>> LoadAllOrynivoAlbumsAsync(
         OrynivoServerSettings server,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        IReadOnlySet<string>? favorites = null)
     {
-        var provider = CreateCompleteOrynivoCatalogProvider(server);
+        var provider = favorites is null ? CreateCompleteOrynivoCatalogProvider(server)
+            : new OrynivoServerLibraryCatalogProvider(server, _orynivoClient,
+                (entity, id) => favorites.Contains(GetOrynivoFavoriteKey(server.Id, entity, id)), requireComplete: true);
         var scanStatus = await _orynivoClient.GetScanStatusAsync(server, cancellationToken);
         var libraryChangedAt = scanStatus?.LibraryChangedAt;
         List<LibraryCatalogAlbum>? albums = null;
@@ -602,7 +651,9 @@ public partial class MainWindow : Window
         }
 
         return albums
-            .Select(album => album with { IsFavorite = IsOrynivoFavorite(server, "Album", album.Id) })
+            .Select(album => album with { IsFavorite = favorites is null
+                ? IsOrynivoFavorite(server, "Album", album.Id)
+                : favorites.Contains(GetOrynivoFavoriteKey(server.Id, "Album", album.Id)) })
             .ToList();
     }
 

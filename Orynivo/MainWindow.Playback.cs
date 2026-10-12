@@ -45,6 +45,9 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    // Progress is publishable only after the owning podcast resume seek finishes.
+    private bool _podcastResumePrepared;
+
     // ------------------------------------------------------------------
     // Wiedergabe
     // ------------------------------------------------------------------
@@ -76,38 +79,26 @@ public partial class MainWindow : Window
     private async void PlayButton_OnClick(object? sender, RoutedEventArgs e) =>
         await TogglePlaybackAsync();
 
+    /// <summary>Toggles the active player or prepares the selected source.</summary>
+    /// <returns>The pause/resume action or initial preparation.</returns>
     private async Task TogglePlaybackAsync()
     {
-        if (_player is not null)
+        if (_player is { } player)
         {
-            if (_player.IsPaused)
-            {
-                _player.Resume();
-                SetPlayPauseIcon(isPlaying: true);
-                _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Playing);
-            }
-            else
-            {
-                _player.Pause();
-                SetPlayPauseIcon(isPlaying: false);
-                _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Paused);
-            }
+            SetPlaybackPaused(!player.IsPaused);
             return;
         }
 
         await ResumeOrStartPlaybackAsync();
     }
 
+    /// <summary>Resumes the active player or returns when source preparation finishes.</summary>
+    /// <returns>The resume action or guarded preparation.</returns>
     private async Task ResumeOrStartPlaybackAsync()
     {
         if (_player is not null)
         {
-            if (_player.IsPaused)
-            {
-                _player.Resume();
-                SetPlayPauseIcon(isPlaying: true);
-                _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Playing);
-            }
+            SetPlaybackPaused(false);
             return;
         }
 
@@ -116,31 +107,64 @@ public partial class MainWindow : Window
             StatusTextBlock.Text = LocalizationManager.Current.SelectTrackFirst;
             return;
         }
-        try { await StartPlaybackAsync(_currentFilePath, _currentRadioStation, _currentPodcastPlayback); }
+        var ready = StartReadyPlaybackAsync(_currentFilePath, _currentRadioStation, _currentPodcastPlayback);
+        var intent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
 
-    private void PausePlayback()
+    /// <summary>Pauses current output without publishing state from a reentrant obsolete player.</summary>
+    private void PausePlayback() => SetPlaybackPaused(true);
+
+    /// <summary>Adapts an owned backend pause/resume transition to the transport controls.</summary>
+    /// <param name="paused">Requested pause state.</param>
+    private void SetPlaybackPaused(bool paused)
     {
-        if (_player is null || _player.IsPaused)
-            return;
-        _player.Pause();
-        SetPlayPauseIcon(isPlaying: false);
-        _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Paused);
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player is null || !_playbackSession.TrySetPaused(intent, player, paused)) return;
+        SetPlayPauseIcon(isPlaying: !paused);
+        _windowsMediaTransport?.SetPlaybackStatus(paused ? MediaPlaybackStatus.Paused : MediaPlaybackStatus.Playing);
     }
 
+    /// <summary>Tracks a remote transport seek and cancels acknowledgement when output is superseded.</summary>
+    /// <param name="seconds">Requested absolute playback position.</param>
+    /// <returns>The owned seek completion; current failures propagate to the remote command.</returns>
+    private async Task SeekFromRemoteAsync(double seconds)
+    {
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player?.CanSeek != true || !_playbackSession.Owns(intent, player)) return;
+        using var preparation = _playbackPreparations.Begin();
+        try { await player.SeekAsync(TimeSpan.FromSeconds(seconds)); }
+        catch (Exception) when (!_playbackSession.Owns(intent, player))
+        {
+            throw new OperationCanceledException(LocalizationManager.Current.PlaybackStopped);
+        }
+        if (!_playbackSession.Owns(intent, player))
+            throw new OperationCanceledException(LocalizationManager.Current.PlaybackStopped);
+    }
+
+    /// <summary>Tracks a system transport seek and rejects obsolete completion before updating playback UI.</summary>
+    /// <param name="position">Requested seek position, including the start of the track.</param>
+    /// <returns>The seek lifetime included in complete output release.</returns>
     private async Task SeekFromSystemAsync(TimeSpan position)
     {
-        if (_player?.CanSeek != true)
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player?.CanSeek != true || !_playbackSession.Owns(intent, player))
             return;
+        using var preparation = _playbackPreparations.Begin();
         try
         {
-            await _player.SeekAsync(position);
+            await player.SeekAsync(position);
+            if (!_playbackSession.Owns(intent, player)) return;
             RefreshTransport();
             _windowsMediaTransport?.UpdateTimeline(
-                _player.Position,
-                _player.Duration,
+                player.Position,
+                player.Duration,
                 force: true);
         }
         catch
@@ -149,186 +173,150 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Creates a desktop window with an injected backend creation adapter.</summary>
+    /// <param name="playbackPlayerFactory">The dispatcher-invoked factory for playback creation.</param>
+    internal MainWindow(PlaybackPlayerFactory playbackPlayerFactory) : this()
+    {
+        ArgumentNullException.ThrowIfNull(playbackPlayerFactory);
+        _playbackPlayerFactory = playbackPlayerFactory;
+    }
+
+    /// <summary>Returns when preparation finishes, while observing the remaining playback lifetime.</summary>
+    /// <param name="filePath">The local path or remote playback reference.</param>
+    /// <param name="radioStation">Optional radio metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast metadata.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
+    /// <param name="initiallyPaused">Whether to pause the prepared player before publishing readiness.</param>
+    /// <param name="onPrepared">Optional synchronous action on the current prepared player.</param>
+    /// <returns>The prepared player, or null for an abandoned or unavailable start.</returns>
+    private Task<IAudioPlayer?> StartReadyPlaybackAsync(
+        string filePath, RadioStationRecord? radioStation = null,
+        PodcastPlayback? podcastPlayback = null, TimeSpan initialPosition = default,
+        bool initiallyPaused = false, Action<IAudioPlayer>? onPrepared = null)
+    {
+        var readiness = new PlaybackReadiness();
+        var lifetime = StartPlaybackAsync(filePath, radioStation, podcastPlayback, initialPosition,
+            initiallyPaused, player =>
+            {
+                onPrepared?.Invoke(player);
+                readiness.Publish(player);
+            });
+        return readiness.Observe(lifetime, (player, error) =>
+        {
+            if (_playbackShuttingDown || !ReferenceEquals(_player, player))
+                return;
+            StopPlayback();
+            StatusTextBlock.Text = error is OperationCanceledException
+                ? LocalizationManager.Current.PlaybackStopped : error.Message;
+        });
+    }
+
+    /// <summary>Completes a remote command only after its own player is prepared.</summary>
+    /// <param name="filePath">The source to play.</param>
+    /// <returns>Preparation completion; abandoned or unavailable starts are cancelled.</returns>
+    private async Task StartCommandPlaybackAsync(string filePath)
+    {
+        var player = await StartReadyPlaybackAsync(filePath);
+        if (player is null || !ReferenceEquals(_player, player))
+            throw new OperationCanceledException(LocalizationManager.Current.PlaybackStopped);
+    }
+
+    /// <summary>Starts the requested source and ignores results superseded by another start or stop.</summary>
+    /// <param name="filePath">The local path or remote playback reference.</param>
+    /// <param name="radioStation">Optional radio source metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast source metadata.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
+    /// <param name="initiallyPaused">Whether to pause before publishing readiness.</param>
+    /// <param name="onPrepared">Optional synchronous callback after preparation and ownership checks.</param>
+    /// <returns>The playback lifetime, including automatic queue advancement.</returns>
     private async Task StartPlaybackAsync(
         string filePath,
         RadioStationRecord? radioStation = null,
         PodcastPlayback? podcastPlayback = null,
-        TimeSpan initialPosition = default)
+        TimeSpan initialPosition = default,
+        bool initiallyPaused = false,
+        Action<IAudioPlayer>? onPrepared = null)
     {
+        if (_playbackShuttingDown)
+            return;
+        await _playbackStarts.RunAsync(intent =>
+        {
+            _playbackPreparations.CancelAll();
+            return StartPlaybackIntentAsync(intent, filePath, radioStation, podcastPlayback, initialPosition, initiallyPaused, onPrepared);
+        });
+    }
+
+    /// <summary>Exposes pending preparation to queue edits without superseding its owning start.</summary>
+    /// <param name="intent">The owning start identifier.</param>
+    /// <param name="filePath">The local path or remote reference.</param>
+    /// <param name="radioStation">Optional radio metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast metadata.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
+    /// <param name="initiallyPaused">Whether to pause the prepared player before readiness.</param>
+    /// <param name="onPrepared">Optional synchronous current-player callback.</param>
+    /// <returns>The owning playback lifetime.</returns>
+    private async Task StartPlaybackIntentAsync(
+        long intent, string filePath, RadioStationRecord? radioStation,
+        PodcastPlayback? podcastPlayback, TimeSpan initialPosition,
+        bool initiallyPaused, Action<IAudioPlayer>? onPrepared)
+    {
+        var publication = new TaskCompletionSource<IAudioPlayer?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _playbackPreparationReady = publication.Task;
+        _playbackPreparationIntent = intent;
+        try
+        {
+            await StartPlaybackPreparationAndLifetimeAsync(intent, filePath, radioStation, podcastPlayback,
+                initialPosition, initiallyPaused, player =>
+                {
+                    onPrepared?.Invoke(player);
+                    publication.TrySetResult(player);
+                });
+        }
+        finally { publication.TrySetResult(null); }
+    }
+
+    /// <summary>Publishes playback state only while its captured start intent remains current.</summary>
+    /// <param name="intent">The owning start identifier.</param>
+    /// <param name="filePath">The local path or remote reference.</param>
+    /// <param name="radioStation">Optional radio metadata.</param>
+    /// <param name="podcastPlayback">Optional podcast metadata.</param>
+    /// <param name="initialPosition">Requested initial position; a nonzero value overrides saved podcast progress.</param>
+    /// <param name="initiallyPaused">Whether to pause the prepared player before readiness.</param>
+    /// <param name="onPrepared">Optional synchronous current-player callback.</param>
+    /// <returns>The owning playback lifetime.</returns>
+    private async Task StartPlaybackPreparationAndLifetimeAsync(
+        long intent, string filePath, RadioStationRecord? radioStation,
+        PodcastPlayback? podcastPlayback, TimeSpan initialPosition,
+        bool initiallyPaused, Action<IAudioPlayer>? onPrepared)
+    {
+        using var preparation = _playbackPreparations.Begin();
         if (filePath.StartsWith("orynivo://", StringComparison.OrdinalIgnoreCase))
         {
-            var resolvedPath = await ResolveRemoteMcpTrackAsync(filePath);
+            var resolvedPath = await ResolveRemoteMcpTrackForPlaybackAsync(filePath, () => _playbackStarts.IsCurrent(intent), preparation.Token);
+            if (!_playbackStarts.IsCurrent(intent))
+                return;
             if (string.IsNullOrWhiteSpace(resolvedPath))
                 throw new InvalidOperationException(LocalizationManager.Current.PlaybackStopped);
             filePath = resolvedPath;
         }
-        await StopPlaybackAsync();
+        var previousPlayer = StopPlaybackCore(invalidateStart: false);
+        await _audioPlayerRetirement.RetireAsync(previousPlayer);
+        if (!_playbackStarts.IsCurrent(intent))
+            return;
         _currentFilePath = filePath;
         _currentRadioStation = radioStation;
         _currentPodcastPlayback = podcastPlayback;
+        _podcastResumePrepared = false;
         if (radioStation is null && podcastPlayback is null)
             _playedQueuePaths.Add(filePath);
-        _playbackCts     = new CancellationTokenSource();
 
-        var playbackTrack = ResolveGaplessPlaybackItem(filePath);
-        var ext = Path.GetExtension(playbackTrack.PlaybackPath);
-        IAudioPlayer player;
-        AudioFileInfo info;
-        var gaplessItems = BuildGaplessPlaybackItems(
-            filePath,
-            radioStation is null && podcastPlayback is null);
-
-        if (_settings.OutputBackend is OutputBackend.Asio or OutputBackend.CwAsio)
-        {
-            if (!SteinbergAsioStream.IsBackendAvailable(_settings.OutputBackend))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.AsioBridgeMissing;
-                return;
-            }
-            if (string.IsNullOrWhiteSpace(_settings.SelectedDriverName))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.SelectAsioDevice;
-                return;
-            }
-            if (!_settings.AlwaysConvertDsdToPcm &&
-                ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase))
-                (player, info) = await DsfAudioPlayer.CreateAsync(
-                    filePath,
-                    _settings.OutputBackend,
-                    _settings.SelectedDriverName,
-                    _playbackCts.Token);
-            else if (!_settings.AlwaysConvertDsdToPcm &&
-                     IsRemoteOrynivoDsdCandidate(filePath))
-                (player, info) = await CreateRemoteOrynivoDsdOrPcmPlayerAsync(filePath, playbackTrack);
-            else if (!_settings.AlwaysConvertDsdToPcm &&
-                     ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
-                (player, info) = await DffAudioPlayer.CreateAsync(
-                    filePath,
-                    _settings.OutputBackend,
-                    _settings.SelectedDriverName,
-                    _playbackCts.Token);
-            else
-                (player, info) = await FfmpegAudioPlayer.CreateAsync(
-                    gaplessItems,
-                    _settings.OutputBackend,
-                    _settings.SelectedDriverName,
-                    _settings.EqualizerEnabled,
-                    _settings.EqualizerProfile,
-                    _playbackCts.Token,
-                    _settings.MaxOutputSampleRateHz);
-        }
-        else if (_settings.OutputBackend == OutputBackend.AirPlay)
-        {
-            if (string.IsNullOrWhiteSpace(_settings.SelectedAirPlayDeviceId))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.SelectAirPlayDevice;
-                return;
-            }
-            (player, info) = await CreateAirPlayPlayerAsync(playbackTrack, _playbackCts.Token);
-        }
-        else if (_settings.OutputBackend == OutputBackend.Wasapi)
-        {
-            if (string.IsNullOrWhiteSpace(_settings.SelectedWasapiDeviceId))
-            {
-                StatusTextBlock.Text = LocalizationManager.Current.SelectWasapiDevice;
-                return;
-            }
-#if !WINDOWS
-            if (OperatingSystem.IsLinux() &&
-                _settings.DsdOverPcmEnabled &&
-                (ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase) ||
-                 ext.Equals(".dff", StringComparison.OrdinalIgnoreCase) ||
-                 IsRemoteOrynivoDsdCandidate(filePath)))
-            {
-                if (Uri.TryCreate(filePath, UriKind.Absolute, out var dopUri) &&
-                    dopUri.Scheme is "http" or "https")
-                {
-                    if (IsRemoteOrynivoDffCandidate(filePath))
-                        (player, info) = await DffDopAudioPlayer.CreateRemoteAsync(
-                            filePath,
-                            _settings.SelectedWasapiDeviceId,
-                            _playbackCts.Token);
-                    else
-                        (player, info) = await RemoteDsfDopAudioPlayer.CreateAsync(
-                            filePath,
-                            _settings.SelectedWasapiDeviceId,
-                            _playbackCts.Token);
-                }
-                else if (ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
-                    (player, info) = await DffDopAudioPlayer.CreateLocalAsync(
-                        playbackTrack.PlaybackPath,
-                        _settings.SelectedWasapiDeviceId,
-                        _playbackCts.Token);
-                else
-                {
-                    (player, info) = await DsfDopAudioPlayer.CreateAsync(
-                        playbackTrack.PlaybackPath,
-                        _settings.SelectedWasapiDeviceId,
-                        _playbackCts.Token);
-                }
-            }
-            else
-#endif
-            (player, info) = await WasapiAudioPlayer.CreateAsync(
-                gaplessItems,
-                _settings.SelectedWasapiDeviceId,
-                _settings.EqualizerEnabled,
-                _settings.EqualizerProfile,
-                _playbackCts.Token,
-                _settings.MaxOutputSampleRateHz);
-        }
-        else
-        {
-            StatusTextBlock.Text = string.Format(LocalizationManager.Current.NotImplemented, _settings.OutputBackend);
+        if (!_playbackSession.TryBegin(intent, preparation.Token, out var playbackToken))
             return;
-        }
-
-        _player        = player;
-        ApplyCrossfeedSettings(_player);
-        ApplyLoudnessNormalizationSettings(
-            _player,
-            radioStation is not null || podcastPlayback is not null);
-        _audioDeviceExplicitlyReleased = false;
-        ClearReleasedOutputResumeState();
-        UpdateOutputDeviceLockButton();
-        if (player is IGaplessAudioPlayer gaplessPlayer)
-            gaplessPlayer.TrackChanged += GaplessPlayer_OnTrackChanged;
-        if (initialPosition > TimeSpan.Zero && player.CanSeek)
-        {
-            try { await player.SeekAsync(initialPosition); }
-            catch { /* seek failure must not prevent playback */ }
-        }
-        UpdateNowPlayingRowHighlights();
-        _player.Volume = _settings.OutputBackend == OutputBackend.Wasapi &&
-                         _endpointVolumeSynchronizer is not null
-            ? 1.0f
-            : (float)VolumeSlider.Value;
-        _player.ReplayGainFactor = GetReplayGainFactor(filePath);
-        _currentPlaybackDuration = player.Duration;
-        if (podcastPlayback is not null &&
-            podcastPlayback.Podcast.Id > 0 &&
-            player.CanSeek)
-        {
-            try
-            {
-                using var db = AudioDatabase.OpenDefault();
-                var progress = db.GetPodcastEpisodeProgress(
-                    podcastPlayback.Podcast.Id,
-                    podcastPlayback.Episode.EpisodeKey);
-                if (progress is { IsCompleted: false, PositionSeconds: > 5 } &&
-                    progress.PositionSeconds < Math.Max(0, player.Duration.TotalSeconds - 10))
-                {
-                    await player.SeekAsync(TimeSpan.FromSeconds(progress.PositionSeconds));
-                }
-            }
-            catch
-            {
-                // A corrupt or unavailable resume point must not prevent playback.
-            }
-        }
+        var created = await PrepareCurrentPlaybackPlayerAsync(intent, filePath, radioStation, podcastPlayback, initialPosition, playbackToken);
+        if (created is not { } result) return;
+        var (player, info) = result;
+        _podcastResumePrepared = podcastPlayback is not null;
         _lastPodcastProgressSave = DateTimeOffset.UtcNow;
-        if (podcastPlayback is null && _currentOrynivoTrackRow is { } remoteResumeRow)
-            _ = OfferRemoteResumeAsync(remoteResumeRow, initialPosition.TotalSeconds);
         PlayButton.IsEnabled   = false;
         PlayButton.IsEnabled   = true;
         SetPlayPauseIcon(isPlaying: true);
@@ -490,7 +478,7 @@ public partial class MainWindow : Window
             ToolTip.SetTip(ArtistInfoButton, LocalizationManager.Current.ShowPodcastInfo);
             _ = LoadPodcastArtworkAsync(
                 podcastPlayback.Podcast.ArtworkUrl,
-                _playbackCts?.Token ?? CancellationToken.None);
+                playbackToken);
         }
         else if (radioStation is not null)
         {
@@ -509,6 +497,8 @@ public partial class MainWindow : Window
         }
         UpdateNowPlayingFavoriteButton();
         UpdateReplayGainBadge(usesNativeDsd);
+        if (podcastPlayback is null && _currentOrynivoTrackRow is { } remoteResumeRow)
+            _ = OfferRemoteResumeAsync(remoteResumeRow, initialPosition.TotalSeconds);
         RefreshWindowsMediaMetadata();
         _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Playing);
         _windowsMediaTransport?.UpdateTimeline(
@@ -575,6 +565,15 @@ public partial class MainWindow : Window
             _currentPlayHistoryId = null;
         }
 
+        if (!_playbackSession.PrepareReadiness(intent, player, initiallyPaused))
+            return;
+        if (initiallyPaused)
+        {
+            SetPlayPauseIcon(isPlaying: false);
+            _windowsMediaTransport?.SetPlaybackStatus(MediaPlaybackStatus.Paused);
+        }
+        onPrepared?.Invoke(player);
+        preparation.Dispose();
         try
         {
             await player.WaitForCompletionAsync();
@@ -584,16 +583,263 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (_player == player)
+        if (_playbackStarts.IsCurrent(intent) && ReferenceEquals(_player, player))
         {
             RecordPlaybackEnd(completed: true);
             SavePodcastProgress(completed: true);
             if (radioStation is not null || podcastPlayback is not null || !await TryPlayNextAsync())
             {
+                if (!ReferenceEquals(_player, player))
+                    return;
                 StopPlayback();
                 StatusTextBlock.Text = LocalizationManager.Current.PlaybackFinished;
             }
         }
+    }
+
+    private Task<IAudioPlayer?>? _playbackPreparationReady;
+    private long _playbackPreparationIntent;
+
+    /// <summary>Prepares seek and queue snapshot before one readiness/history publication.</summary>
+    /// <param name="intent">Owning playback intent.</param>
+    /// <param name="filePath">Resolved current track.</param>
+    /// <param name="radioStation">Optional radio source.</param>
+    /// <param name="podcastPlayback">Optional podcast source.</param>
+    /// <param name="initialPosition">Requested or already completed resume position.</param>
+    /// <param name="playbackToken">Captured preparation cancellation.</param>
+    /// <returns>The current fully sought player and format, or null for supersession.</returns>
+    private async Task<(IAudioPlayer Player, AudioFileInfo Info)?> PrepareCurrentPlaybackPlayerAsync(
+        long intent, string filePath, RadioStationRecord? radioStation,
+        PodcastPlayback? podcastPlayback, TimeSpan initialPosition, CancellationToken playbackToken)
+    {
+        while (_playbackStarts.IsCurrent(intent))
+        {
+            var created = await CreateCurrentQueuePlaybackPlayerAsync(
+                intent, filePath, radioStation is null && podcastPlayback is null, playbackToken);
+            if (created is not { } result)
+                return null;
+            if (!_playbackStarts.IsCurrent(intent))
+            {
+                await _audioPlayerRetirement.RetireAsync(result.Player);
+                return null;
+            }
+            var (player, info) = result;
+
+            if (!_playbackSession.TryAttach(intent, player))
+            {
+                await _audioPlayerRetirement.RetireAsync(player);
+                return null;
+            }
+            ApplyCrossfeedSettings(_player);
+            ApplyLoudnessNormalizationSettings(
+                _player,
+                radioStation is not null || podcastPlayback is not null);
+            _audioDeviceExplicitlyReleased = false;
+            ClearReleasedOutputResumeState();
+            UpdateOutputDeviceLockButton();
+            if (player is IGaplessAudioPlayer gaplessPlayer)
+                gaplessPlayer.TrackChanged += GaplessPlayer_OnTrackChanged;
+            if (!await _playbackSession.SeekAsync(intent, player, initialPosition))
+                return null;
+            if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
+                return null;
+            UpdateNowPlayingRowHighlights();
+            _player.Volume = _settings.OutputBackend == OutputBackend.Wasapi &&
+                             _endpointVolumeSynchronizer is not null
+                ? 1.0f
+                : (float)VolumeSlider.Value;
+            _player.ReplayGainFactor = GetReplayGainFactor(filePath);
+            _currentPlaybackDuration = player.Duration;
+            if (initialPosition == TimeSpan.Zero &&
+                podcastPlayback is not null &&
+                podcastPlayback.Podcast.Id > 0 &&
+                player.CanSeek)
+            {
+                try
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    var progress = db.GetPodcastEpisodeProgress(
+                        podcastPlayback.Podcast.Id,
+                        podcastPlayback.Episode.EpisodeKey);
+                    if (progress is { IsCompleted: false, PositionSeconds: > 5 } &&
+                        progress.PositionSeconds < Math.Max(0, player.Duration.TotalSeconds - 10))
+                    {
+                        if (!await _playbackSession.SeekAsync(intent, player, TimeSpan.FromSeconds(progress.PositionSeconds)))
+                            return null;
+                    }
+                }
+                catch
+                {
+                    // A corrupt or unavailable resume point must not prevent playback.
+                }
+            }
+            if (!_playbackStarts.IsCurrent(intent) || !ReferenceEquals(_player, player))
+                return null;
+            if (player is IGaplessAudioPlayer && radioStation is null && podcastPlayback is null &&
+                !_preparedGaplessQueuePaths.SequenceEqual(BuildGaplessPlaybackItems(filePath, true).Select(item => item.FilePath)))
+            {
+                initialPosition = player.Position;
+                ((IGaplessAudioPlayer)player).TrackChanged -= GaplessPlayer_OnTrackChanged;
+                var detached = _playbackSession.DetachForRetry(intent, player);
+                UpdateOutputDeviceLockButton();
+                await _audioPlayerRetirement.RetireAsync(detached);
+                continue;
+            }
+            return result;
+        }
+        return null;
+    }
+
+    private string[] _preparedGaplessQueuePaths = [];
+
+    /// <summary>Retries unpublished gapless creation when its ordered queue snapshot changes.</summary>
+    /// <param name="intent">The owning playback start.</param>
+    /// <param name="filePath">Current resolved track path.</param>
+    /// <param name="allowQueuedTracks">Whether this source may include queued successors.</param>
+    /// <param name="token">The captured playback cancellation token.</param>
+    /// <returns>A current player with a current queue snapshot, or null for an obsolete or unavailable start.</returns>
+    private async Task<(IAudioPlayer Player, AudioFileInfo Info)?> CreateCurrentQueuePlaybackPlayerAsync(
+        long intent, string filePath, bool allowQueuedTracks, CancellationToken token)
+    {
+        while (_playbackStarts.IsCurrent(intent))
+        {
+            var paths = BuildGaplessPlaybackItems(filePath, allowQueuedTracks).Select(item => item.FilePath).ToArray();
+            var created = await _playbackStarts.CreateAsync(intent,
+                captured => _playbackPlayerFactory(filePath, allowQueuedTracks, captured), token, _audioPlayerRetirement);
+            if (created is not { } result) return null;
+            if (result.Player is not IGaplessAudioPlayer ||
+                paths.SequenceEqual(BuildGaplessPlaybackItems(filePath, allowQueuedTracks).Select(item => item.FilePath)))
+            {
+                _preparedGaplessQueuePaths = paths;
+                return result;
+            }
+            await _audioPlayerRetirement.RetireAsync(result.Player);
+        }
+        return null;
+    }
+
+    /// <summary>Creates a player using the captured cancellation token and existing backend selection.</summary>
+    /// <param name="filePath">The resolved playable path.</param>
+    /// <param name="allowQueuedTracks">Whether gapless queued tracks are allowed.</param>
+    /// <param name="cancellationToken">The owning playback cancellation token.</param>
+    /// <returns>The created player and format, or null when output selection is incomplete.</returns>
+    private async Task<(IAudioPlayer Player, AudioFileInfo Info)?> CreatePlaybackPlayerAsync(
+        string filePath, bool allowQueuedTracks, CancellationToken cancellationToken)
+    {
+        var playbackTrack = ResolveGaplessPlaybackItem(filePath);
+        var ext = Path.GetExtension(playbackTrack.PlaybackPath);
+        IAudioPlayer player;
+        AudioFileInfo info;
+        var gaplessItems = BuildGaplessPlaybackItems(
+            filePath,
+            allowQueuedTracks);
+
+        if (_settings.OutputBackend is OutputBackend.Asio or OutputBackend.CwAsio)
+        {
+            if (!SteinbergAsioStream.IsBackendAvailable(_settings.OutputBackend))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.AsioBridgeMissing;
+                return null;
+            }
+            if (string.IsNullOrWhiteSpace(_settings.SelectedDriverName))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.SelectAsioDevice;
+                return null;
+            }
+            if (!_settings.AlwaysConvertDsdToPcm &&
+                ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase))
+                (player, info) = await DsfAudioPlayer.CreateAsync(
+                    filePath,
+                    _settings.OutputBackend,
+                    _settings.SelectedDriverName,
+                    cancellationToken);
+            else if (!_settings.AlwaysConvertDsdToPcm &&
+                     IsRemoteOrynivoDsdCandidate(filePath))
+                (player, info) = await CreateRemoteOrynivoDsdOrPcmPlayerAsync(filePath, playbackTrack, cancellationToken);
+            else if (!_settings.AlwaysConvertDsdToPcm &&
+                     ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
+                (player, info) = await DffAudioPlayer.CreateAsync(
+                    filePath,
+                    _settings.OutputBackend,
+                    _settings.SelectedDriverName,
+                    cancellationToken);
+            else
+                (player, info) = await FfmpegAudioPlayer.CreateAsync(
+                    gaplessItems,
+                    _settings.OutputBackend,
+                    _settings.SelectedDriverName,
+                    _settings.EqualizerEnabled,
+                    _settings.EqualizerProfile,
+                    cancellationToken,
+                    _settings.MaxOutputSampleRateHz);
+        }
+        else if (_settings.OutputBackend == OutputBackend.AirPlay)
+        {
+            if (string.IsNullOrWhiteSpace(_settings.SelectedAirPlayDeviceId))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.SelectAirPlayDevice;
+                return null;
+            }
+            (player, info) = await CreateAirPlayPlayerAsync(playbackTrack, cancellationToken);
+        }
+        else if (_settings.OutputBackend == OutputBackend.Wasapi)
+        {
+            if (string.IsNullOrWhiteSpace(_settings.SelectedWasapiDeviceId))
+            {
+                StatusTextBlock.Text = LocalizationManager.Current.SelectWasapiDevice;
+                return null;
+            }
+#if !WINDOWS
+            if (OperatingSystem.IsLinux() &&
+                _settings.DsdOverPcmEnabled &&
+                (ext.Equals(".dsf", StringComparison.OrdinalIgnoreCase) ||
+                 ext.Equals(".dff", StringComparison.OrdinalIgnoreCase) ||
+                 IsRemoteOrynivoDsdCandidate(filePath)))
+            {
+                if (Uri.TryCreate(filePath, UriKind.Absolute, out var dopUri) &&
+                    dopUri.Scheme is "http" or "https")
+                {
+                    if (IsRemoteOrynivoDffCandidate(filePath))
+                        (player, info) = await DffDopAudioPlayer.CreateRemoteAsync(
+                            filePath,
+                            _settings.SelectedWasapiDeviceId,
+                            cancellationToken);
+                    else
+                        (player, info) = await RemoteDsfDopAudioPlayer.CreateAsync(
+                            filePath,
+                            _settings.SelectedWasapiDeviceId,
+                            cancellationToken);
+                }
+                else if (ext.Equals(".dff", StringComparison.OrdinalIgnoreCase))
+                    (player, info) = await DffDopAudioPlayer.CreateLocalAsync(
+                        playbackTrack.PlaybackPath,
+                        _settings.SelectedWasapiDeviceId,
+                        cancellationToken);
+                else
+                {
+                    (player, info) = await DsfDopAudioPlayer.CreateAsync(
+                        playbackTrack.PlaybackPath,
+                        _settings.SelectedWasapiDeviceId,
+                        cancellationToken);
+                }
+            }
+            else
+#endif
+            (player, info) = await WasapiAudioPlayer.CreateAsync(
+                gaplessItems,
+                _settings.SelectedWasapiDeviceId,
+                _settings.EqualizerEnabled,
+                _settings.EqualizerProfile,
+                cancellationToken,
+                _settings.MaxOutputSampleRateHz);
+        }
+        else
+        {
+            StatusTextBlock.Text = string.Format(LocalizationManager.Current.NotImplemented, _settings.OutputBackend);
+            return null;
+        }
+
+        return (player, info);
     }
 
     private IReadOnlyList<GaplessPlaybackItem> BuildGaplessPlaybackItems(
@@ -710,18 +956,25 @@ public partial class MainWindow : Window
         return new GaplessPlaybackItem(path, GetReplayGainFactor(path));
     }
 
+    /// <summary>Probes native remote DSD formats and falls back to PCM using one owning token.</summary>
+    /// <param name="filePath">The remote playable path.</param>
+    /// <param name="playbackTrack">The resolved PCM fallback item.</param>
+    /// <param name="cancellationToken">The owning playback cancellation token.</param>
+    /// <returns>The created native or PCM player and format.</returns>
     private async Task<(IAudioPlayer Player, AudioFileInfo Info)> CreateRemoteOrynivoDsdOrPcmPlayerAsync(
         string filePath,
-        GaplessPlaybackItem playbackTrack)
+        GaplessPlaybackItem playbackTrack,
+        CancellationToken cancellationToken)
     {
         var driverName = _settings.SelectedDriverName ?? string.Empty;
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var (dsfPlayer, dsfInfo) = await RemoteDsfAudioPlayer.CreateAsync(
                 filePath,
                 _settings.OutputBackend,
                 driverName,
-                _playbackCts?.Token ?? CancellationToken.None);
+                cancellationToken);
             return (dsfPlayer, dsfInfo);
         }
         catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
@@ -731,13 +984,14 @@ public partial class MainWindow : Window
                 $"native-skip reason={ex.GetType().Name} message={ex.Message}");
         }
 
+        cancellationToken.ThrowIfCancellationRequested();
         try
         {
             var (dffPlayer, dffInfo) = await RemoteDffAudioPlayer.CreateAsync(
                 filePath,
                 _settings.OutputBackend,
                 driverName,
-                _playbackCts?.Token ?? CancellationToken.None);
+                cancellationToken);
             return (dffPlayer, dffInfo);
         }
         catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException)
@@ -745,13 +999,14 @@ public partial class MainWindow : Window
             SeekDiagnostics.Log(
                 "remote-dff-player",
                 $"native-fallback reason={ex.GetType().Name} message={ex.Message}");
+            cancellationToken.ThrowIfCancellationRequested();
             return await FfmpegAudioPlayer.CreateAsync(
                 [playbackTrack],
                 _settings.OutputBackend,
                 driverName,
                 _settings.EqualizerEnabled,
                 _settings.EqualizerProfile,
-                _playbackCts?.Token ?? CancellationToken.None,
+                cancellationToken,
                 _settings.MaxOutputSampleRateHz);
         }
     }
@@ -962,6 +1217,9 @@ public partial class MainWindow : Window
         return false;
     }
 
+    /// <summary>Advances queue/history and clears obsolete resume prompts for the active player.</summary>
+    /// <param name="sender">Owning gapless player.</param>
+    /// <param name="e">New audible track.</param>
     private void GaplessPlayer_OnTrackChanged(object? sender, GaplessTrackChangedEventArgs e)
     {
         Dispatcher.UIThread.Post(() =>
@@ -969,6 +1227,7 @@ public partial class MainWindow : Window
             if (!ReferenceEquals(sender, _player))
                 return;
 
+            ClearRemoteResumePrompt();
             RecordPlaybackEnd(completed: true, _currentPlaybackDuration.TotalSeconds);
             _currentFilePath = e.FilePath;
             _currentPlaybackDuration = e.Info.Duration;

@@ -330,14 +330,20 @@ public partial class MainWindow : Window
             await PlayRadioAsync(station);
     }
 
+    /// <summary>Prepares a radio station and observes its playback independently.</summary>
+    /// <param name="station">Selected radio station.</param>
+    /// <returns>Player preparation, including initial resume seek.</returns>
     private async Task PlayRadioAsync(RadioStationRecord station)
     {
         RefreshQueueNavigationButtons();
         _ = _radioBrowserService.RegisterClickAsync(station.StationUuid);
+        var ready = StartReadyPlaybackAsync(station.StreamUrl, station);
+        var intent = _playbackStarts.Current;
         try
         {
-            await StartPlaybackAsync(station.StreamUrl, station);
+            await ready;
         }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException)
         {
             StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;
@@ -359,59 +365,68 @@ public partial class MainWindow : Window
         RadioNowPlayingLogo.Source = null;
         NowPlayingArtworkImage.Source = null;
         _currentRadioArtworkPath = null;
-        _ = LoadRadioLogoAsync(station.Favicon, _playbackCts?.Token ?? CancellationToken.None);
+        _ = LoadRadioLogoAsync(station.Favicon, _playbackSession.Token);
     }
 
     private void StartRadioMetadataMonitor(RadioStationRecord station)
     {
         CancelAndDispose(ref _radioMetadataCts);
         _radioMetadataCts = CancellationTokenSource.CreateLinkedTokenSource(
-            _playbackCts?.Token ?? CancellationToken.None);
+            _playbackSession.Token);
         _ = MonitorRadioMetadataAsync(station, _radioMetadataCts.Token);
     }
 
+    /// <summary>Publishes probe results only for the captured active radio session.</summary>
+    /// <param name="station">Owning station.</param>
+    /// <param name="cancellationToken">Monitor cancellation.</param>
+    /// <param name="probe">Optional probe adapter for isolated lifecycle verification.</param>
+    /// <returns>The cancellable monitoring lifetime.</returns>
     private async Task MonitorRadioMetadataAsync(
         RadioStationRecord station,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, CancellationToken, Task<RadioStreamMetadata?>>? probe = null)
     {
+        var player = _player;
+        var intent = _playbackStarts.Current;
+        if (player is null) return;
+        probe ??= _radioMetadataService.ProbeAsync;
+        bool IsCurrent() => !cancellationToken.IsCancellationRequested && !_playbackShuttingDown &&
+            _playbackStarts.IsCurrent(intent) && ReferenceEquals(_player, player) &&
+            ReferenceEquals(_currentRadioStation, station);
         string? previousSignature = null;
-        while (!cancellationToken.IsCancellationRequested)
+        while (IsCurrent())
         {
             try
             {
-                var metadata = await _radioMetadataService.ProbeAsync(
-                    station.StreamUrl,
-                    cancellationToken);
+                var metadata = await probe(station.StreamUrl, cancellationToken);
+                if (!IsCurrent()) return;
                 var signature = metadata is null
                     ? string.Empty
                     : $"{metadata.StreamTitle}\n{metadata.Description}\n{metadata.Genre}";
                 if (!string.Equals(signature, previousSignature, StringComparison.Ordinal))
                 {
                     previousSignature = signature;
-                    await Dispatcher.UIThread.InvokeAsync(() => UpdateRadioMetadata(station, metadata));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsCurrent()) UpdateRadioMetadata(station, metadata);
+                    });
                 }
             }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            catch (OperationCanceledException) { break; }
             catch
             {
                 if (previousSignature is null)
                 {
                     previousSignature = string.Empty;
-                    await Dispatcher.UIThread.InvokeAsync(() => UpdateRadioMetadata(station, null));
+                    await Dispatcher.UIThread.InvokeAsync(() =>
+                    {
+                        if (IsCurrent()) UpdateRadioMetadata(station, null);
+                    });
                 }
             }
-
-            try
-            {
-                await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
+            if (!IsCurrent()) return;
+            try { await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken); }
+            catch (OperationCanceledException) { break; }
         }
     }
 

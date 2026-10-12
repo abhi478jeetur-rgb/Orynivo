@@ -446,6 +446,13 @@
             <Style Selector="^:pressed /template/ Border#Bd">
                 <Setter Property="Background" Value="{DynamicResource AppButtonPressedBrush}"/>
             </Style>
+            <Style Selector="^.setupAction:focus-visible /template/ Border#Bd">
+                <Setter Property="BorderBrush" Value="{DynamicResource AppAccentBrush}"/>
+                <Setter Property="Background" Value="{DynamicResource AppAccentSoftBrush}"/>
+            </Style>
+            <Style Selector="^.setupAction">
+                <Setter Property="FocusAdorner" Value="{x:Null}"/>
+            </Style>
             <Style Selector="^:disabled /template/ Border#Bd">
                 <Setter Property="Opacity" Value="0.38"/>
             </Style>
@@ -974,6 +981,7 @@
 
             <!-- Nav -->
             <ListBox x:Name="NavListBox"
+                     KeyboardNavigation.TabNavigation="Continue"
                      Grid.Row="1"
                      Background="Transparent"
                      BorderThickness="0"
@@ -1052,15 +1060,44 @@
                     </Grid>
                 </ListBoxItem>
                 <ListBoxItem x:Name="LibraryEmptyHintItem"
-                             IsHitTestVisible="False"
                              Focusable="False"
                              IsVisible="False"
                              Theme="{StaticResource NavItemTheme}">
-                    <TextBlock Text="{DynamicResource L_LibraryEmptyHint}"
-                               TextWrapping="Wrap"
-                               FontSize="{DynamicResource FontSizeMeta}"
-                               Margin="16,2,4,2"
-                               Foreground="{DynamicResource AppMutedTextBrush}"/>
+                    <ListBoxItem.Transitions>
+                        <Transitions/>
+                    </ListBoxItem.Transitions>
+                    <StackPanel Margin="16,2,4,2" Spacing="8">
+                        <TextBlock Text="{DynamicResource L_LibraryEmptyHint}"
+                                   TextWrapping="Wrap"
+                                   FontSize="{DynamicResource FontSizeMeta}"
+                                   Foreground="{DynamicResource AppSecondaryTextBrush}"/>
+                        <Button x:Name="LibrarySetupButton"
+                                Classes="setupAction"
+                                AutomationProperties.Name="{DynamicResource L_Directories}"
+                                Theme="{StaticResource HeaderFilterButtonTheme}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Click="LibrarySetupButton_OnClick">
+                            <TextBlock Text="{DynamicResource L_Directories}" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button x:Name="LibraryServerSetupButton"
+                                Classes="setupAction"
+                                AutomationProperties.Name="{DynamicResource L_OrynivoServersSettings}"
+                                Theme="{StaticResource HeaderFilterButtonTheme}"
+                                HorizontalAlignment="Stretch"
+                                HorizontalContentAlignment="Left"
+                                Click="LibraryServerSetupButton_OnClick">
+                            <TextBlock Text="{DynamicResource L_OrynivoServersSettings}" TextWrapping="Wrap"/>
+                        </Button>
+                        <Button x:Name="LibraryOutputSetupButton"
+                                Classes="setupAction"
+                                AutomationProperties.Name="{DynamicResource L_OutputDevice}"
+                                Theme="{StaticResource HeaderFilterButtonTheme}"
+                                HorizontalAlignment="Stretch"
+                                Click="OutputPickerSettingsButton_OnClick">
+                            <TextBlock Text="{DynamicResource L_OutputDevice}" TextWrapping="Wrap"/>
+                        </Button>
+                    </StackPanel>
                 </ListBoxItem>
                 <ListBoxItem x:Name="LocalLibraryRootItem"
                              Tag="LibraryGroup:LocalMedia"
@@ -1592,6 +1629,26 @@
                                            Foreground="{DynamicResource AppPrimaryTextBrush}"
                                            FontSize="{DynamicResource FontSizeBody}"/>
                             </DockPanel>
+                        </Border>
+                        <Border x:Name="LibraryEmptyNotice" Grid.Row="2"
+                                Grid.ColumnSpan="8" Margin="0,12,0,0" Padding="12"
+                                IsVisible="False" CornerRadius="8"
+                                Background="{DynamicResource AppInputBrush}"
+                                BorderBrush="{DynamicResource AppHeaderBorderBrush}"
+                                BorderThickness="1">
+                            <StackPanel Spacing="8">
+                                <TextBlock x:Name="LibraryEmptyNoticeMessage"
+                                           AutomationProperties.LiveSetting="Polite"
+                                           Text="{DynamicResource L_LibraryViewEmptyHint}"
+                                           TextWrapping="Wrap" FontSize="{DynamicResource FontSizeBody}"/>
+                                <Button x:Name="LibraryEmptySettingsButton"
+                                        Classes="setupAction"
+                                        Content="{DynamicResource L_Settings}"
+                                        AutomationProperties.Name="{DynamicResource L_Settings}"
+                                        HorizontalAlignment="Left" Padding="12,5"
+                                        Theme="{StaticResource HeaderFilterButtonTheme}"
+                                        Click="LibraryEmptySettingsButton_OnClick"/>
+                            </StackPanel>
                         </Border>
                 </Grid>
             </Border>
@@ -3293,7 +3350,8 @@
                   IsVisible="False"
                   Background="{DynamicResource AppContentBrush}"
                   ZIndex="21">
-                <ScrollViewer VerticalScrollBarVisibility="Auto"
+                <ScrollViewer x:Name="ArtistInfoScrollViewer"
+                              VerticalScrollBarVisibility="Auto"
                               HorizontalScrollBarVisibility="Disabled">
                     <Grid Margin="24,24,24,50">
                         <Grid.RowDefinitions>
@@ -3608,6 +3666,7 @@
                                 </Grid>
                             </Button>
                             <Button x:Name="PlayButton"
+                                    IsEnabled="False"
                                     AutomationProperties.Name="{DynamicResource L_TransportPlayPause}"
                                     Theme="{StaticResource PlayBtnTheme}"
                                     Margin="6,0"

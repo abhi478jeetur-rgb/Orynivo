@@ -993,7 +993,7 @@ public partial class MainWindow : Window
 
         _ = LoadPodcastInfoArtworkAsync(
             playback.Podcast.ArtworkUrl,
-            _playbackCts?.Token ?? CancellationToken.None);
+            _playbackSession.Token);
     }
 
     private async Task LoadPodcastInfoArtworkAsync(

@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Logging;
 using Orynivo.Audio;
 using Orynivo.Library;
+using Orynivo.Server.Services;
 
 namespace Orynivo.Server.Endpoints;
 
@@ -19,54 +20,8 @@ public static class StreamEndpoints
     /// <param name="app">The endpoint route builder to register routes on.</param>
     public static void MapStreamEndpoints(this IEndpointRouteBuilder app)
     {
+        app.MapAudioStreamEndpoints();
         var api = app.MapGroup("/api");
-
-        // --- Audio streaming -----------------------------------------------
-
-        /// <summary>
-        /// Streams the audio file for a track by database ID.
-        /// Regular files support HTTP byte-range seeking.
-        /// CUE virtual tracks are transcoded to FLAC on-the-fly via FFmpeg.
-        /// An optional <c>format=opus|aac</c> with <c>bitrate</c> (kbps) requests a
-        /// lossy transcode instead of the original stream.
-        /// </summary>
-        api.MapGet("/stream/{trackId:long}", async (
-            long trackId,
-            HttpContext ctx,
-            ILoggerFactory loggerFactory,
-            double? ss,
-            string? format,
-            int? bitrate) =>
-        {
-            var logger = loggerFactory.CreateLogger("Orynivo.Server.Stream");
-            using var db = AudioDatabase.OpenDefault();
-            var track = db.GetTrackById(trackId);
-            if (track is null) return Results.NotFound();
-
-            StreamTranscodeOptions? transcode = null;
-            if (!string.IsNullOrWhiteSpace(format) &&
-                !StreamTranscodeOptions.TryParse(format, bitrate, out transcode))
-            {
-                return Results.BadRequest(new { error = "Unsupported transcode format or bitrate." });
-            }
-
-            return await BuildStreamResult(track.Path, track.SourcePath,
-                track.SegmentStart, track.SegmentEnd, ctx, logger, ss, transcode);
-        });
-
-        /// <summary>
-        /// Streams an audio file directly by absolute file path (encoded in the query string).
-        /// Intended for queue items that may not yet be indexed.
-        /// </summary>
-        api.MapGet("/stream/path", async (
-            string p,
-            HttpContext ctx,
-            ILoggerFactory loggerFactory) =>
-        {
-            var logger = loggerFactory.CreateLogger("Orynivo.Server.Stream");
-            if (!File.Exists(p)) return Results.NotFound();
-            return await BuildStreamResult(p, null, null, null, ctx, logger);
-        });
 
         // --- Artwork -------------------------------------------------------
 
@@ -190,6 +145,62 @@ public static class StreamEndpoints
             if (path is null) return Results.NotFound();
             return Results.File(path, GuessImageMimeType(path), enableRangeProcessing: false);
         });
+    }
+
+    /// <summary>Maps audio stream routes separately from artwork and startup services.</summary>
+    /// <param name="app">Endpoint builder for the authenticated middleware pipeline.</param>
+    /// <param name="openDatabase">Optional factory; the indexed-track request owns and disposes its connection.</param>
+    public static void MapAudioStreamEndpoints(this IEndpointRouteBuilder app, Func<AudioDatabase>? openDatabase = null)
+    {
+        openDatabase ??= AudioDatabase.OpenDefault;
+        var api = app.MapGroup("/api");
+        // --- Audio streaming -----------------------------------------------
+
+        /// <summary>
+        /// Streams the audio file for a track by database ID.
+        /// Regular files support HTTP byte-range seeking.
+        /// CUE virtual tracks are transcoded to FLAC on-the-fly via FFmpeg.
+        /// An optional <c>format=opus|aac</c> with <c>bitrate</c> (kbps) requests a
+        /// lossy transcode instead of the original stream.
+        /// </summary>
+        api.MapGet("/stream/{trackId:long}", async (
+            long trackId,
+            HttpContext ctx,
+            ILoggerFactory loggerFactory,
+            double? ss,
+            string? format,
+            int? bitrate) =>
+        {
+            var logger = loggerFactory.CreateLogger("Orynivo.Server.Stream");
+            using var db = openDatabase();
+            var track = db.GetTrackById(trackId);
+            if (track is null) return Results.NotFound();
+
+            StreamTranscodeOptions? transcode = null;
+            if (!string.IsNullOrWhiteSpace(format) &&
+                !StreamTranscodeOptions.TryParse(format, bitrate, out transcode))
+            {
+                return Results.BadRequest(new { error = "Unsupported transcode format or bitrate." });
+            }
+
+            return await BuildStreamResult(track.Path, track.SourcePath,
+                track.SegmentStart, track.SegmentEnd, ctx, logger, ss, transcode);
+        });
+
+        /// <summary>
+        /// Streams an audio file directly by absolute file path (encoded in the query string).
+        /// Intended for queue items that may not yet be indexed.
+        /// </summary>
+        api.MapGet("/stream/path", async (
+            string p,
+            HttpContext ctx,
+            ILoggerFactory loggerFactory) =>
+        {
+            var logger = loggerFactory.CreateLogger("Orynivo.Server.Stream");
+            if (!File.Exists(p)) return Results.NotFound();
+            return await BuildStreamResult(p, null, null, null, ctx, logger);
+        });
+
     }
 
     private static async Task<IResult> BuildStreamResult(
@@ -322,9 +333,7 @@ public static class StreamEndpoints
 
         try
         {
-            ffmpeg.Start();
-            await ffmpeg.StandardOutput.BaseStream.CopyToAsync(ctx.Response.Body, ctx.RequestAborted);
-            await ffmpeg.WaitForExitAsync(ctx.RequestAborted);
+            await TranscodeProcessRunner.PipeAsync(ffmpeg, ctx.Response.Body, ctx.RequestAborted);
             if (logSeekTranscode)
             {
                 var stderr = await TryReadStandardErrorAsync(ffmpeg).ConfigureAwait(false);
@@ -335,16 +344,7 @@ public static class StreamEndpoints
         }
         catch (OperationCanceledException)
         {
-            // Client disconnected (e.g. seeked again); stop transcoding promptly.
-            try
-            {
-                if (!ffmpeg.HasExited)
-                    ffmpeg.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Process already gone.
-            }
+            // The process runner has already terminated and awaited the canceled child.
 
             if (logSeekTranscode)
             {
@@ -365,19 +365,6 @@ public static class StreamEndpoints
             }
             logger.LogError(ex, "FFmpeg transcode failed for {Source}", sourcePath);
         }
-        finally
-        {
-            try
-            {
-                if (!ffmpeg.HasExited)
-                    ffmpeg.Kill(entireProcessTree: true);
-            }
-            catch
-            {
-                // Process already gone.
-            }
-        }
-
         return Results.Empty;
     }
 

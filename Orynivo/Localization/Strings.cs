@@ -731,6 +731,8 @@ public sealed record LocalizedStrings(
     public string SmartPlaylistPreviewCount { get; init; } = "";
     /// <summary>Gets the smart-playlist editor preview status while the count is being computed.</summary>
     public string SmartPlaylistPreviewComputing { get; init; } = "";
+    /// <summary>Gets the unavailable smart-playlist match-count preview message.</summary>
+    public string SmartPlaylistPreviewUnavailable { get; init; } = "";
     /// <summary>Gets the smart-playlist editor preview status when the criteria are invalid.</summary>
     public string SmartPlaylistPreviewInvalid { get; init; } = "";
     /// <summary>Gets the Up Next "restore last queue" button label.</summary>
@@ -866,6 +868,8 @@ public sealed record LocalizedStrings(
     public string ThemeDark { get; init; } = "";
     public string StatusAvailable { get; init; } = "";
     public string StatusUnavailable { get; init; } = "";
+    /// <summary>Gets the safe display title of an unresolved stored playlist entry.</summary>
+    public string PlaylistTrackUnavailable { get; init; } = "";
     public string StatusEnabled { get; init; } = "";
     public string StatusDisabled { get; init; } = "";
     public string StatusReady { get; init; } = "";
@@ -1196,6 +1200,10 @@ public sealed record LocalizedStrings(
     public string EditSmartPlaylist { get; init; } = "";
     /// <summary>Gets the hint shown under the Library header when no local directories or Orynivo Servers are configured.</summary>
     public string LibraryEmptyHint { get; init; } = "";
+    /// <summary>Gets local folder scan and first-playback guidance shown in Settings.</summary>
+    public string LibraryScanHint { get; init; } = "";
+    /// <summary>Gets guidance for a successful library view without displayed entries.</summary>
+    public string LibraryViewEmptyHint { get; init; } = "";
     /// <summary>Gets the incomplete catalog notice with an unavailable-source count.</summary>
     public string LibraryLoadPartial { get; init; } = "";
     /// <summary>Gets the failed catalog notice with an unavailable-source count.</summary>
@@ -1493,6 +1501,9 @@ public sealed record LocalizedStrings(
     public string ResumeOnThisDevice { get; init; } = "";
     public string ResumeOnThisDeviceTooltip { get; init; } = "";
     public string ResumeOnThisDeviceHint { get; init; } = "";
+
+    /// <summary>Shown when a saved-position seek fails while playback remains active.</summary>
+    public string ResumeOnThisDeviceFailed { get; init; } = "";
     public string TransportPrevious { get; init; } = "";
     public string TransportPlayPause { get; init; } = "";
     public string TransportNext { get; init; } = "";

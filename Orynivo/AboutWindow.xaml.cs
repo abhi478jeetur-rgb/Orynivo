@@ -119,7 +119,11 @@ public partial class AboutWindow : Window
             UpdateStatusTextBlock.Text = LocalizationManager.Current.InstallingUpdate;
             await DesktopUpdatePlatform.LaunchInstallerAsync(installerPath);
             if (Avalonia.Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                if (desktop.MainWindow is MainWindow playbackWindow)
+                    await playbackWindow.PreparePlaybackShutdownAsync();
                 desktop.Shutdown();
+            }
         }
         catch (Exception exception)
         {

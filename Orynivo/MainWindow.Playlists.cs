@@ -1053,14 +1053,21 @@ public partial class MainWindow : Window
         StatusTextBlock.Text = string.Format(LocalizationManager.Current.PlaylistDeleted, name);
     }
 
+    /// <summary>Offers entry removal and queue actions only when a playable path is available.</summary>
+    /// <param name="playlistEntryId">Stable stored occurrence identifier.</param>
+    /// <param name="path">Playable path, or null for an unresolved entry.</param>
+    /// <returns>The entry's context menu.</returns>
     private MenuFlyout BuildRemoveFromPlaylistContextFlyout(
         long playlistEntryId,
-        string path)
+        string? path)
     {
         var menu = CreateSidebarMenuFlyout();
-        foreach (var item in CreateQueueMenuItems([path]))
-            menu.Items.Add(item);
-        menu.Items.Add(new Separator());
+        if (!string.IsNullOrEmpty(path))
+        {
+            foreach (var item in CreateQueueMenuItems([path]))
+                menu.Items.Add(item);
+            menu.Items.Add(new Separator());
+        }
         var header = CreateFlyoutMenuItem(
             LocalizationManager.Current.RemoveFromPlaylist,
             new SolidColorBrush(Color.FromRgb(0x6C, 0x63, 0xFF)));

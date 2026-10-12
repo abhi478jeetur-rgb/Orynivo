@@ -205,6 +205,8 @@ public partial class MainWindow : Window
     private async void PreviousButton_OnClick(object? sender, RoutedEventArgs e) =>
         await PlayPreviousAsync();
 
+    /// <summary>Prepares the preceding queue track without awaiting its audible lifetime.</summary>
+    /// <returns>The preparation and guarded UI error handling.</returns>
     private async Task PlayPreviousAsync()
     {
         if (!TryMoveToPreviousQueueIndex())
@@ -214,7 +216,10 @@ public partial class MainWindow : Window
         RefreshQueueRowsIfVisible();
         RefreshQueueNavigationButtons();
 
-        try { await StartPlaybackAsync(_queue[_queueIndex].FilePath); }
+        var ready = StartReadyPlaybackAsync(_queue[_queueIndex].FilePath);
+        var intent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
@@ -222,6 +227,8 @@ public partial class MainWindow : Window
     private async void NextButton_OnClick(object? sender, RoutedEventArgs e) =>
         await PlayNextAsync();
 
+    /// <summary>Prepares the next queue track without awaiting its audible lifetime.</summary>
+    /// <returns>The preparation and guarded UI error handling.</returns>
     private async Task PlayNextAsync()
     {
         if (!TryMoveToNextQueueIndex())
@@ -231,65 +238,119 @@ public partial class MainWindow : Window
         RefreshQueueRowsIfVisible();
         RefreshQueueNavigationButtons();
 
-        try { await StartPlaybackAsync(_queue[_queueIndex].FilePath); }
+        var ready = StartReadyPlaybackAsync(_queue[_queueIndex].FilePath);
+        var intent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
         catch (Exception ex) { StopPlayback(); StatusTextBlock.Text = ex.Message; }
     }
 
+    /// <summary>Defers window closure until pending playback preparation and output disposal finish.</summary>
+    /// <param name="e">The cancellable window close event.</param>
+    protected override void OnClosing(WindowClosingEventArgs e)
+    {
+        base.OnClosing(e);
+        if (e.Cancel || _playbackCloseReady)
+            return;
+        e.Cancel = true;
+        if (_playbackCloseRequested)
+            return;
+        _playbackCloseRequested = true;
+        _ = PreparePlaybackShutdownAsync();
+        _ = CompletePlaybackCloseAsync();
+    }
+
+    /// <summary>Blocks new starts and drains playback before either window close or explicit application shutdown.</summary>
+    /// <returns>The shared complete preparation and output-disposal task.</returns>
+    internal Task PreparePlaybackShutdownAsync()
+    {
+        return _playbackShutdown.BeginAsync(() =>
+        {
+            _queueEdits.Dispose();
+            IsEnabled = false;
+        }, () => StopPlaybackAsync(waitForCompleteDisposal: true));
+    }
+
+    /// <summary>Keeps the dispatcher alive until every pending player can release its output.</summary>
+    /// <returns>The complete playback drain followed by the accepted window close.</returns>
+    private async Task CompletePlaybackCloseAsync()
+    {
+        // Avoid recursively closing inside the initial Closing event.
+        await Task.Yield();
+        await PreparePlaybackShutdownAsync();
+        _playbackCloseReady = true;
+        Close();
+    }
+
+    /// <summary>Detaches playback immediately and registers background output disposal.</summary>
     private void StopPlayback()
     {
         _audioDeviceExplicitlyReleased = false;
         ClearReleasedOutputResumeState();
         var player = StopPlaybackCore();
-        player?.Dispose();
+        _ = _audioPlayerRetirement.RetireAsync(player);
     }
 
+    /// <summary>Detaches playback immediately and retires its player without blocking the dispatcher.</summary>
+    /// <param name="waitForCompleteDisposal">Whether pending preparations and all player retirements must finish.</param>
+    /// <returns>A bounded transition wait, or a complete output-release wait.</returns>
     private async Task StopPlaybackAsync(bool waitForCompleteDisposal = false)
     {
         var player = StopPlaybackCore();
-        if (player is not null)
-        {
-            var disposalTask = Task.Run(() =>
-            {
-                try
-                {
-                    player.Dispose();
-                }
-                catch (Exception ex)
-                {
-                    CrashLogger.Log(ex, "Background audio-player disposal");
-                }
-            });
-            if (waitForCompleteDisposal)
-                await disposalTask;
-            else
-                await Task.WhenAny(disposalTask, Task.Delay(TimeSpan.FromSeconds(2)));
-        }
+        await PlaybackOutputDrain.RetireAsync(player, waitForCompleteDisposal,
+            _audioPlayerRetirement, _playbackPreparations);
     }
 
-    private IAudioPlayer? StopPlaybackCore()
+    /// <summary>Clears owned playback, retains Play only for a remembered source and abandons cleanup after supersession.</summary>
+    /// <param name="invalidateStart">Whether pending starts are abandoned by this stop.</param>
+    /// <returns>The detached player, or null when playback was already detached.</returns>
+    private IAudioPlayer? StopPlaybackCore(bool invalidateStart = true)
     {
+        if (invalidateStart)
+            _playbackStarts.Invalidate();
+        var stopIntent = _playbackStarts.Current;
+        Interlocked.Increment(ref _transportSeekVersion);
+        _pendingTransportSeekPosition = null;
+        if (invalidateStart)
+        {
+            CancelInfiniteMixRefill();
+            if (!_playbackStarts.IsCurrent(stopIntent)) return null;
+        }
         RecordPlaybackEnd(completed: false);
         SavePodcastProgress(completed: false);
+        _podcastResumePrepared = false;
+        ClearRemoteResumePrompt();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return null;
+        _currentOrynivoTrackRow = null;
+        if (invalidateStart)
+        {
+            _playbackPreparations.CancelAll();
+            if (!_playbackStarts.IsCurrent(stopIntent)) return null;
+        }
         CancelAndDispose(ref _radioMetadataCts);
-        _playbackCts?.Cancel();
-        _playbackCts?.Dispose();
-        _playbackCts = null;
-        var player = _player;
-        _player = null;
+        if (!_playbackStarts.IsCurrent(stopIntent)) return null;
+        var player = _playbackSession.Detach();
+        if (player is IGaplessAudioPlayer gaplessPlayer)
+            gaplessPlayer.TrackChanged -= GaplessPlayer_OnTrackChanged;
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         _currentPlaybackDuration = TimeSpan.Zero;
         UpdateNowPlayingRowHighlights();
 
-        PlayButton.IsEnabled   = true;
+        PlayButton.IsEnabled   = !string.IsNullOrWhiteSpace(_currentFilePath);
         SetPlayPauseIcon(isPlaying: false);
         RefreshQueueNavigationButtons();
         _isSeekingWithSlider = false;
         PositionSlider.IsEnabled = false;
         ClearTransportWaveform();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         _transportTimer.Stop();
         CancelLyricsLoad();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         CancelArtistProfileLoad();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
         ClearLyrics();
+        if (!_playbackStarts.IsCurrent(stopIntent)) return player;
 
         NowPlayingTitleBlock.Text  = "";
         NowPlayingArtistBlock.Text = "";
@@ -357,9 +418,12 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Saves progress only after the owning episode resume preparation.</summary>
+    /// <param name="completed">Whether playback ended normally.</param>
     private void SavePodcastProgress(bool completed)
     {
-        if (_currentPodcastPlayback is not { Podcast.Id: > 0 } playback ||
+        if (!_podcastResumePrepared ||
+            _currentPodcastPlayback is not { Podcast.Id: > 0 } playback ||
             _player is null)
             return;
 
@@ -501,6 +565,9 @@ public partial class MainWindow : Window
             : _queueIndex + 1 < _queue.Count;
     }
 
+    /// <summary>Transitions to the prepared next player while preserving start ownership.</summary>
+    /// <param name="fade">The duration of each volume ramp.</param>
+    /// <returns>The guarded transition lifetime.</returns>
     private async Task RunNonGaplessFadeTransitionAsync(TimeSpan fade)
     {
         if (_nonGaplessFadeTransitionInProgress || _player is null)
@@ -508,11 +575,13 @@ public partial class MainWindow : Window
 
         _nonGaplessFadeTransitionInProgress = true;
         var outgoing = _player;
+        var transitionIntent = _playbackStarts.Current;
         var outgoingVolume = outgoing.Volume;
         try
         {
             await FadePlayerVolumeAsync(outgoing, outgoingVolume, 0f, fade);
-            if (!ReferenceEquals(_player, outgoing) || !TryMoveToNextQueueIndex())
+            if (!_playbackStarts.IsCurrent(transitionIntent) ||
+                !ReferenceEquals(_player, outgoing) || !TryMoveToNextQueueIndex())
                 return;
 
             PersistPlaybackQueue();
@@ -520,18 +589,13 @@ public partial class MainWindow : Window
             RefreshQueueNavigationButtons();
 
             var nextPath = _queue[_queueIndex].FilePath;
-            var playbackTask = StartPlaybackAsync(nextPath);
-            _ = playbackTask.ContinueWith(task =>
-            {
-                if (task.Exception is { } exception)
-                    CrashLogger.Log(exception.GetBaseException(), "Non-gapless fade playback");
-            }, TaskContinuationOptions.OnlyOnFaulted);
-
-            var incoming = await WaitForCurrentPlayerReplacementAsync(outgoing, TimeSpan.FromSeconds(3));
-            if (incoming is null)
+            var ready = StartReadyPlaybackAsync(nextPath, onPrepared: player => player.Volume = 0f);
+            var incomingIntent = _playbackStarts.Current;
+            var incoming = await ready;
+            if (incoming is null || !_playbackStarts.IsCurrent(incomingIntent) ||
+                !ReferenceEquals(_player, incoming))
                 return;
             var targetVolume = GetNormalPlayerVolume();
-            incoming.Volume = 0f;
             await FadePlayerVolumeAsync(incoming, 0f, targetVolume, fade);
         }
         catch (OperationCanceledException)
@@ -549,36 +613,30 @@ public partial class MainWindow : Window
         }
     }
 
-    private async Task<IAudioPlayer?> WaitForCurrentPlayerReplacementAsync(
-        IAudioPlayer outgoing,
-        TimeSpan timeout)
-    {
-        var deadline = DateTimeOffset.UtcNow + timeout;
-        while (DateTimeOffset.UtcNow < deadline)
-        {
-            if (_player is { } current && !ReferenceEquals(current, outgoing))
-                return current;
-            await Task.Delay(25);
-        }
-        return _player is { } player && !ReferenceEquals(player, outgoing) ? player : null;
-    }
-
+    /// <summary>Changes volume only while the captured player and start remain current.</summary>
+    /// <param name="player">The owning player.</param>
+    /// <param name="from">Initial volume.</param>
+    /// <param name="to">Target volume.</param>
+    /// <param name="duration">The ramp duration.</param>
+    /// <returns>The guarded volume ramp.</returns>
     private async Task FadePlayerVolumeAsync(
         IAudioPlayer player,
         float from,
         float to,
         TimeSpan duration)
     {
+        var fadeIntent = _playbackStarts.Current;
         var steps = Math.Max(1, (int)Math.Ceiling(duration.TotalMilliseconds / 50d));
         for (var step = 1; step <= steps; step++)
         {
-            if (!ReferenceEquals(_player, player) && step > 1)
+            if (!_playbackStarts.IsCurrent(fadeIntent) || !ReferenceEquals(_player, player))
                 return;
             var ratio = (float)step / steps;
             player.Volume = from + ((to - from) * ratio);
             await Task.Delay(TimeSpan.FromMilliseconds(duration.TotalMilliseconds / steps));
         }
-        player.Volume = to;
+        if (_playbackStarts.IsCurrent(fadeIntent) && ReferenceEquals(_player, player))
+            player.Volume = to;
     }
 
     private float GetNormalPlayerVolume() =>

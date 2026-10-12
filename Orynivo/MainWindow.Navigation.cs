@@ -44,10 +44,16 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
-    /// <summary>Resets detail navigation and cancels any superseded shared library load.</summary>
+    private readonly NavigationRestoreOwnership _navigationRestores = new();
+
+    /// <summary>Resets admitted detail navigation while preserving current nested Back ownership.</summary>
     /// <param name="clearNavigationHistory">Whether saved Back states are also removed.</param>
     private void ResetDrilldownState(bool clearNavigationHistory = true)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        CancelProviderAlbumLoad();
+        CancelTopLevelViewLoad();
+        CancelRemoteViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         ClearUnifiedLibraryLoadNotice();
@@ -61,18 +67,23 @@ public partial class MainWindow : Window
         _activeLogicalAlbumParts = null;
         _activeLogicalAlbumRow = null;
         _plexNavigationStack.Clear();
+        _plexDetailVisible = false;
         if (clearNavigationHistory)
             _navigationStack.Clear();
         BackButton.IsVisible = _navigationStack.Count > 0;
     }
 
-    /// <summary>Captures the current view before navigation and cancels its pending shared-library load.</summary>
+    /// <summary>Captures independent navigation, suppresses only current nested Back capture, and abandons old loads.</summary>
     private void PushCurrentNavigationState()
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        CancelProviderAlbumLoad();
+        CancelTopLevelViewLoad();
+        CancelRemoteViewLoad();
         CancelLibrarySearch();
         CancelAndDispose(ref _unifiedLibraryAppendCts);
         ClearUnifiedLibraryLoadNotice();
-        if (_restoringNavigationHistory)
+        if (_navigationRestores.ShouldSuppressHistory)
             return;
 
         var state = CaptureCurrentNavigationState();
@@ -82,13 +93,26 @@ public partial class MainWindow : Window
             return;
 
         _navigationStack.Push(state);
+        if (state.PlexState is not null)
+        {
+            _plexDetailVisible = false;
+            _plexNavigationStack.Clear();
+        }
         BackButton.IsVisible = true;
     }
 
+    /// <summary>Adapts the pure capture decision to the existing window-owned Back state.</summary>
+    /// <returns>The current selectable view state, or null for section-only navigation.</returns>
     private NavigationState? CaptureCurrentNavigationState()
     {
         var selectedRow = GetSelectedContentRow();
-        if (SearchResultsScrollViewer.IsVisible)
+        var target = NavigationCaptureDecision.Select(new NavigationCaptureContext(
+            SearchResultsScrollViewer.IsVisible, GenreCloudPanel.IsVisible, _currentTopLevelTag,
+            _activeAlbumFilterId, _activeArtistFilterId, _activeArtistFilterName,
+            _activeLogicalAlbumParts is { Count: > 0 },
+            _activeCatalogAlbum is { Source: LibraryCatalogSource.OrynivoServer },
+            _activeOrynivoServer?.Id, _activeAlbumCatalogProvider is not null));
+        if (target.Kind == NavigationCaptureKind.Search)
             return new NavigationState(
                 "Search",
                 selectedRow?.Id,
@@ -98,8 +122,7 @@ public partial class MainWindow : Window
                 CaptureCurrentVerticalOffset(),
                 SelectedSourceKey: selectedRow?.SourceKey);
 
-        if (string.Equals(_currentTopLevelTag, "GenreCloud", StringComparison.Ordinal) &&
-            GenreCloudPanel.IsVisible)
+        if (target.Kind == NavigationCaptureKind.GenreCloud)
         {
             return new NavigationState(
                 "GenreCloud",
@@ -112,8 +135,11 @@ public partial class MainWindow : Window
                 GenreAlbums: GenreAlbumRecommendationsRadioButton.IsChecked == true);
         }
 
-        if (_activeAlbumFilterId is long logicalAlbumId &&
-            _activeLogicalAlbumParts is { Count: > 0 })
+        if (_plexDetailVisible && ContentDataGrid.IsVisible && CapturePlexNavigationState() is { } plexState)
+            return new NavigationState("PlexDetail", null, null, null,
+                PlexState: plexState, PlexParents: _plexNavigationStack.ToArray());
+
+        if (target.Kind == NavigationCaptureKind.LogicalAlbum && _activeAlbumFilterId is long logicalAlbumId)
         {
             return new NavigationState(
                 "LogicalAlbumTracks",
@@ -125,20 +151,8 @@ public partial class MainWindow : Window
                 LogicalAlbumParts: _activeLogicalAlbumParts);
         }
 
-        if (_activeAlbumFilterId is long orynivoAlbumId &&
-            _activeCatalogAlbum is { Source: LibraryCatalogSource.OrynivoServer } &&
-            _activeOrynivoServer is { } orynivoAlbumServer)
+        if (target.Kind == NavigationCaptureKind.ServerAlbum && _activeAlbumFilterId is long orynivoAlbumId)
         {
-            // A provider-backed remote album must be restored through the remote
-            // path. Detecting it only via the top-level tag failed when the album
-            // was opened from the dashboard (tag "Dashboard"), so it was captured
-            // as a local "AlbumTracks" state and Back reopened a local album that
-            // merely shared the numeric id. Detect it by the catalog album source
-            // instead and rebuild a server navigation tag when needed.
-            var albumNavigationTag =
-                _currentTopLevelTag?.StartsWith("OrynivoServer:", StringComparison.Ordinal) == true
-                    ? _currentTopLevelTag
-                    : $"OrynivoServer:{orynivoAlbumServer.Id}:Albums";
             return new NavigationState(
                 "OrynivoAlbumTracks",
                 orynivoAlbumId,
@@ -146,11 +160,11 @@ public partial class MainWindow : Window
                 _activeArtistFilterName,
                 _activeAlbumFilterTitle,
                 CaptureCurrentVerticalOffset(),
-                albumNavigationTag,
+                target.NavigationTag,
                 LogicalAlbumIds: _activeLogicalAlbumIds);
         }
 
-        if (_activeAlbumFilterId is long albumId)
+        if (target.Kind == NavigationCaptureKind.LocalAlbum && _activeAlbumFilterId is long albumId)
             return new NavigationState(
                 "AlbumTracks",
                 albumId,
@@ -159,9 +173,7 @@ public partial class MainWindow : Window
                 _activeAlbumFilterTitle,
                 LogicalAlbumIds: _activeLogicalAlbumIds);
 
-        if (_activeAlbumFilterId is null &&
-            _activeArtistFilterId is long remoteArtistId &&
-            _currentTopLevelTag?.StartsWith("OrynivoServer:", StringComparison.Ordinal) == true)
+        if (target.Kind == NavigationCaptureKind.ServerArtist && _activeArtistFilterId is long remoteArtistId)
         {
             return new NavigationState(
                 "OrynivoArtistAlbums",
@@ -170,14 +182,11 @@ public partial class MainWindow : Window
                 _activeArtistFilterName,
                 _activeArtistFilterName,
                 CaptureCurrentVerticalOffset(),
-                _currentTopLevelTag,
+                target.NavigationTag,
                 selectedRow?.SourceKey);
         }
 
-        if (_activeAlbumFilterId is null &&
-            _activeArtistFilterId is long artistId &&
-            _activeAlbumCatalogProvider is null &&
-            !(_currentTopLevelTag?.StartsWith("OrynivoServer:", StringComparison.Ordinal) == true))
+        if (target.Kind == NavigationCaptureKind.LocalArtist && _activeArtistFilterId is long artistId)
         {
             return new NavigationState(
                 "ArtistAlbums",
@@ -189,10 +198,7 @@ public partial class MainWindow : Window
                 SelectedSourceKey: selectedRow?.SourceKey);
         }
 
-        if (_activeAlbumFilterId is null &&
-            _activeArtistFilterId is null &&
-            !string.IsNullOrWhiteSpace(_activeArtistFilterName) &&
-            string.Equals(_currentTopLevelTag, "Albums", StringComparison.Ordinal))
+        if (target.Kind == NavigationCaptureKind.UnifiedArtist)
         {
             return new NavigationState(
                 "UnifiedArtistAlbums",
@@ -204,11 +210,10 @@ public partial class MainWindow : Window
                 SelectedSourceKey: selectedRow?.SourceKey);
         }
 
-        if (!string.IsNullOrWhiteSpace(_currentTopLevelTag) &&
-            !_currentTopLevelTag.StartsWith("Section:", StringComparison.Ordinal))
+        if (target.Kind == NavigationCaptureKind.TopLevel && _currentTopLevelTag is { } topLevelTag)
         {
             return new NavigationState(
-                _currentTopLevelTag,
+                topLevelTag,
                 selectedRow?.Id,
                 _activeArtistFilterId,
                 _activeArtistFilterName,
@@ -220,10 +225,14 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>Captures the current table, search or artwork vertical position.</summary>
+    /// <returns>The visible scroll offset, or null when no scroll adapter exists.</returns>
     private double? CaptureCurrentVerticalOffset()
     {
         if (SearchResultsScrollViewer.IsVisible)
             return SearchResultsScrollViewer.Offset.Y;
+        if (ArtistInfoView.IsVisible)
+            return ArtistInfoScrollViewer.Offset.Y;
         if (ContentDataGrid.IsVisible)
         {
             AttachContentDataGridVerticalScrollBar();
@@ -242,9 +251,13 @@ public partial class MainWindow : Window
             .Offset.Y;
     }
 
+    /// <summary>Gets the active content selection without borrowing rows hidden by artist detail.</summary>
+    /// <returns>The selected ID, or null when no selectable content surface is active.</returns>
     private long? GetSelectedContentRowId()
         => GetSelectedContentRow()?.Id;
 
+    /// <summary>Gets the selected row from the active search, table or artwork surface.</summary>
+    /// <returns>The active selected row, or null for artist detail or absent selection.</returns>
     private ContentRow? GetSelectedContentRow()
     {
         if (SearchResultsScrollViewer.IsVisible)
@@ -257,6 +270,7 @@ public partial class MainWindow : Window
                 return searchArtist;
             return null;
         }
+        if (ArtistInfoView.IsVisible) return null;
         if (ContentDataGrid.IsVisible &&
             ContentDataGrid.SelectedItem is ContentRow gridRow)
             return gridRow;
@@ -269,8 +283,12 @@ public partial class MainWindow : Window
         return null;
     }
 
+    /// <summary>Restores the next existing history entry with owned delayed publication.</summary>
+    /// <param name="sender">Back button.</param>
+    /// <param name="e">Click event.</param>
     private async void BackButton_OnClick(object? sender, RoutedEventArgs e)
     {
+        _navigationRestores.Invalidate();
         if (ArtistInfoView.IsVisible && !string.IsNullOrWhiteSpace(_artistInfoUnifiedArtistName))
         {
             CloseNowPlayingDetailViews();
@@ -280,7 +298,7 @@ public partial class MainWindow : Window
                 var artistOrigin = _navigationStack.Pop();
                 await RestoreNavigationStateAsync(artistOrigin);
             }
-            BackButton.IsVisible = _navigationStack.Count > 0;
+            else BackButton.IsVisible = false;
             return;
         }
 
@@ -294,17 +312,7 @@ public partial class MainWindow : Window
 
         if (_plexNavigationStack.Count > 0)
         {
-            var plexState = _plexNavigationStack.Pop();
-            _activePlexView = plexState.View;
-            ContentTitleTextBlock.Text = plexState.Title;
-            ApplyColumns("Plex" + plexState.View);
-            ContentDataGrid.ItemsSource = plexState.Rows;
-            ContentDataGrid.IsVisible = true;
-            FolderTreeView.IsVisible = false;
-            PlexViewModeBorder.IsVisible = _plexNavigationStack.Count == 0;
-            ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(plexState.Rows.Count);
-            UpdateAlphabetIndex(plexState.Rows, true);
-            BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
+            await RestorePlexNavigationStateAsync();
             return;
         }
 
@@ -313,35 +321,154 @@ public partial class MainWindow : Window
 
         var state = _navigationStack.Pop();
         await RestoreNavigationStateAsync(state);
-        BackButton.IsVisible = _navigationStack.Count > 0;
     }
 
-    private async Task RestoreNavigationStateAsync(NavigationState state)
+    /// <summary>Restores valid Plex state or its global origin while rejecting replacement navigation.</summary>
+    /// <returns>A task completing after restoration or source-safe fallback.</returns>
+    private async Task RestorePlexNavigationStateAsync()
     {
-        _restoringNavigationHistory = true;
+        var previousContext = _navigationRestores.Context;
+        var request = _navigationRestores.Begin();
+        _navigationRestores.Context = request;
+        bool CanRestore() => _navigationRestores.IsCurrent(request);
         try
         {
-            await RestoreNavigationStateCoreAsync(state);
+            CancelProviderAlbumLoad();
+            if (!CanRestore()) return;
+            CancelTopLevelViewLoad();
+            if (!CanRestore()) return;
+            CancelRemoteViewLoad();
+            if (!CanRestore()) return;
+            CancelLibrarySearch();
+            if (!CanRestore()) return;
+            CancelAndDispose(ref _unifiedLibraryAppendCts);
+            if (!CanRestore() || _plexNavigationStack.Count == 0) return;
+            var plexState = _plexNavigationStack.Pop();
+            if (!IsCurrentPlexNavigationSource(plexState))
+            {
+                _plexNavigationStack.Clear();
+                var origin = _navigationStack.Count > 0
+                    ? _navigationStack.Pop()
+                    : new NavigationState("Tracks", null, null, null);
+                if (origin.View.StartsWith("PlexLibrary:", StringComparison.Ordinal))
+                {
+                    var sourceParts = origin.View.Split(':', 3);
+                    if (sourceParts.Length != 3 || string.IsNullOrWhiteSpace(sourceParts[2]) ||
+                        !(_settings.PlexServers ?? []).Any(server => server.Id == sourceParts[1]))
+                        origin = new NavigationState("Tracks", null, null, null);
+                }
+                await RestoreNavigationStateCoreAsync(origin, CanRestore);
+                if (CanRestore()) BackButton.IsVisible = _navigationStack.Count > 0;
+                return;
+            }
+            PublishPlexNavigationState(plexState, CanRestore);
         }
         finally
         {
-            _restoringNavigationHistory = false;
+            _navigationRestores.Complete(request);
+            _navigationRestores.Context = previousContext;
         }
     }
 
-    private async Task RestoreNavigationStateCoreAsync(NavigationState state)
+    /// <summary>Publishes a valid retained Plex binding with source-owned deferred position.</summary>
+    /// <param name="state">Transient Plex table and paging state.</param>
+    /// <param name="canRestore">Owning Back execution guard.</param>
+    private void PublishPlexNavigationState(PlexNavigationState state, Func<bool> canRestore)
     {
+        if (!canRestore() || !IsCurrentPlexNavigationSource(state)) return;
+        _activePlexView = state.View;
+        _plexDetailVisible = state.IsDetail;
+        _activePlexSectionTitle = state.SectionTitle;
+        _plexLoadedCount = state.LoadedCount;
+        _plexTotalCount = state.TotalCount;
+        ContentTitleTextBlock.Text = state.Title;
+        var previousUpdatingViewMode = _updatingViewMode;
+        _updatingViewMode = true;
+        try
+        {
+            if (PlexViewModeBorder.Child is StackPanel modes)
+                foreach (var button in modes.Children.OfType<RadioButton>())
+                    button.IsChecked = button.Tag as string == state.View;
+        }
+        finally { _updatingViewMode = previousUpdatingViewMode; }
+        if (!canRestore() || !IsCurrentPlexNavigationSource(state)) return;
+        ApplyColumns("Plex" + state.View);
+        ContentDataGrid.ItemsSource = state.Rows;
+        ShowPlexContentTable();
+        FolderTreeView.IsVisible = false;
+        PlexViewModeBorder.IsVisible = _activePlexSectionKey is not null && _plexNavigationStack.Count == 0;
+        PlexLoadMoreButton.IsVisible = _activePlexSectionKey is not null &&
+            _plexNavigationStack.Count == 0 && _plexLoadedCount < _plexTotalCount;
+        StatusTextBlock.Text = string.Empty;
+        ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(state.Rows.Count);
+        UpdateAlphabetIndex(state.Rows, true);
+        BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
+        var selectedRow = state.Rows.FirstOrDefault(row => ReferenceEquals(row, state.SelectedRow));
+        ContentDataGrid.SelectedItem = selectedRow;
+        RestoreDataGridPositionAfterLayout(selectedRow, state.VerticalOffset,
+            () => canRestore() && IsCurrentPlexNavigationSource(state) &&
+                ReferenceEquals(ContentDataGrid.ItemsSource, state.Rows));
+    }
+
+    /// <summary>Owns one Back execution and its deferred restoration without suppressing independent navigation.</summary>
+    /// <param name="state">Saved window-owned history payload.</param>
+    /// <returns>A task completing after restoration or abandonment.</returns>
+    private async Task RestoreNavigationStateAsync(NavigationState state)
+    {
+        var previousContext = _navigationRestores.Context;
+        var request = _navigationRestores.Begin();
+        _navigationRestores.Context = request;
+        bool CanRestore() => _navigationRestores.IsCurrent(request);
+        try
+        {
+            CancelProviderAlbumLoad();
+            if (!CanRestore()) return;
+            CancelTopLevelViewLoad();
+            if (!CanRestore()) return;
+            CancelRemoteViewLoad();
+            if (!CanRestore()) return;
+            CancelLibrarySearch();
+            if (!CanRestore()) return;
+            CancelAndDispose(ref _unifiedLibraryAppendCts);
+            if (!CanRestore()) return;
+            await RestoreNavigationStateCoreAsync(state, CanRestore);
+            if (CanRestore()) BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
+        }
+        finally
+        {
+            _navigationRestores.Complete(request);
+            _navigationRestores.Context = previousContext;
+        }
+    }
+
+    /// <summary>Adapts a typed restore route to the existing source-specific loaders.</summary>
+    /// <param name="state">Saved window-owned history payload.</param>
+    /// <param name="canRestore">Ownership retained by this Back execution.</param>
+    /// <returns>A task completing after the selected loader and restoration adapter.</returns>
+    private async Task RestoreNavigationStateCoreAsync(NavigationState state, Func<bool> canRestore)
+    {
+        if (!canRestore()) return;
+        _plexDetailVisible = false;
+        _plexNavigationStack.Clear();
         _activeArtistFilterId = state.ArtistFilterId;
         _activeArtistFilterName = state.ArtistFilterName;
         _activeAlbumFilterId = null;
         _activeAlbumFilterTitle = null;
         HideAlbumDetailHeader();
 
-        switch (state.View)
+        if (state.PlexState is { } plexState)
         {
-            case "LogicalAlbumTracks" when
-                state.SelectedId is long logicalAlbumId &&
-                state.LogicalAlbumParts is { Count: > 0 } parts:
+            await RestoreGlobalPlexNavigationAsync(state, plexState, canRestore);
+            return;
+        }
+
+        switch (NavigationRestoreDecision.Select(new(state.View, state.SelectedId,
+                    state.ArtistFilterId, state.ArtistFilterName,
+                    state.LogicalAlbumParts is { Count: > 0 })))
+        {
+            case NavigationRestoreKind.LogicalAlbum:
+                var logicalAlbumId = state.SelectedId!.Value;
+                var parts = state.LogicalAlbumParts!;
                 var representativePart = parts.First();
                 var logicalRow = new ContentRow
                 {
@@ -360,7 +487,8 @@ public partial class MainWindow : Window
                 await OpenLogicalAlbumTracksAsync(logicalRow);
                 return;
 
-            case "AlbumTracks" when state.SelectedId is long albumId:
+            case NavigationRestoreKind.LocalAlbum:
+                var albumId = state.SelectedId!.Value;
                 await ShowAlbumTracksAsync(
                     albumId,
                     string.IsNullOrWhiteSpace(state.SearchQuery)
@@ -371,27 +499,34 @@ public partial class MainWindow : Window
                     state.LogicalAlbumIds);
                 return;
 
-            case "ArtistAlbums" when state.ArtistFilterId is long artistId:
-                await ShowArtistAlbumsAsync(
-                    artistId,
-                    string.IsNullOrWhiteSpace(state.SearchQuery)
-                        ? LocalizationManager.Current.Unknown
-                        : state.SearchQuery);
+            case NavigationRestoreKind.LocalArtist:
+                var artistId = state.ArtistFilterId!.Value;
+                var localArtistName = string.IsNullOrWhiteSpace(state.SearchQuery)
+                    ? LocalizationManager.Current.Unknown : state.SearchQuery;
+                var localArtistRestore = ShowArtistAlbumsAsync(artistId, localArtistName);
+                var localArtistVersion = _artistDetailLoadVersion;
+                await localArtistRestore;
                 RestoreSelectionFromCurrentItems(
                     state.SelectedId,
                     state.VerticalOffset,
-                    state.SelectedSourceKey);
+                    state.SelectedSourceKey,
+                    () => canRestore() && localArtistVersion == _artistDetailLoadVersion &&
+                          IsCurrentArtistDetailLoad(localArtistVersion, localArtistName));
                 return;
 
-            case "UnifiedArtistAlbums" when !string.IsNullOrWhiteSpace(state.ArtistFilterName):
-                await ShowUnifiedArtistAlbumsAsync(state.ArtistFilterName);
-                RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset, state.SelectedSourceKey);
+            case NavigationRestoreKind.UnifiedArtist:
+                var unifiedArtistRestore = ShowUnifiedArtistAlbumsAsync(state.ArtistFilterName!);
+                var unifiedArtistVersion = _artistDetailLoadVersion;
+                await unifiedArtistRestore;
+                RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset, state.SelectedSourceKey,
+                    () => canRestore() && IsCurrentArtistDetailLoad(unifiedArtistVersion, state.ArtistFilterName!));
                 return;
 
-            case "OrynivoAlbumTracks" when state.SelectedId is long albumId:
+            case NavigationRestoreKind.ServerAlbum:
+                var serverAlbumId = state.SelectedId!.Value;
                 await RestoreOrynivoAlbumTracksAsync(
                     state.NavigationTag,
-                    albumId,
+                    serverAlbumId,
                     state.SearchQuery,
                     state.ArtistFilterId,
                     state.ArtistFilterName,
@@ -399,59 +534,107 @@ public partial class MainWindow : Window
                     state.LogicalAlbumIds);
                 return;
 
-            case "OrynivoArtistAlbums" when state.ArtistFilterId is long artistId:
+            case NavigationRestoreKind.ServerArtist:
+                var serverArtistId = state.ArtistFilterId!.Value;
                 await RestoreOrynivoArtistAlbumsAsync(
                     state.NavigationTag,
-                    artistId,
+                    serverArtistId,
                     state.SearchQuery,
                     state.SelectedId,
                     state.VerticalOffset);
                 return;
 
-            case "Search":
+            case NavigationRestoreKind.Search:
                 SearchTextBox.Text = state.SearchQuery ?? string.Empty;
                 var searchRestore = ShowSearchResultsAsync(state.SearchQuery ?? string.Empty);
                 var searchVersion = _librarySearchVersion;
-                var searchGeneration = _unifiedLibraryViewCache.Generation;
+                var searchGeneration = _unifiedLibraryLoads.Generation;
                 var searchToken = _librarySearchCts?.Token;
                 await searchRestore;
                 RestoreSearchSelection(state.SelectedId, state.SelectedSourceKey, state.VerticalOffset,
-                    () => searchToken.HasValue && !searchToken.Value.IsCancellationRequested &&
+                    () => canRestore() && searchToken.HasValue && !searchToken.Value.IsCancellationRequested &&
                           searchVersion == _librarySearchVersion &&
-                          searchGeneration == _unifiedLibraryViewCache.Generation && SearchResultsScrollViewer.IsVisible);
+                          searchGeneration == _unifiedLibraryLoads.Generation && SearchResultsScrollViewer.IsVisible);
                 return;
 
-            case "GenreCloud":
+            case NavigationRestoreKind.GenreCloud:
                 _genreCloudSelectedKey = state.GenreKey;
                 GenreAlbumRecommendationsRadioButton.IsChecked = state.GenreAlbums == true;
                 GenreTrackRecommendationsRadioButton.IsChecked = state.GenreAlbums != true;
-                SelectNavigationItem("GenreCloud");
-                await ShowTopLevelViewAsync("GenreCloud");
-                RestoreSelectionFromCurrentItems(
-                    state.SelectedId,
-                    state.VerticalOffset,
-                    state.SelectedSourceKey);
-                return;
-
-            case "Artists":
-            case "Albums":
-                SelectNavigationItem(state.View);
-                await ShowTopLevelViewAsync(state.View);
-                RestoreSelectionFromCurrentItems(
-                    state.SelectedId,
-                    state.VerticalOffset,
-                    state.SelectedSourceKey);
+                await RestoreTopLevelNavigationAsync(state, canRestore);
                 return;
 
             default:
-                SelectNavigationItem(state.View);
-                await ShowTopLevelViewAsync(state.View);
-                RestoreSelectionFromCurrentItems(
-                    state.SelectedId,
-                    state.VerticalOffset,
-                    state.SelectedSourceKey);
+                await RestoreTopLevelNavigationAsync(state, canRestore);
                 break;
         }
+    }
+
+    /// <summary>Restores a captured Plex detail and its existing parents after source and credential validation.</summary>
+    /// <param name="state">Global payload containing the retained Plex parent chain.</param>
+    /// <param name="plexState">Transient saved Plex detail binding.</param>
+    /// <param name="canRestore">Owning global Back guard.</param>
+    /// <returns>A task completing after guarded publication or fallback.</returns>
+    private async Task RestoreGlobalPlexNavigationAsync(
+        NavigationState state, PlexNavigationState plexState, Func<bool> canRestore)
+    {
+        if (!canRestore()) return;
+        string? currentToken;
+        try
+        {
+            currentToken = (await new WindowsPlexCredentialStore().LoadAllAsync())
+                .GetValueOrDefault(plexState.ServerId);
+        }
+        catch
+        {
+            if (canRestore()) await RestoreTopLevelNavigationAsync(
+                new NavigationState("Tracks", null, null, null), canRestore);
+            return;
+        }
+        if (!canRestore()) return;
+        var server = (_settings.PlexServers ?? []).FirstOrDefault(candidate =>
+            candidate.Id == plexState.ServerId && candidate.Name == plexState.ServerName &&
+            candidate.BaseUrl == plexState.BaseUrl);
+        var validTag = plexState.NavigationTag is not null &&
+            (plexState.Section is null || plexState.NavigationTag ==
+                $"PlexLibrary:{plexState.ServerId}:{plexState.Section}");
+        if (server is null || currentToken != plexState.Token || !validTag)
+        {
+            _plexNavigationStack.Clear();
+            await RestoreTopLevelNavigationAsync(new NavigationState("Tracks", null, null, null), canRestore);
+            return;
+        }
+        _activePlexServer = server;
+        _activePlexToken = currentToken;
+        _activePlexSectionKey = plexState.Section;
+        _currentTopLevelTag = plexState.NavigationTag;
+        SelectNavigationItem(plexState.NavigationTag!);
+        if (!canRestore() || !IsCurrentPlexNavigationSource(plexState)) return;
+        _plexNavigationStack.Clear();
+        foreach (var parent in (state.PlexParents ?? []).Reverse())
+            _plexNavigationStack.Push(parent);
+        foreach (var row in plexState.Rows)
+            if (row.EntityType == "PlexTrack" && !string.IsNullOrEmpty(row.FilePath))
+                _plexTracksByUrl[row.FilePath] = row;
+        PublishPlexNavigationState(plexState, canRestore);
+    }
+
+    /// <summary>Restores a top-level binding and layout only while its exact loader and Back execution remain current.</summary>
+    /// <param name="state">Saved sidebar view, selection and scroll payload.</param>
+    /// <param name="canRestore">Owning Back execution guard.</param>
+    /// <returns>A task completing after load and guarded selection admission.</returns>
+    private async Task RestoreTopLevelNavigationAsync(NavigationState state, Func<bool> canRestore)
+    {
+        if (!canRestore()) return;
+        SelectNavigationItem(state.View);
+        var generation = _unifiedLibraryLoads.Generation;
+        var token = new CancellationToken(canceled: true);
+        await LoadTopLevelViewAsync(state.View, admitted => token = admitted);
+        bool CanRestorePosition() => canRestore() && !token.IsCancellationRequested &&
+            generation == _unifiedLibraryLoads.Generation &&
+            string.Equals(_currentTopLevelTag, state.View, StringComparison.Ordinal);
+        RestoreSelectionFromCurrentItems(state.SelectedId, state.VerticalOffset,
+            state.SelectedSourceKey, CanRestorePosition);
     }
 
     private void SelectNavigationItem(string tag)
@@ -486,6 +669,11 @@ public partial class MainWindow : Window
     {
         if (canRestore is not null && !canRestore())
             return;
+        if (ArtistInfoView.IsVisible)
+        {
+            RestoreArtistInfoPositionAfterLayout(verticalOffset, canRestore);
+            return;
+        }
         var rows = (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList()
                    ?? (AlbumArtworkListBox.ItemsSource as IEnumerable<ContentRow>)?.ToList()
                    ?? (ArtistArtworkListBox.ItemsSource as IEnumerable<ContentRow>)?.ToList()
@@ -586,6 +774,23 @@ public partial class MainWindow : Window
                 },
                 DispatcherPriority.Loaded);
         }
+    }
+
+    /// <summary>Restores the outer artist-detail scroll after layout while its original detail remains current.</summary>
+    /// <param name="verticalOffset">Saved outer detail offset.</param>
+    /// <param name="canRestore">Optional enclosing Back/load ownership.</param>
+    private void RestoreArtistInfoPositionAfterLayout(double? verticalOffset, Func<bool>? canRestore)
+    {
+        if (verticalOffset is not double offset) return;
+        var version = _artistDetailLoadVersion;
+        var artistName = _artistInfoUnifiedArtistName;
+        Dispatcher.UIThread.Post(() =>
+        {
+            if ((canRestore is not null && !canRestore()) || !ArtistInfoView.IsVisible ||
+                version != _artistDetailLoadVersion || artistName != _artistInfoUnifiedArtistName) return;
+            ArtistInfoScrollViewer.Offset = new Vector(ArtistInfoScrollViewer.Offset.X,
+                Math.Clamp(offset, 0, Math.Max(0, ArtistInfoScrollViewer.Extent.Height - ArtistInfoScrollViewer.Viewport.Height)));
+        }, DispatcherPriority.Loaded);
     }
 
     /// <summary>Restores table position after layout only while its owning load remains current.</summary>

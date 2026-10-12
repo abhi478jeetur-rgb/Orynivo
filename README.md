@@ -47,6 +47,25 @@ the ability to reach that library from any device on the local network.
   track at once, plus a genre field that stores a library-only override for the
   selected local or Orynivo Server tracks (media files are never modified)
 - Local library, playlists, smart playlists and full-text search
+- Empty-library guidance opens Directories, Orynivo servers or Output device in
+  Settings, with localized, wrapped and keyboard-focusable setup actions. Tab
+  and Shift+Tab reach each sidebar setup action; Enter activates it. Keyboard
+  focus highlights setup and output-profile actions in both themes. Setup hints
+  use readable secondary text and avoid duplicate focus outlines.
+- Play is disabled before a source is selected; remembered tracks retain their
+  resume/retry action.
+- Output Settings keeps the profile selector full-width and wraps its actions
+  below it so longer translations remain visible in narrow layouts.
+- Adding the first local music folder expands Library so Artists, Albums and
+  Tracks are immediately reachable. Later folder changes keep a collapsed
+  Library collapsed.
+- Adding a folder in Directories Settings starts its scan automatically. Follow
+  progress or cancel below that folder; Scan remains available for later scans.
+  After completion, save Settings and open Tracks for playback.
+- Successfully loaded empty library views offer source/filter guidance and a
+  Settings action; server-only profiles open their server settings directly. The
+  guidance disappears when reloading or when library changes invalidate that
+  result, and returns only for a current successful empty load.
 - Unified artist detail pages with an album-style image-and-biography hero,
   synchronized favorites, image management, refreshable biographies, and
   combined local/Orynivo Server albums. Their cards include cover search,
@@ -61,9 +80,16 @@ the ability to reach that library from any device on the local network.
   cached grayscale mosaic of matching artist images
 - Shared Artists, Albums, and Tracks views retain available local/server results
   when a source is unavailable. Only complete loads are cached, so reopening a
-  partial view retries missing sources. An incomplete-load notice offers **Try
-  again** without clearing usable rows; selection and scroll position survive
-  the refresh, and navigating away cancels it.
+  partial view retries missing sources. Overlapping reloads retain only the
+  latest request, including a reload triggered during cancellation. Each load
+  keeps its initial filters and server/profile settings throughout its queries.
+  Saving changed server connections clears cached catalog views, including
+  changes to profile and streaming options. An incomplete-load notice offers
+  **Try again** without clearing usable rows; selection and scroll position
+  survive the refresh, and navigating away cancels it. Background library
+  updates keep the current view in place and offer a controlled refresh.
+  Removing library roots from Settings invalidates cached results after indexed
+  rows are removed.
 - Library search queries independent servers concurrently, keeps available
   results when a source fails, and offers **Try again** for incomplete searches.
   New queries and navigation cancel the previous search; genuine empty results
@@ -394,6 +420,68 @@ resolved inside the desktop for playback. Do not forward this unencrypted HTTP
 port to the internet; use a trusted VPN or an HTTPS reverse proxy for access
 outside the home network.
 
+Single-track Play from MCP resolves remote references inside the owning playback
+preparation. Mobile single-track Play also guards its identity lookup: a newer
+start or Stop rejects older results before metadata registration or playback.
+
+Clearing Up Next removes upcoming tracks from active gapless playback while
+preserving the current track's position and pause state. Desktop, MCP and Mobile
+wait until that playback change is ready. Pending starts are cancelled when no
+track is active; ordinary single-track playback continues without rebuilding.
+
+Clear also cancels pending queue replacement while the current track continues.
+Append/Next and playlist append report success only if their queue change
+survives clearing or replacement while playback preparation is pending. Mobile
+queue move/remove actions follow the same rule and reject edits during shutdown.
+
+Queue edits during a pending gapless start seek wait for its original start. The
+final player retains the resumed position and pause state, with one entry in
+playback history.
+
+Gapless starts and queue replacement also include edits arriving during initial
+player creation before they report playback ready.
+
+Queue changes arriving during gapless preparation are combined before they
+finish, preserving their order, duplicate entries and the current pause state.
+The refresh coordination has offline lifecycle tests that run without an
+application window or audio device. Complete output release also has offline
+tests covering pending preparation and late-created player disposal. Shutdown
+closes playback admission before cancellation hooks and shares one completion
+across repeated requests, including requests made from those hooks.
+
+Pending append/next and playlist-append lookups are discarded by Clear or
+wholesale queue replacement. Ordinary start/Stop preserves independent queue
+edits; shutdown rejects late lookup results.
+
+MCP queue replacement and mobile playlist Play also guard their asynchronous
+resolution against newer starts and Stop. Queue replacement preserves order and
+duplicate entries, reports its playable count, and keeps the existing queue when
+none of the requested references resolves.
+
+Infinite Mix cancels pending recommendations on Stop, mix pause or replacement.
+Late results cannot change the queue or overwrite a newer refill indicator.
+Complete output release waits for pending refills, and starting an idle mix
+returns after player preparation.
+
+Gapless queue rebuilding also returns after preparation, preserving the audible
+position and paused state without waiting for the track to finish.
+
+Radio metadata and cross-device resume offers belong to the current playback
+only. Stop and gapless track changes remove stale resume offers. Resume seeks
+report failure without stopping playback, and complete output release waits for
+a pending accepted resume seek.
+
+Radio and podcast actions also complete after preparation. Podcasts apply saved
+progress when no nonzero initial position is requested; explicit resume
+positions retain precedence, including paused output switching and lock
+reacquisition. Cancelling a pending episode resume preserves its previously
+saved progress.
+
+Playback commands from Mobile Remote and MCP wait for player preparation,
+including initial seek, rather than the end of the track. Later playback errors
+remain observed by the desktop. An abandoned MCP start is cancelled; an
+unavailable mobile track or queue-index start is not reported as successful.
+
 Remote verification:
 `dotnet run --project scripts/RemoteSmoke/RemoteSmoke.csproj` checks the
 production host with synthetic data. With Node.js and Playwright available,
@@ -646,7 +734,24 @@ byte-range streaming without FFmpeg.
   close the active exclusive player and release its audio device for another
   application. Orynivo preserves the source and playback position; selecting the
   open lock reacquires the device and resumes playback without restarting the
-  application.
+  application. Explicit release waits for both the active player and any earlier
+  player cleanup still running after a track transition's wait limit. It also
+  cancels and drains pending playback preparation, including players returned
+  late by a factory and outstanding system, slider or remote seeks. Normal
+  window close keeps the UI dispatcher alive until pending preparation and
+  output cleanup finish; Update installation and library import await the same
+  drain before application shutdown. Transport stop registers cleanup in the
+  background.
+- Output switching and output-lock reacquisition restore the saved position and
+  paused state when preparation finishes, without waiting for the track to end.
+  Superseded output selections and fade ramps cannot modify newer playback.
+- Overlapping playback requests keep the latest start: obsolete remote lookups
+  cannot register playback metadata, late-created players are cleaned up, and
+  failures from older starts cannot stop the current player. Active output and
+  cancellation share one session owner; failing cancellation callbacks do not
+  prevent output cleanup. Starts triggered during cancellation or backend
+  pause/resume callbacks retain their new transport state. Obsolete seek
+  completion cannot overwrite the current status.
 - Seeking, volume control, pause, and an editable persistent **Up next** queue
   with play-next/append actions, drag-and-drop from track, album, and folder
   views, removal, reordering, complete clearing, restore-last-queue, playlist
@@ -712,7 +817,11 @@ byte-range streaming without FFmpeg.
   Orynivo Server tracks. Server tracks are stored in local playlists as stable
   `orynivo://` references and resolved to authenticated stream URLs only when
   they are opened or queued, so `?key=` stream URLs are not persisted. Playlist
-  tables show the favorite heart first and the source column next to it. Smart
+  tables show the favorite heart first and the source column next to it. Regular
+  mixed playlists batch local metadata and remote ID lookups, preserve order and
+  duplicate entries, and cancel abandoned loads. Unavailable entries stay
+  visible as non-playable placeholders that can be removed. Failed sources offer
+  **Try again**, retaining usable rows and the selected entry/position. Smart
   playlists resolve against the combined local and configured Orynivo Server
   track set. Server catalogs are loaded across all pages; outdated incomplete
   track caches are rebuilt automatically without changing favorites.
@@ -817,7 +926,20 @@ byte-range streaming without FFmpeg.
 - Session-wide Back navigation across sidebar views, search results, dashboard
   links, artist/album drill-downs, playlists, podcasts, radio, folders, and Plex
   library views. Mixed local/Orynivo Server artist and album views remain
-  unified when restored, including source-aware selection when IDs overlap
+  unified when restored, including source-aware selection when IDs overlap.
+  Remote details retain their owning server; invalid or removed source tags
+  cannot reopen an album from another active server. Server overview loads
+  reject late rows and status updates after leaving the view or starting a newer
+  load. Superseded top-level loads release their loading scope without replaying
+  a fade over the new view. Provider album track loads also reject late tracks
+  after navigation, configuration changes or a newer album load. Remote album
+  metadata lookups follow the same ownership checks, including Back restoration
+  during newer navigation to the same view. Local album workers retain copied
+  scopes and reject outdated detail updates after navigation or reloading.
+  Logical album tracks and artwork follow the same ownership rules, retaining
+  their captured local and server sources. Overlapping Back restores retain
+  ownership through delayed selection and scroll updates; an older completion
+  cannot end a newer restore or suppress history for new navigation
 - Conservative artist-name normalization for `feat.` credits and unambiguous
   case, accent, spacing, and punctuation variants, with a repair action for
   existing libraries
@@ -943,7 +1065,13 @@ byte-range streaming without FFmpeg.
 - Regular playlists and live smart playlists with metadata, library-age,
   playback-history, similarity, ordering, and result-limit criteria. A track's
   context menu offers **Save as smart playlist: similar tracks**, which keeps
-  the nearest local and Orynivo Server neighbours of that reference track
+  the nearest local and Orynivo Server neighbours of that reference track.
+  Shared smart playlists load selected sources with at most three simultaneous
+  server requests, retain available results after source failures, and offer
+  **Try again** with the selected track retained. A similarity reference can
+  belong to a source excluded from the results; overlapping provider track IDs
+  remain distinct. Incomplete source data shows an unavailable count in the
+  editor, and changing criteria or closing it cancels pending preview work
 - Smart playlists are created directly from active track filters and can be
   refined later through their sidebar context menu. The editor previews the live
   match count while criteria are changed, including unified local/server counts
@@ -987,11 +1115,77 @@ byte-range streaming without FFmpeg.
 - Manual LRCLIB lyrics search with editable title and artist, result preview,
   and explicit replacement of the cached lyrics
 - Cached artist images and localized biographies from Wikipedia/Wikimedia
+- Local, remote-library and Now Playing artist profiles reject outdated results
+  after navigation, source changes or a newer artist/playback selection,
+  including delayed images, album/track lists and refresh completion.
+- Profile synchronization stops further updates after its request is abandoned.
+  Automatic artist profiles retain their row binding and background request;
+  delayed results cannot overwrite a replacement row or its loading state.
+- Now Playing remote profile requests retain playback and source ownership
+  inside the metadata provider, including delayed artist-image cache writes.
+- The profile lookup dialog retains the artist it was opened for and rejects
+  outdated confirmations. Profile refresh preserves the displayed album strip.
 - Manual Wikimedia Commons artist-image search with editable search text
+- Artist image cache saves and deletions serialize per artist within the
+  process, preventing overlapping file replacement and format cleanup. Automatic
+  profile downloads stage complete images before replacement; cancelled, failed
+  or empty transfers preserve the current file.
 - Manually selected artist images are retained across profile refreshes,
   renames, and artist merges
+- Manual artist-image synchronization retains its original server connections,
+  skips changed sources and invalidates shared caches after interrupted writes.
+- Image search selections, uploads and deletions retain their original artist
+  view and reject obsolete selections, image updates and failure messages after
+  navigation.
+- Manual image changes reject older profile-image updates while allowing the
+  current biography and loading state to finish.
+- Back restores the outer artist-detail scroll position after layout. New artist
+  details start at the top; old deferred callbacks cannot move another detail.
+  Hidden tables do not supply artist-detail selections.
+- Artist image requests retain their own rejection after a matching manual
+  change, even when another artist changes afterwards. Only live requests retain
+  observation state; completed requests release it.
+- Cross-library artist artwork copying checks current donor and target metadata
+  within shared artist write ordering. It preserves populated/manual targets and
+  current biography, rejects abandoned navigation or superseded image requests,
+  and keeps later manual upload/deletion authoritative.
+- Settings checks missing-artist-image eligibility again after preview and
+  ordered admission, preserving manual or automatic images added meanwhile.
+  Accepted remote images target only their original server/profile. Settings
+  shares artist write ordering with profile and detail image actions.
+- Remote artist context-menu image searches retain their original row and source
+  during selection, upload and synchronization, and share manual-image write
+  ordering with artist-detail actions. Superseded completions preserve current
+  artwork and status.
+- Automatic artist-row profile jobs share the artist write queue through
+  download, database persistence and artwork decoding. Waiting jobs recheck
+  their original row binding and current database manual-image state.
+- Now Playing server profile writes share manual-image ordering and source-owned
+  caches. Superseded images retain current biographies; forced biography refresh
+  preserves manual server artwork.
+- Server artist-detail profile downloads and image capture also share write
+  ordering, retaining later manual image changes and current biographies. They
+  recheck server manual-image state and keep downloaded files separate from
+  positive local artist cache IDs.
+- Local foreground profiles order download, database persistence and image
+  capture together with manual changes, preserving later manual image choices.
+- Primary server artist-detail profile uploads also share image write ordering;
+  obsolete image payloads are dropped while current biography updates continue.
+- Automatic unified profile synchronization uses the same write ordering as
+  manual artist-detail image changes, so later manual changes finish last.
+- Artist-detail search, upload and deletion order complete manual changes per
+  artist, including file, database and server writes. Superseded waiting actions
+  perform no writes.
 - Artist renaming in the artist information view, including a transactional
   merge flow with an explicit choice of which artist profile to retain
+- Cross-server artist renames retain their original connections and skip changed
+  or removed sources before further rename or merge requests.
+- Local rename/merge dialogs retain their original artist view. Accepted changes
+  update the search index after navigation without reopening old details or
+  changing a newer playback artist or filter.
+- Server rename/merge dialogs also retain their source connection and reject
+  obsolete commits and detail updates. Playback artist changes require the
+  owning server as well as the original track/provider.
 - ZIP export and import for the managed library, playlists, personal radio
   stations, pinned podcasts, history, artwork, and configured library
   directories
@@ -1045,6 +1239,16 @@ byte-range streaming without FFmpeg.
   ambiguous metadata does not generate repeated requests.
 - German, English, French, Spanish, Russian, Simplified Chinese, and Hindi user
   interfaces
+- Plex browsing rejects obsolete pages and folder expansions after navigation or
+  source changes. Back returns to the rows, title, selection and scroll position
+  captured before drill-down and restores paging on the library overview. Plex
+  links from playback history retain their source without requiring a library
+  section. If the saved source changes or disappears, child Back returns to the
+  global origin. It falls back to Tracks when no origin exists or that origin
+  belongs to a removed Plex source. After switching to another view, global Back
+  restores the opened Plex detail and its parent views, including selection,
+  scroll and library paging. It revalidates the source and encrypted credentials
+  before restoring saved content.
 - Multiple Plex Media Server configurations with protected access tokens and
   music-library discovery, artist/album/track browsing, folder navigation, and
   playback, including an A–Z root-folder index and multi-part tracks decoded as
@@ -1085,6 +1289,14 @@ than being collapsed into a generic Other bucket. Suggestions use listening
 history when available, but the cloud remains usable with a new or empty play
 history. Remote results retain their owning server for playback, favorites,
 artwork, and album/artist navigation.
+
+Cloud requests abandoned by navigation or catalog changes cannot replace the
+current recommendations, register playback metadata, or assign background
+images. Branch and recommendation-mode changes reuse shared in-flight catalog
+work while replacing the earlier view request.
+
+Genre button layout and entrance animations follow the current cloud binding;
+changing mode or leaving the view abandons pending callbacks.
 
 Resolved cloud levels are retained in a bounded in-memory session cache. After
 the first load, reopening the root or one of the recently visited branches
@@ -1366,12 +1578,78 @@ creates its own temporary library, so the suite is safe to run in parallel and
 never touches your real library data.
 
 `scripts/verify-all.ps1` runs the same checks as CI in one command: the managed
-builds with `--warnaserror`, all three test projects, and all three parity
-scripts. It stops at the first failure and prints a compact summary.
+builds with `--warnaserror`, all three test projects, the Windows headless UI
+smoke suite on Windows, and all three parity scripts. It stops at the first
+failure and prints a compact summary.
 
 ```bash
 pwsh -NoProfile -File scripts/verify-all.ps1
 ```
+
+The server test project also runs production track routes through an in-memory
+HTTP host with temporary SQLite: paging, detail/ID resolution, authentication
+and profile-isolated favorites/ratings. It starts no scans, watchers or FFmpeg
+and uses no personal catalog or listening TCP port. Core profile regressions
+also cover full lists, album/artist selections and path/ID/page resolution:
+explicit false favorites and zero ratings override legacy shared values, while
+absent personal state retains compatibility fallback.
+
+Seven playlist endpoint cases also check ordered duplicate entries,
+append/remove and deletion, per-profile track state, smart favorites/similarity
+resolution and validation/authentication through the same isolated host.
+
+Thirteen original-file streaming cases verify exact response bytes, byte ranges,
+416 and fallback behavior, rejected options/access and client cancellation of a
+held file-response write. They use synthetic byte files and exercise no audio
+decoding or FFmpeg. Process-lifetime checks are described below.
+
+Five process-lifetime cases run a small managed fixture child through the
+production transcode runner. Cancellation and failed response writes must stop
+and await that child before returning. These cases validate process cleanup, not
+FFmpeg codecs, physical audio or a network-disconnect scenario.
+
+Five composed fake-player cases also cover queue changes during held gapless
+preparation and output replacement at simulated playing positions. They preserve
+resume position/pause and wait for complete output release. These are software
+ownership tests without real audio devices. See the
+[workflow verification scopes](docs/WORKFLOW-TEST-COVERAGE.md).
+
+### Synthetic catalog measurements
+
+```powershell
+dotnet run --project scripts/CatalogBench/CatalogBench.csproj -c Release -- artifacts/catalog-benchmark.json
+```
+
+The tool generates temporary 1,000/100,000-track SQLite catalogs and records
+warm query times and current-thread managed allocations. It reads no personal
+media and performs no UI, HTTP, scan or audio work. This opt-in tool is outside
+CI timing gates. See
+[measurement methodology and observations](docs/CATALOG-MEASUREMENTS.md).
+
+### Windows headless workflow smoke
+
+```bash
+dotnet run --project Orynivo.Ui.Smoke/Orynivo.Ui.Smoke.csproj -c Debug
+```
+
+The tracked smoke suite runs in a separate process with a unique temporary data
+root, cached synthetic artist metadata and fake server HTTP. It checks artist
+navigation, Back with colliding source IDs, late profile/image selection and
+outer artist scroll restoration. Ten search groups also cover superseded
+queries, partial results, retry, seven languages, cache invalidation and
+source-aware Back. Twelve remote album cases check late metadata, captured
+source/fallback identity and superseded opening/restoration. Five local album
+groups check abandoned publication and copied IDs. A populated remote album
+journey starts from search, collides with a local ID and uses the actual Back
+handler to restore source-aware selection/history. Eight album cache cases check
+failed/full/empty recovery, timestamp invalidation, current favorites, corrupt
+cache rebuilding and preservation of the last validated snapshot. Five unified
+catalog recovery groups exercise actual Retry completion, navigation/cache
+rejection, reentrant cancellation and configuration changes. External
+profile/image transports fail closed. MainWindow stays unshown; only an isolated
+headless scroll host performs layout. No playback, hardware checks or real
+dialogs run. Windows CI executes the suite in Debug and Release; Linux/macOS
+runtime coverage remains a follow-up.
 
 ### Orynivo Server
 
@@ -1595,7 +1873,8 @@ Orynivo/
 │   └── appsettings.json     Default configuration
 ├── Orynivo.Core.Tests/      Unit tests for the cross-platform core library
 ├── Orynivo.Tests/           Unit tests for pure desktop helpers (no running UI required)
-├── Orynivo.Server.Tests/    Unit tests for server middleware without starting the web host
+├── Orynivo.Ui.Smoke/        Windows headless synthetic artist/search/album workflows
+├── Orynivo.Server.Tests/    Server middleware and isolated in-memory endpoint tests
 ├── scripts/                 Verification and smoke-test harnesses
 │   ├── verify-localization-parity.ps1   Seven-language desktop/website/mobile parity
 │   ├──     verify-mcp-tool-parity.ps1       MCP, AI tool schema, and Settings checklist parity
@@ -1902,3 +2181,33 @@ the Orynivo name, wordmark, logo, or application icon.
 Third-party components and the optional Steinberg ASIO SDK are excluded from
 that grant and remain subject to their respective terms. See [NOTICE](NOTICE)
 and [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## WASAPI output rate limit
+
+High-resolution WavPack files use a bounded FFprobe fallback when the tag reader
+cannot supply technical properties. CUE track information reports the physical
+source format, sample rate, precision and channels; playback may report FLAC
+when a server transcodes that source. Use Refresh all metadata on the owning
+library to update previously indexed entries with missing values. Remote library
+metadata must be refreshed on the server running the updated scanner.
+
+For WASAPI devices that report unstable high sample rates, set Maximum output
+sample rate in Settings > Playback to a known working rate. This is a strict
+limit: playback never falls back above it. High-resolution sources are decoded
+and resampled to an accepted output rate; if none works within the limit,
+playback reports failure instead of exceeding it. Automatic retains the
+unrestricted device selection.
+
+## Fresh profiles and legacy data
+
+The default data directory is the Orynivo folder under local application data.
+On its first start, Orynivo copies missing files from the former Player folder
+and records completion in `.legacy-data-migrated`. Renaming Orynivo alone
+removes that marker and can therefore import old settings and large artwork
+caches again. Existing destination files are never overwritten.
+
+For a clean test, use an explicit `ORYNIVO_DATA_DIR` pointing to a separate
+folder. Explicit roots do not import legacy settings or caches. On Windows,
+`scripts/prepare-first-playback-check.ps1 -Scenario Local -Start` prepares and
+opens an isolated profile with a small test track; the original data stays in
+place. See [first-playback acceptance](docs/FIRST-PLAYBACK-ACCEPTANCE.md).

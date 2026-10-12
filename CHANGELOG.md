@@ -4,11 +4,558 @@ All notable changes to Orynivo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.47.0] - 2026-10-12
 
 ### Changed
 
+- Supplement incomplete high-resolution WavPack technical metadata with a
+  bounded FFprobe read during scanning. Preserve readable tags when TagLib
+  cannot read extended-rate properties; CUE tracks retain source precision and
+  correct final segment duration. Probe each physical source once per sheet.
+
+- Enforce the configured maximum WASAPI output sample rate as a strict limit.
+  Never fall back above it when a driver rejects lower rates, preventing an
+  advertised but unstable high-rate mode from bypassing the user's restriction.
+
+- Scan newly added local directories immediately in Settings, using the existing
+  progress, cancellation and retry controls. Preserve active directory rows when
+  other folders are added or removed; duplicate folders do not start new scans.
+
+- Keep explicit ORYNIVO_DATA_DIR profiles isolated from legacy Player settings
+  and caches. Preserve destination files created during legacy migration without
+  crashing startup; other copy failures remain retryable.
+
+- Improve setup hint contrast and use one themed keyboard-focus outline. Check
+  simulated 100/200% scaling, reduced motion and opaque theme contrast.
+- Disable Play before a track is available, including after an empty stop;
+  retain resume/retry for a remembered source.
+- Isolate UI smoke output configuration from default-device discovery. Add
+  opt-in setup frame export and manual first-playback profile preparation.
+
+- Give library setup and output-profile actions a themed keyboard-focus border
+  and highlighted fill without changing their size or introducing animation.
+
+- Keep every empty-library setup action reachable with Tab and Shift+Tab in the
+  sidebar. Continue tab traversal through its child buttons instead of skipping
+  the remaining actions after the first; Enter opens normal Settings.
+
+- Hide obsolete empty-library guidance during reload and after catalog or
+  watcher invalidation. Reuse existing request ownership so late empty results
+  cannot replace current failure/recovery presentation.
+
+- Show source/filter guidance and a Settings action for successfully loaded
+  empty Artists, Albums and Tracks views. Failed or incomplete sources retain
+  their separate retry notice; search and detail surfaces are excluded.
+
+- Add localized folder scan guidance in Settings, explaining progress, saving
+  Settings after completion and opening Tracks for first playback.
+
+- Expand the Library sidebar when its first local music folder is configured,
+  matching first-server setup. Later folder changes retain the collapsed
+  preference; configured roots are copied before watcher and cleanup handoff.
+
+- Keep the output profile selector full-width and wrap Create output, Configure
+  output and Delete output below it. Translated captions can grow vertically
+  instead of clipping in narrow Settings layouts.
+
+- Add an Output device entry to empty-library setup, reusing existing audio
+  Settings. Verify that profiles without outputs can create one while
+  selection-only actions remain disabled.
+
+- Add distinct Directories and Orynivo servers actions to empty-library setup,
+  opening each existing Settings section with wrapped localized captions and
+  explicit accessible names. Remove hint clipping and track fresh-profile layout
+  and routing checks.
+
+- Add composed fake-player workflows for gapless queue edits and output
+  switching at simulated playing positions, preserving current queue snapshots,
+  resume position/pause and unique disposal through the production lifecycle
+  helpers.
+
+- Add an opt-in synthetic catalog measurement tool for 1,000 and 100,000 tracks,
+  recording warm query samples and managed allocations without personal media.
+  Document repeated observations and bounded-read guidance without CI time
+  gates.
+
+- Await transcode process termination before returning after request
+  cancellation or response-write failure. Five real managed-child regression
+  cases cover cleanup, natural completion, pre-cancelled requests and startup
+  failure.
+
+- Add thirteen in-memory original-file stream integration cases for exact bytes,
+  range headers/slices and 416, invalid-range fallback, missing files, rejected
+  options/authentication and client cancellation reaching the file-response
+  write.
+
+- Add seven in-memory playlist endpoint integration cases for ordered duplicate
+  entries, regular mutations, per-profile track state, smart favorite overrides,
+  similarity/count resolution and rejection of invalid or unauthenticated
+  writes.
+
+- Complete active-profile favorites/rating handling for compact full-track,
+  album-track and path-resolved lists. Explicit false favorites and zero ratings
+  now override legacy shared values consistently with paging and ID resolution.
+
+- Add in-memory integration checks for track paging, detail/ID resolution and
+  profile-scoped favorites through the production authentication pipeline. Paged
+  and ID-resolved tracks now apply the active profile's favorites and ratings
+  instead of returning only legacy shared values.
+
+- Extend tracked Windows UI smoke coverage with unified catalog retry and
+  configuration recovery: retained rows, duplicate suppression, stale navigation
+  and cache rejection, reentrant cancellation and fresh configuration loading.
+
+- Extend tracked Windows UI smoke coverage with eight remote album cache cases:
+  failed/full/empty recovery, timestamp invalidation, current favorites, corrupt
+  cache rebuilding, malformed payload preservation and artwork invalidation.
+
+- Extend tracked Windows UI smoke coverage with local album publication guards
+  and a populated search-to-remote-album-to-Back journey with colliding album
+  IDs. Back restores the original search selection and source without extra
+  history.
+
+- Extend tracked Windows UI smoke coverage with twelve remote album cases for
+  late metadata admission, captured fallback/source ownership, overlapping opens
+  and superseded overview/detail restoration.
+
+- Extend tracked Windows UI smoke coverage with ten search groups: late replies,
+  source failures and successful empty results, localized partial results, retry
+  recovery, cache invalidation and source-aware Back restoration.
+
+- Add a tracked Windows headless workflow suite for cached artist detail,
+  source-aware Back, late profile/image selection and guarded scroll restore.
+  Windows Debug/Release CI and local full verification run it in a separate
+  synthetic-data process with external profile/image transport blocked.
+
+- Back now captures and restores the outer artist-detail scroll position,
+  without borrowing a selection from an overlaid table. Deferred scrolling
+  rechecks detail identity and Back ownership; newly opened artist details start
+  at the top. Offline Back checks cover delayed profile/dialog/image completion
+  and retained source-aware selection.
+
+- Artist image rejection now stays attached to each running profile or artwork
+  operation. Later changes to another artist cannot revive an older image.
+  Observations are released on completion, without keeping mutation history.
+  Local metadata binds the resolved canonical name and manual synchronization
+  notifies exact local identities before writes. Artwork decoding permits atomic
+  cache replacement and old-format cleanup during concurrent reads.
+
+- Missing artist artwork synchronization now shares artist write admission
+  through current metadata reads, image capture and local/server writes. Recheck
+  donor availability and target image/manual state, retain current biography and
+  original server connections, and reject abandoned detail or superseded image
+  work. Later manual changes retain the final state.
+
+- Settings missing-artist-image acceptance now shares artist write ordering with
+  profile and manual image work. Recheck current image/artist/source state after
+  waiting and preserve images added during search or preview. Remote acceptance
+  uploads only to the owning server. Settings connection copies retain personal
+  profile and streaming preferences.
+
+- Remote artist context-menu image searches retain their original row binding
+  and server connection through selection and ordered upload/synchronization.
+  Abandoned selections and superseded completions no longer change unrelated
+  artwork or status.
+
+- Automatic artist-row profile downloads, database persistence and artwork
+  decoding now share write ordering with manual image changes. Waiting jobs
+  recheck their original row binding and current manual-image state.
+
+- Now Playing server profiles share ordered download/upload and cache work with
+  manual artist-image changes. Queued work refreshes authoritative manual-image
+  state, uses source-owned cache IDs and rechecks playback/source/image
+  ownership. Superseded cached images still allow current biography display
+  without writes. Forced biography refresh retains manual server artwork;
+  guarded cache staging preserves prior bytes when publication is abandoned.
+
+- Server artist-detail profile downloads and image-byte capture share write
+  ordering with manual image changes. Image policy is checked after waiting;
+  obsolete capture is rejected while retaining biography data. Waiting downloads
+  reject abandoned views, changed sources and cancellation before cache writes.
+  Server manual-image state is checked after admission; unavailable state
+  protects existing images. Server downloads use source-derived negative cache
+  identifiers so matching numeric IDs cannot replace positive local artist
+  files. Cache file names remain culture-independent.
+
+- Local foreground artist profiles order download, SQLite persistence and image
+  byte capture together with manual image changes. Download policy is checked
+  after waiting; later manual uploads/deletions finish last. Current biographies
+  still persist when a manual change supersedes the image.
+
+- Primary profile uploads from the server artist-detail view share write
+  ordering with manual image changes. Waiting uploads recheck view/source
+  ownership and discard obsolete image bytes while retaining current biography
+  updates. Later manual uploads or deletions finish after an already admitted
+  profile upload.
+
+- Automatic unified artist-profile synchronization shares write ordering with
+  manual artist-detail image changes. A later manual upload or deletion waits
+  through an admitted automatic file/SQLite/server batch and then writes last.
+  Waiting profile work rechecks its enclosing ownership before any writes and
+  retains the original destination set.
+
+- Automatic Wikipedia/Last.fm artist-image downloads use the shared serialized
+  cache writer. Complete streams are staged before replacement; cancelled,
+  failed or empty transfers preserve the existing image and clean temporary
+  files. Provider MIME and URL-extension fallback rules remain unchanged.
+
+- Artist-detail image search, upload and deletion order their complete manual
+  write batches per normalized artist within the window. Later changes wait
+  through earlier file, SQLite and server work; obsolete waiting actions perform
+  no writes. Queued work retains its original destination set.
+
+- Artist image cache saves and deletions serialize per artist and data directory
+  within the process. Unique staging files are cleaned after cancellation or
+  failed publication; cancelled waiters preserve the current image. The existing
+  deletion API remains compatible alongside asynchronous deletion.
+
+- Running local, server and Now Playing profiles retain separate ownership for
+  their images. Admitting a manual image change rejects older image/placeholder
+  publication, image status, retained-row refresh and profile-image
+  synchronization while still allowing the current biography and loading cleanup
+  to finish. Late cached server metadata preserves manually changed row images
+  and deletion state. Cancelled selections leave profile images admitted;
+  rejected decoded images are disposed.
+
+- Artist-detail image search uses the guarded manual-image flow for local,
+  server and Now Playing artists. Search retains its original query and target;
+  obsolete confirmations cannot upload or replace a newer image. Search and file
+  upload share action ownership. Direct uploads use copied owning-server
+  connections and retain current failure feedback; changed sources or views
+  reject subsequent synchronization/publication. Successful admitted uploads
+  invalidate catalogs even after navigation. Redundant unguarded detail-search
+  continuations and the separate Now Playing search flow were removed.
+
+- Artist-image upload selection and deletion retain their original displayed
+  artist, source, playback and navigation context. Outdated selections cannot
+  start synchronization; admitted data changes complete without overwriting a
+  replacement hero, row or status. Newer manual actions and profile admissions
+  reject older publication. Uploaded images decode off the UI thread, and
+  rejected decoded images are disposed. Local row reads and refreshes retain the
+  same guard; upload/deletion failures only affect their current view.
+
+- Manual artist-image upload and deletion synchronization captures its original
+  server set and copied connections before local work. Delayed lookups and
+  writes cannot start further mutations or delete list/artwork caches on changed
+  or removed sources. Cancellation is rechecked before local metadata writes and
+  between remote operations; shared catalog caches are invalidated even when
+  cancellation follows an admitted write. Already started changes are not rolled
+  back, and local biography metadata remains intact.
+
+- Server artist edits retain their original displayed row, connection and
+  navigation context across rename/merge dialogs and delayed responses. Changed
+  sources or abandoned views cannot admit new edits, reopen old details or
+  overwrite current status. Playback updates retain the original track/provider
+  and owning server instead of matching numeric artist IDs alone. Accepted
+  changes invalidate library caches and still synchronize local metadata after
+  navigation. Refreshing the renamed detail preserves its hero instead of
+  temporarily opening the server overview.
+
+- Local artist rename and merge flows retain their original detail across
+  database reads, dialogs, synchronization and profile refresh. Obsolete merge
+  choices cannot start a transaction, and delayed results cannot replace a newer
+  title, status, filter or playback artist. Empty filter/playback IDs no longer
+  count as matching merge targets. Accepted changes still synchronize and update
+  the search index after navigation; initial artist lookup runs off the UI
+  thread.
+
+- Artist rename synchronization retains the original configured server set and
+  copied connections. Changed or removed sources cannot receive subsequent
+  renames or merge requests after delayed responses, and newly added servers do
+  not enter an accepted rename. Already admitted changes still complete when the
+  artist view is closed; merge survivor choices remain explicit.
+
+- Artist profile refresh retains its original displayed artist, source and
+  playback identity while the lookup dialog is open. Confirmations after
+  navigation, a newer profile or source changes cannot refresh a different
+  artist. Refresh keeps the existing unified album strip and no longer reloads
+  an obsolete artist detail after completion. Opening the dialog does not
+  abandon a running profile load.
+
+- Now Playing remote artist profiles retain their enclosing view and copied
+  server connection inside the metadata provider. Delayed source responses
+  cannot start further profile downloads/uploads or overwrite the artist-image
+  cache after playback, view or connection changes. Current cached profiles and
+  the standard metadata-provider interface remain supported.
+
+- Artist-profile synchronization retains its enclosing request and original
+  server sources between reads, writes and cache cleanup. Superseded work stops
+  further synchronization; manually selected images remain protected. Automatic
+  artist profiles reject replaced row bindings, language/identity changes and
+  obsolete background work; old completion retains newer loading markers and
+  rejected decoded images are disposed.
+
+- Remote-library and Now Playing artist profiles reject delayed results after
+  navigation, source changes or a newer playback identity. Obsolete images,
+  errors and refresh completion cannot overwrite the current profile. Nested
+  album and track loading retains the enclosing profile publication guard.
+
+- Local artist profiles reject obsolete database, image and row-refresh results
+  after navigation, hidden views, newer artist details or Back replacement.
+  Decoded images are discarded when publication is abandoned; old errors and
+  completion cannot change the current profile status or refresh button. Profile
+  admission and top-level cancellation retain replacements started by
+  cancellation callbacks.
+
+- Global Back now restores the opened Plex detail after switching views,
+  including selection, scroll, playback metadata, existing parent views and
+  library paging. Sectionless playback-history details retain their origin.
+  Saved source and encrypted credentials are revalidated before publication;
+  rejected snapshots fall back to Tracks and obsolete credential lookups cannot
+  overwrite newer navigation.
+
+- Plex child Back rejects saved rows after source, connection, credential,
+  section or navigation changes. It returns to the global origin when available,
+  with Tracks as the fallback for a removed Plex origin. Deferred scroll work
+  also rejects a changed source.
+
+- Plex child Back now retains the exact selected row and scroll position before
+  loading. Deferred layout and cancellation callbacks cannot overwrite a newer
+  navigation action or consume its saved history.
+
+- Plex page, child and lazy-folder loads now retain copied source, section,
+  token and navigation ownership. Obsolete results cannot replace rows, trees,
+  status or playback metadata. Paging captures its offset and existing rows;
+  child Back states capture rows/title before loading. Independent Plex actions
+  abandon root loading/fades, and Back restores root paging availability.
+  Sectionless playback-history links retain their source and Back base.
+
+- Genre Cloud foreground loads now reject obsolete rows and playback metadata
+  after navigation, catalog/source changes and overlapping Back restores. Branch
+  and mode actions replace root loading and fades while reusing shared snapshot
+  work. Background images also retain foreground and mode ownership; discarded
+  decoded images are disposed.
+
+- Genre Cloud deferred layout and staggered button animations now reject
+  replaced bindings, abandoned Back restores, navigation and catalog changes.
+
+- Back restores now retain their own execution and deferred selection/scroll
+  ownership. An older completion cannot end a newer restore or change its Back
+  button. Independent navigation resumes history capture immediately; nested
+  restore loaders still avoid duplicate entries. Remote artist restoration also
+  rejects superseded overview and filtered-list loads.
+
+- Extracted Back restore route decisions into a tested UI-independent helper,
+  preserving source identity and incomplete-state fallback.
+
+- Logical album detail now owns artwork and track publication across navigation
+  and configuration changes. Source parts and artist scope are captured before
+  awaiting; obsolete responses cannot register playback metadata or update
+  tracks, headers, fades or Back. Artwork writes require current admission and
+  invalidate caches after successful writes even when later work is abandoned.
+  Own artwork invalidation permits the current detail to continue loading.
+
+- Local album workers now retain copied album IDs and artist scope. Navigation,
+  configuration changes and same-album replacement reject obsolete rows,
+  headers, rating-refresh admission, fades and Back-button publication, while
+  releasing the counted loading contribution exactly once.
+
+- Remote album metadata lookups now retain request/source ownership before
+  starting detail loads. Both open routes capture artist scope and fallback
+  metadata, reject conflicting row sources, and cancel abandoned lookups. Back
+  restores retain the exact overview token and metadata request so newer
+  same-tag navigation cannot reopen obsolete detail or restore its scroll.
+
+- Provider album track loads now capture their server, artist scope and album
+  IDs before awaiting. Superseded requests reject rows, playback registration
+  and fades, release their loading contribution once, and receive cancellation
+  when navigation or catalog configuration changes.
+
+- Top-level loading and deferred fades now retain request ownership. Superseded
+  navigation releases its counted loading scope exactly once and cannot replay a
+  fade over the new view. Remote and outer loaders share an idempotent lease;
+  views without a loading scope no longer decrement another load's count.
+- Nested loading scopes preserve the overlay render generation until the final
+  release, preventing an invisible active loading overlay.
+
+- Remote view loads now retain explicit request ownership. Navigation and
+  catalog configuration changes abandon earlier loads; late rows, track facets,
+  errors and loading cleanup cannot overwrite a newer local or same-tag server
+  view.
+
+- Remote Back navigation uses typed server targets. Invalid or removed source
+  tags cannot borrow the currently active server; album capture repairs sidebar
+  tags belonging to a different server. Restoration rechecks the owning source
+  after lookups and before deferred selection/scroll updates.
+
+- Back navigation capture now uses a window-independent typed decision helper.
+  It preserves search/cloud precedence, logical album parts, and local/server
+  identity even when album or artist IDs collide. The window still owns history,
+  selection, scroll restoration and view loading.
+
+- Shared catalog server requests now use the common source batch scheduler,
+  retaining concurrent admission of every configured server, ordered outcomes
+  and independent 20-second budgets. Regression tests compose scheduling with
+  catalog invalidation and complete-only cache ownership.
+
+- Shared catalog load ownership and the three-entry complete-result cache now
+  belong to a standalone coordinator. Source outcomes retain their configured
+  order; obsolete loads cannot publish or overwrite cache entries. Window-free
+  tests cover overlapping requests, invalidation, cancellation and recovery.
+
+- Playback session ownership now also guards initial/resume seeks and
+  pause/resume readiness. System, slider and remote seeks participate in
+  complete output release. Window-free composition tests cover held factories,
+  seeks, readiness, reentrant backend callbacks and unique late retirement.
+
+- Active playback output and cancellation now share one standalone session
+  owner. Stale factory/seek handoffs cannot replace newer output; gapless
+  retries retain their token. Failing cancellation callbacks cannot strand
+  output outside background cleanup. Window-free lifecycle tests cover these
+  transitions.
+
+- Playback shutdown admission and its shared drain task now belong to a
+  standalone coordinator with window-free tests. Reentrant shutdown requests
+  share the same outcome before queue cancellation or UI hooks begin.
+
+- Full output release now uses a standalone preparation/retirement drain with
+  window-free tests. Late factory results remain included after cancelled
+  preparation finishes; ordinary transitions retain their bounded wait.
+
+- Gapless queue refresh coordination now lives in a standalone helper with
+  injected playback adapters and window-free tests for joining, repeated edits,
+  supersession, failures, and recovery. Queue and player ownership stay intact.
+
+- Asynchronous player disposal is owned by a standalone retirement helper with
+  controllable-clock regression tests. Detached gapless players no longer retain
+  their window event subscription.
+- Shared smart playlists load selected catalogs and similarity features with
+  bounded asynchronous requests and cancellation. Partial results offer retry;
+  incomplete counts show an unavailable preview in all seven interface
+  languages.
+- Regular mixed playlists resolve local metadata in batches and remote IDs in
+  bounded asynchronous requests. Navigation cancels pending loads and rejects
+  stale rows and playback metadata.
+
 ### Fixed
+
+- Both Settings library-root cleanup paths now notify shared catalog caches
+  after indexed tracks were successfully removed. A cleanup that changes no rows
+  does not invalidate views. Library import preparation also clears catalog
+  snapshots and cancels pending shared loads, rejecting late pre-import results.
+
+- Background library watcher changes no longer cancel searches/playlists or
+  update their notices on a worker thread. Catalog snapshots invalidate
+  immediately; one coalesced dispatcher pass abandons only the captured request
+  versions, preserving searches and playlists started after the notification.
+
+- Saving changed Orynivo Server connections now invalidates shared catalog,
+  Dashboard, Genre Cloud and similarity snapshots before subsequent settings
+  work. Changes to server profile, streaming format or bitrate also count as
+  configuration changes, preventing reuse of rows with stale playback settings.
+
+- Shared catalog loads retain copied filter, favorite, artwork and
+  server/profile inputs throughout local background work and remote follow-up
+  requests. Settings or profile changes can no longer alter an already admitted
+  request's context.
+
+- A catalog reload triggered synchronously by cancelling an older reload keeps
+  its new request and cancellation ownership instead of being overwritten by the
+  interrupted caller.
+
+- A new playback start triggered synchronously by a cancellation or backend
+  pause/resume callback can no longer lose its transport/source state to the
+  older action. Obsolete slider seek failures no longer overwrite current
+  status, and superseded remote seeks cancel their acknowledgement.
+
+- The composite previous-feedback regression test no longer depends on shader
+  time budgets under host load. Keep its exact pixel assertions while testing
+  budget adaptation separately; production rendering budgets remain unchanged.
+
+- Mobile queue move/remove commands reject stale success and obsolete errors
+  after Clear, queue replacement, or shutdown during gapless preparation.
+  Ordinary playback changes preserve accepted edits.
+
+- Queue edits during a pending gapless start seek join the original preparation
+  instead of replacing its command. Reconcile changed snapshots after seek,
+  preserving resume position/pause and publishing only one history occurrence.
+
+- Gapless initial starts and queue replacements discard unpublished player
+  results whose ordered queue snapshot changed during creation. Retry within the
+  same start before readiness, retaining requested seek/pause and duplicates.
+
+- Concurrent queue edits share gapless preparation and rebuild again with the
+  latest queue before completion. Preserve duplicate entries, position and pause
+  state; obsolete preparation cannot restart a newer or stopped session.
+
+- Clear rejects pending queue-replacement and playlist-play lookup even while
+  ordinary output remains active. Append/Next and playlist append reject stale
+  acknowledgements after a destructive queue change during gapless preparation.
+
+- Clear rebuilds active gapless output with only the current track, retaining
+  position and pause state. Desktop, MCP and Mobile wait for preparation;
+  superseded MCP clears cancel instead of reporting success.
+
+- MCP and Mobile Remote append/next own resolution before lookup. Clear,
+  wholesale replacement and shutdown reject old entries and remote metadata.
+  Ordinary playback start/Stop preserves independent queue edits. MCP forwards
+  original references and reports unavailable resolution instead of success.
+
+- Gapless queue rebuilding completes after player preparation and preserves the
+  paused position before publication. Obsolete rebuild completion cannot pause a
+  newer player.
+
+- Radio metadata and cross-device resume responses reject obsolete playback
+  sessions, including restarts of the same station or remote track. Resume
+  lookup starts after current track metadata is assigned; Stop and gapless
+  transitions clear stale prompts. Resume seeks observe failures and full output
+  release waits for admitted seeks before reporting completion.
+
+- Radio and podcast actions complete after player preparation while later
+  playback errors remain observed. Obsolete preparation errors cannot stop a
+  replacement. A nonzero requested podcast position takes precedence over saved
+  episode progress, preserving explicit paused resume positions. Aborting a
+  pending resume no longer replaces saved progress with an unprepared position.
+
+- Infinite Mix rejects obsolete refill results after Stop, pause, replacement or
+  a newer mix. Late results cannot append tracks, register remote metadata or
+  clear a newer refill indicator. Full output release drains pending refills; an
+  initial mix start completes after player preparation.
+
+- MCP queue replacement and mobile playlist Play claim playback ownership before
+  asynchronous source resolution. A newer start or Stop rejects obsolete queue
+  changes and remote metadata registration; full output release includes pending
+  resolution. Replacement preserves duplicate entries and reports the actual
+  playable count; an entirely unresolved request retains the existing queue.
+
+- MCP single-track Play passes opaque remote references directly to the owning
+  playback preparation. Mobile single-track Play claims its start before local
+  or remote identity lookup. Newer starts and Stop cancel pending lookup;
+  obsolete results cannot register metadata or restart playback. Complete output
+  release also waits for pending mobile identity lookup.
+
+- Mobile Remote and MCP playback, queue replacement and skip commands complete
+  after player preparation instead of waiting for track completion. Abandoned
+  MCP starts are cancelled; unavailable mobile track starts return failure. The
+  UI bridge now awaits asynchronous actions and propagates their errors. The
+  remote smoke test uses the matching Avalonia headless runtime and covers HTTP
+  acknowledgement and asynchronous failure propagation.
+
+- Switching outputs or reacquiring a released output restores the saved position
+  and paused state as soon as the player is prepared. These actions no longer
+  wait for the track to finish. Superseded output selections and fade ramps
+  cannot change newer playback; failed reacquisition drains the player before
+  reporting a released device.
+
+- Complete output release waits for pending playback lookup, creation and
+  initial seek cleanup, then drains players returned after cancellation. Normal
+  window close keeps the dispatcher alive until this drain finishes. Update
+  installation and library import await the same drain before exiting. Transport
+  stop disposes players in the background. Obsolete release completion cannot
+  overwrite a newer playback request.
+- Overlapping playback starts reject obsolete lookup, creation and seek results.
+  Late players are retired, backend fallbacks retain the original cancellation
+  token, and obsolete failures cannot stop a newer player.
+- Complete output-device release also waits for older player disposals still
+  running after a timed-out track transition, including when no active player
+  remains. Ordinary transitions retain their two-second wait limit.
+- Remote similarity smart-playlist references now resolve correctly when server
+  track IDs overlap with local or other server IDs. Runtime identity projection
+  preserves stored criteria, source filters, and personal favorites.
+- Unresolved playlist entries remain visible with localized non-playable
+  placeholders and a removal action. Failed sources offer **Try again** while
+  usable rows, selected entry, and scroll position remain available. Playing a
+  duplicate track starts its selected playlist occurrence.
 
 ## [0.46.1] - 2026-10-10
 

@@ -16,10 +16,11 @@ public partial class MainWindow
                 p.Id, p.Name, p.IsSmartPlaylist ? null : p.TrackCount, p.IsSmartPlaylist)).ToArray();
         }, ct);
 
-    /// <summary>Resolves the desktop playlist on a worker without mutating UI-owned metadata dictionaries.</summary>
+    /// <summary>Resolves the desktop playlist asynchronously without mutating UI-owned metadata dictionaries.</summary>
     private async Task<IReadOnlyList<MobileRemoteTrack>> BrowseMobileRemotePlaylistTracksAsync(long id, CancellationToken ct)
     {
-        var rows = await Task.Run(() => QueryRows($"Playlist:{id.ToString(CultureInfo.InvariantCulture)}", registerRemoteMetadata: false), ct);
+        var result = await LoadStoredPlaylistAsync(id, ct);
+        var rows = result.Rows;
         return rows.Where(r => r.Id.HasValue).Select(r => new MobileRemoteTrack(
             r.OrynivoServer is { } server
                 ? $"server:{Uri.EscapeDataString(server.Id)}:{r.Id}"
@@ -29,11 +30,27 @@ public partial class MainWindow
             r.OrynivoServer?.Name ?? Localization.LocalizationManager.Current.LocalSource)).ToArray();
     }
 
-    /// <summary>Registers resolved playlist metadata on the UI thread and uses the shared queue lifecycle.</summary>
+    /// <summary>Owns playlist-play resolution before registering metadata or replacing the queue.</summary>
+    /// <param name="id">The stored playlist identifier.</param>
+    /// <param name="action">Play replaces the queue; append preserves independent queue semantics.</param>
+    /// <returns>Whether current playable rows were accepted.</returns>
     private async Task<bool> QueueMobileRemotePlaylistAsync(long id, string action)
     {
         if (id <= 0 || action is not ("play" or "append")) return false;
-        var rows = await Task.Run(() => QueryRows($"Playlist:{id.ToString(CultureInfo.InvariantCulture)}", registerRemoteMetadata: false));
+        if (_playbackShuttingDown) return false;
+        if (action == "play") _queueEdits.Invalidate();
+        var edit = _queueEdits.Capture();
+        var generation = _unifiedLibraryLoads.Generation;
+        var intent = action == "play" ? _playbackStarts.Begin() : _playbackStarts.Current;
+        if (action == "play") _playbackPreparations.CancelAll();
+        using var preparation = action == "play" ? _playbackPreparations.Begin() : null;
+        using var lookupCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation?.Token ?? CancellationToken.None, edit.Token);
+        LibraryLoadResult<ContentRow> result;
+        try { result = await LoadStoredPlaylistAsync(id, lookupCancellation.Token); }
+        catch (Exception) when (!_queueEdits.IsCurrent(edit.Version) || (action == "play" && !_playbackStarts.IsCurrent(intent))) { return false; }
+        if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version) || generation != _unifiedLibraryLoads.Generation ||
+            (action == "play" && !_playbackStarts.IsCurrent(intent))) return false;
+        var rows = result.Rows;
         var playable = rows.Where(r => r.Id.HasValue && !string.IsNullOrEmpty(r.FilePath)).ToList();
         if (playable.Count == 0) return false;
         foreach (var row in playable)
@@ -41,7 +58,12 @@ public partial class MainWindow
         if (action == "play")
         {
             if (_mcpBridge.ReplaceQueueFunc is null) return false;
-            await _mcpBridge.ReplaceQueueFunc(playable.Select(r => r.FilePath!).ToArray());
+            preparation!.Dispose();
+            var replacing = _mcpBridge.ReplaceQueueFunc(playable.Select(r => r.FilePath!).ToArray());
+            var replacementIntent = _playbackStarts.Current;
+            try { return await replacing > 0; }
+            catch (OperationCanceledException) { return false; }
+            catch (Exception) when (!_playbackStarts.IsCurrent(replacementIntent)) { return false; }
         }
         else
         {
@@ -50,7 +72,9 @@ public partial class MainWindow
             PersistPlaybackQueue();
             RefreshQueueRowsIfVisible();
             RefreshQueueNavigationButtons();
-            await RefreshActiveGaplessQueueAsync();
+            try { await RefreshActiveGaplessQueueAsync(); }
+            catch (Exception) when (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version)) { return false; }
+            if (_playbackShuttingDown || !_queueEdits.IsCurrent(edit.Version)) return false;
         }
         return true;
     }
@@ -234,11 +258,13 @@ public partial class MainWindow
             .ToList();
     }
 
-    /// <summary>Resolves an opaque mobile result and applies a bounded playback or queue action.</summary>
-    /// <param name="identity">Opaque local or server track identity.</param>
-    /// <param name="action">One of <c>play</c>, <c>next</c>, or <c>append</c>.</param>
-    /// <returns><see langword="true"/> when the identity and action were accepted.</returns>
-    private async Task<bool> QueueMobileRemoteTrackAsync(string identity, string action)
+    /// <summary>Resolves an opaque mobile identity without publishing obsolete remote metadata.</summary>
+    /// <param name="identity">The opaque local or server identity.</param>
+    /// <param name="isCurrent">Dispatcher-owned publication guard.</param>
+    /// <param name="cancellationToken">The owning preparation token.</param>
+    /// <returns>The current playable path, or null when unavailable or superseded.</returns>
+    private async Task<string?> ResolveMobilePlaybackPathAsync(
+        string identity, Func<bool> isCurrent, CancellationToken cancellationToken)
     {
         string? path = null;
         if (identity.StartsWith("local:", StringComparison.Ordinal) &&
@@ -248,7 +274,7 @@ public partial class MainWindow
             {
                 using var db = AudioDatabase.OpenDefault();
                 return db.GetTrackById(localId)?.Path;
-            });
+            }, cancellationToken);
         }
         else if (identity.StartsWith("server:", StringComparison.Ordinal))
         {
@@ -257,28 +283,61 @@ public partial class MainWindow
                 long.TryParse(identity[(separator + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var trackId))
             {
                 var serverId = Uri.UnescapeDataString(identity[7..separator]);
-                path = await ResolveRemoteMcpTrackAsync(
-                    $"orynivo://{Uri.EscapeDataString(serverId)}/track/{trackId.ToString(CultureInfo.InvariantCulture)}");
+                path = await ResolveRemoteMcpTrackForPlaybackAsync(
+                    $"orynivo://{Uri.EscapeDataString(serverId)}/track/{trackId.ToString(CultureInfo.InvariantCulture)}", isCurrent, cancellationToken);
             }
         }
 
+        return isCurrent() ? path : null;
+    }
+
+    /// <summary>Resolves an opaque mobile result and applies a bounded playback or queue action.</summary>
+    /// <param name="identity">Opaque local or server track identity.</param>
+    /// <param name="action">One of <c>play</c>, <c>next</c>, or <c>append</c>.</param>
+    /// <returns><see langword="true"/> when the identity and action were accepted.</returns>
+    private async Task<bool> QueueMobileRemoteTrackAsync(string identity, string action)
+    {
+        var requestedAction = action.Trim().ToLowerInvariant();
+        if (requestedAction == "play")
+        {
+            if (_playbackShuttingDown) return false;
+            var intent = _playbackStarts.Begin();
+            _playbackPreparations.CancelAll();
+            using var preparation = _playbackPreparations.Begin();
+            string? resolved;
+            try
+            {
+                resolved = await ResolveMobilePlaybackPathAsync(identity,
+                    () => _playbackStarts.IsCurrent(intent), preparation.Token);
+            }
+            catch (Exception) when (!_playbackStarts.IsCurrent(intent)) { return false; }
+            if (!_playbackStarts.IsCurrent(intent) || string.IsNullOrWhiteSpace(resolved))
+                return false;
+            preparation.Dispose();
+            var player = await StartReadyPlaybackAsync(resolved);
+            return player is not null && ReferenceEquals(_player, player);
+        }
+        if (_playbackShuttingDown || requestedAction is not ("next" or "append")) return false;
+        var edit = _queueEdits.Capture();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version);
+        string? path;
+        try { path = await ResolveMobilePlaybackPathAsync(identity, IsCurrent, edit.Token); }
+        catch (Exception) when (!IsCurrent()) { return false; }
+        if (!IsCurrent()) return false;
         if (string.IsNullOrWhiteSpace(path))
             return false;
-        switch (action.Trim().ToLowerInvariant())
+        switch (requestedAction)
         {
-            case "play":
-                await StartPlaybackAsync(path);
-                return true;
             case "next":
                 if (_mcpBridge.PlayNextFunc is null)
                     return false;
-                await _mcpBridge.PlayNextFunc(path);
-                return true;
+                try { return await _mcpBridge.PlayNextFunc(path) is not null; }
+                catch (Exception) when (!IsCurrent()) { return false; }
             case "append":
                 if (_mcpBridge.AppendToQueueFunc is null)
                     return false;
-                await _mcpBridge.AppendToQueueFunc(path);
-                return true;
+                try { return await _mcpBridge.AppendToQueueFunc(path) is not null; }
+                catch (Exception) when (!IsCurrent()) { return false; }
             default:
                 return false;
         }
@@ -287,26 +346,32 @@ public partial class MainWindow
     /// <summary>Moves, removes, or clears queue entries through the same state-maintenance path as the desktop.</summary>
     /// <param name="action">One of <c>remove</c>, <c>up</c>, <c>down</c>, or <c>clear</c>.</param>
     /// <param name="index">Target queue index for item actions.</param>
-    /// <returns><see langword="true"/> when the requested edit was valid.</returns>
+    /// <returns><see langword="true"/> after preparation for an accepted edit; destructive supersession or shutdown returns false.</returns>
     private async Task<bool> EditMobileRemoteQueueAsync(string action, int? index)
     {
+        if (_playbackShuttingDown) return false;
+        var edit = _queueEdits.Capture();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version);
         action = action.Trim().ToLowerInvariant();
         if (action == "clear")
         {
-            ClearPlaybackQueue();
+            try { await ClearPlaybackQueueAsync(); }
+            catch (OperationCanceledException) { return false; }
             return true;
         }
         if (index is not int target || target < 0 || target >= _queue.Count)
             return false;
         if (action == "up" && target > 0)
         {
-            await MoveQueueItemAsync(target, target - 1);
-            return true;
+            try { await MoveQueueItemAsync(target, target - 1); }
+            catch (Exception) when (!IsCurrent()) { return false; }
+            return IsCurrent();
         }
         if (action == "down" && target + 1 < _queue.Count)
         {
-            await MoveQueueItemAsync(target, target + 1);
-            return true;
+            try { await MoveQueueItemAsync(target, target + 1); }
+            catch (Exception) when (!IsCurrent()) { return false; }
+            return IsCurrent();
         }
         if (action != "remove")
             return false;
@@ -321,7 +386,8 @@ public partial class MainWindow
         PersistPlaybackQueue();
         RefreshQueueRowsIfVisible();
         RefreshQueueNavigationButtons();
-        await RefreshActiveGaplessQueueAsync();
-        return true;
+        try { await RefreshActiveGaplessQueueAsync(); }
+        catch (Exception) when (!IsCurrent()) { return false; }
+        return IsCurrent();
     }
 }

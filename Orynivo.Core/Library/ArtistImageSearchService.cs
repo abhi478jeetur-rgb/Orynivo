@@ -138,8 +138,8 @@ public static class ArtistImageSearchService
         => await SaveImageAsync(artistId, result.ImageData, result.MimeType, cancellationToken);
 
     /// <summary>
-    /// Writes raw image bytes to the artist-images directory, replacing any existing image for
-    /// <paramref name="artistId"/>, and returns the saved file path.
+    /// Exclusively replaces cached image variants for the artist through a unique staging file.
+    /// Cancellation before publication preserves the previous image; failed staging is cleaned up.
     /// </summary>
     /// <param name="artistId">Database artist ID used as the file name stem.</param>
     /// <param name="imageData">Raw image bytes to store.</param>
@@ -155,39 +155,76 @@ public static class ArtistImageSearchService
         if (imageData.Length == 0)
             throw new ArgumentException("Image data is required.", nameof(imageData));
 
+        using var source = new MemoryStream(imageData, writable: false);
+        return await SaveImageStreamAsync(artistId, source, mimeType, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Stages a caller-owned image stream under exclusive artist-cache mutation ownership.</summary>
+    /// <param name="artistId">Artist or temporary cache identifier used as the invariant numeric file-name stem.</param>
+    /// <param name="source">Readable image stream, left open for its owner.</param>
+    /// <param name="mimeType">MIME type used to select the cached extension.</param>
+    /// <param name="cancellationToken">Cancellation before publication, including staging copy.</param>
+    /// <returns>The published cache path after complete, nonempty staging.</returns>
+    internal static async Task<string> SaveImageStreamAsync(long artistId, Stream source, string? mimeType,
+        CancellationToken cancellationToken)
+    {
         var extension = mimeType?.ToLowerInvariant() switch
         {
             "image/png" => ".png",
             "image/webp" => ".webp",
             _ => ".jpg"
         };
-        var directory = AppPaths.GetDataPath("artist-images");
+        var directory = Path.GetFullPath(AppPaths.GetDataPath("artist-images"));
+        var artistStem = artistId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        using var mutation = await ArtistImageMutationGate.EnterAsync(
+            Path.Combine(directory, artistStem), cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
         Directory.CreateDirectory(directory);
-        var targetPath = Path.Combine(directory, artistId + extension);
-        var temporaryPath = targetPath + ".tmp";
-
-        await File.WriteAllBytesAsync(temporaryPath, imageData, cancellationToken);
-        File.Move(temporaryPath, targetPath, true);
-
-        foreach (var existingPath in Directory.EnumerateFiles(directory, artistId + ".*"))
+        var targetPath = Path.Combine(directory, artistStem + extension);
+        var temporaryPath = targetPath + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            if (!string.Equals(existingPath, targetPath, StringComparison.OrdinalIgnoreCase))
-                File.Delete(existingPath);
+            await using (var output = new FileStream(temporaryPath, FileMode.CreateNew, FileAccess.Write,
+                FileShare.None, bufferSize: 81920, useAsync: true))
+            {
+                await source.CopyToAsync(output, cancellationToken).ConfigureAwait(false);
+                if (output.Length == 0) throw new InvalidDataException("Image stream is empty.");
+            }
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(temporaryPath, targetPath, true);
+            foreach (var existingPath in Directory.EnumerateFiles(directory, artistStem + ".*"))
+            {
+                if (!string.Equals(existingPath, targetPath, StringComparison.OrdinalIgnoreCase))
+                    File.Delete(existingPath);
+            }
+            return targetPath;
         }
-
-        return targetPath;
+        finally
+        {
+            if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+        }
     }
 
-    /// <summary>Deletes every cached image variant belonging to an artist.</summary>
-    /// <param name="artistId">Database artist ID used as the cached file-name stem.</param>
+    /// <summary>Deletes cached artist variants through the shared mutation gate; use asynchronously on UI callers.</summary>
+    /// <param name="artistId">Artist or temporary cache identifier used as the invariant numeric cached file-name stem.</param>
     public static void DeleteImage(long artistId)
-    {
-        var directory = AppPaths.GetDataPath("artist-images");
-        if (!Directory.Exists(directory))
-            return;
+        => DeleteImageAsync(artistId).GetAwaiter().GetResult();
 
-        foreach (var path in Directory.EnumerateFiles(directory, artistId + ".*"))
-            File.Delete(path);
+    /// <summary>Deletes cached image variants after exclusive same-artist mutation admission.</summary>
+    /// <param name="artistId">Artist or temporary cache identifier used as the invariant numeric cached file-name stem.</param>
+    /// <param name="cancellationToken">Cancellation before deletion admission.</param>
+    /// <returns>A task completing serialized variant deletion.</returns>
+    public static async Task DeleteImageAsync(long artistId, CancellationToken cancellationToken = default)
+    {
+        var directory = Path.GetFullPath(AppPaths.GetDataPath("artist-images"));
+        var artistStem = artistId.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        using var mutation = await ArtistImageMutationGate.EnterAsync(
+            Path.Combine(directory, artistStem), cancellationToken)
+            .ConfigureAwait(false);
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!Directory.Exists(directory)) return;
+        foreach (var path in Directory.EnumerateFiles(directory, artistStem + ".*")) File.Delete(path);
     }
 
     private static string CleanTitle(string? title)

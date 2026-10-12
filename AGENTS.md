@@ -31,6 +31,9 @@ deferred until the user asks for them separately.
 
 The closest `AGENTS.md` applies in addition to this repository-wide file:
 
+- `scripts/CatalogBench/AGENTS.md` — opt-in synthetic catalog measurements.
+- `Orynivo.Ui.Smoke/AGENTS.md` — isolated Windows headless workflow checks and
+  their CI/local verification contracts.
 - `Orynivo/AGENTS.md` — Avalonia UI, navigation, playback, Dashboard, remote
   library integration, localization, and Windows-specific behavior.
 - `Orynivo.Core/AGENTS.md` — cross-platform library, database, scanning, search,
@@ -113,6 +116,9 @@ and move those entries into a dated version section when preparing a release.
 - `CHANGELOG.md`: shipped changes and notable pending changes.
 - `docs/PROJECT-REFERENCE.md`: library, database, audio, UI, server, and build
   contracts, with repository-relative source paths.
+- `docs/WORKFLOW-TEST-COVERAGE.md`: automated workflow evidence and scope.
+- `docs/FIRST-PLAYBACK-ACCEPTANCE.md`: first-run software and hardware
+  acceptance.
 - `docs/VISUALIZER-CONTRACTS.md`: detailed Core and desktop rendering contracts.
 - `docs/VISUALIZER-STATUS.md`: current rendering paths, evidence, and limits.
 - `DEPENDENCY-MIGRATION.md`: dependency policy and deliberate migration steps.

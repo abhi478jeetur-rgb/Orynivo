@@ -392,35 +392,75 @@ public partial class MainWindow : Window
                 ? row.Artist
                 : null;
 
-    private async Task OpenOrynivoArtistImageSearchAsync(
-        OrynivoServerSettings server,
-        long artistId,
-        ContentRow row)
-    {
-        var dialog = new ArtistImageSearchWindow(
-            row.Title ?? string.Empty,
-            _settings.FanartTvApiKey);
-        if (await dialog.ShowDialog<bool>(this) == false || dialog.SelectedResult is not { } selected)
-            return;
+    /// <summary>Runs a remote artist-row image search with retained source and binding ownership.</summary>
+    /// <param name="server">Original owning server connection.</param>
+    /// <param name="artistId">Source-local artist identifier.</param>
+    /// <param name="row">Original bound artist row.</param>
+    /// <returns>A task completing selection, ordered persistence and current publication.</returns>
+    private Task OpenOrynivoArtistImageSearchAsync(
+        OrynivoServerSettings server, long artistId, ContentRow row) =>
+        OpenOrynivoArtistImageSelectionAsync(server, artistId, row, async () =>
+        {
+            var dialog = new ArtistImageSearchWindow(row.Title ?? string.Empty, _settings.FanartTvApiKey);
+            return await dialog.ShowDialog<bool>(this) && dialog.SelectedResult is { } selected
+                ? (selected.ImageData, selected.MimeType) : null;
+        });
 
-        var uploaded = await _orynivoClient.UploadArtistImageAsync(
-            server,
-            artistId,
-            selected.ImageData,
-            selected.MimeType);
+    /// <summary>Orders a selected context-menu artist image and rejects obsolete UI publication.</summary>
+    /// <param name="server">Original owning server connection.</param>
+    /// <param name="artistId">Source-local artist identifier.</param>
+    /// <param name="row">Original bound row.</param>
+    /// <param name="select">Dialog adapter returning accepted image bytes and MIME type.</param>
+    /// <returns>A task completing the admitted image batch or its abandonment.</returns>
+    private async Task OpenOrynivoArtistImageSelectionAsync(OrynivoServerSettings server,
+        long artistId, ContentRow row, Func<Task<(byte[] Data, string? MimeType)?>> select)
+    {
+        var sourceGuard = CreateArtistProfileSourceGuard(server);
+        var connection = new OrynivoServerSettings
+        {
+            Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+            ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+            StreamingFormat = server.StreamingFormat, StreamingBitrateKbps = server.StreamingBitrateKbps
+        };
+        var artistName = row.Title;
+        var externalId = row.ExternalId;
+        var rowId = row.Id;
+        var rowServerId = row.OrynivoServer?.Id;
+        var tag = _currentTopLevelTag;
+        var tableSource = ContentDataGrid.IsVisible ? ContentDataGrid.ItemsSource : null;
+        var artworkSource = ArtistArtworkListBox.IsVisible ? ArtistArtworkListBox.ItemsSource : null;
+        var action = _artistImageActions.Begin(CancellationToken.None);
+        bool CanPublish() => _artistImageActions.IsCurrent(action) && sourceGuard() &&
+            !SettingsViewHost.IsVisible && _currentTopLevelTag == tag && row.Title == artistName && row.ExternalId == externalId &&
+            row.Id == rowId && row.OrynivoServer?.Id == rowServerId &&
+            ((tableSource is not null && ContentDataGrid.IsVisible && ReferenceEquals(ContentDataGrid.ItemsSource, tableSource)) ||
+             (artworkSource is not null && ArtistArtworkListBox.IsVisible && ReferenceEquals(ArtistArtworkListBox.ItemsSource, artworkSource)));
+        if (!CanPublish() || await select() is not { } selected || !CanPublish()) return;
+        AdmitArtistImageWrite(connection.Id, artistId, artistName ?? string.Empty);
+        var sources = CaptureManualArtistImageSources();
+        var uploaded = false;
+        await _artistImageWriteQueue.RunAsync(ArtistNameNormalizer.CreateComparisonKey(artistName),
+            CanPublish, async () =>
+            {
+                uploaded = await _orynivoClient.UploadArtistImageAsync(connection, artistId,
+                    selected.Data, selected.MimeType);
+                if (!uploaded) return false;
+                if (sourceGuard()) DeleteOrynivoArtistListCache(connection);
+                InvalidateUnifiedLibraryViewCache();
+                if (!CanPublish()) return true;
+                await SynchronizeUnifiedArtistImageCoreAsync(artistName, selected.Data,
+                    selected.MimeType, sources, CancellationToken.None);
+                return true;
+            });
+        if (!CanPublish()) return;
         if (!uploaded)
         {
             StatusTextBlock.Text = LocalizationManager.Current.OrynivoConnectionFailed;
             return;
         }
-
-        EnsureOrynivoArtistArtworkPaths(server, artistId, row);
-        ApplyRemoteArtwork(row, selected.ImageData);
-        DeleteOrynivoArtistListCache(server);
-        await SynchronizeUnifiedArtistImageAsync(
-            row.Title,
-            selected.ImageData,
-            selected.MimeType);
+        EnsureOrynivoArtistArtworkPaths(connection, artistId, row);
+        ApplyRemoteArtwork(row, selected.Data);
+        row.ImageIsManual = true;
         StatusTextBlock.Text = string.Empty;
     }
 
@@ -442,16 +482,19 @@ public partial class MainWindow : Window
     /// <param name="server">Server that owns the artist.</param>
     /// <param name="row">Row to update.</param>
     /// <param name="artist">Server artist profile response.</param>
+    /// <param name="includeImage">Whether image metadata still belongs to this profile request.</param>
     private static void ApplyOrynivoArtistProfile(
         OrynivoServerSettings server,
         ContentRow row,
-        OrynivoArtistInfo artist)
+        OrynivoArtistInfo artist,
+        bool includeImage = true)
     {
         row.ArtistId = artist.Id;
         row.Biography = artist.Biography;
         row.SourceUrl = artist.SourceUrl;
         row.ProfileLanguage = artist.ProfileLanguage;
         row.ProfileFetchedAt = artist.ProfileFetchedAt;
+        if (!includeImage) return;
         row.ImageIsManual = artist.ImageIsManual;
         if (artist.HasImage)
         {
@@ -489,71 +532,117 @@ public partial class MainWindow : Window
     /// <summary>
     /// Stores a manually selected artist image for every matching local and Orynivo Server
     /// identity so a unified artist never shows different artwork depending on its source.
-    /// Unreachable servers are skipped and will not prevent the selected image from being used.
+    /// Captured connections are revalidated before later writes; changed or unreachable sources are skipped.
     /// </summary>
     /// <param name="artistName">Artist display name used for normalized identity matching.</param>
     /// <param name="imageData">Selected image bytes.</param>
     /// <param name="mimeType">Image MIME type.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>A task representing the synchronization.</returns>
-    private async Task SynchronizeUnifiedArtistImageAsync(
+    private Task SynchronizeUnifiedArtistImageAsync(
         string? artistName,
         byte[] imageData,
         string? mimeType,
         CancellationToken cancellationToken = default)
+        => SynchronizeUnifiedArtistImageCoreAsync(artistName, imageData, mimeType,
+            CaptureManualArtistImageSources(), cancellationToken);
+
+    /// <summary>Captures manual-image destinations before local work or ordered admission waits.</summary>
+    /// <returns>In-memory copied connections and guards excluding subsequently added sources.</returns>
+    private (OrynivoServerSettings Server, Func<bool> IsCurrent)[] CaptureManualArtistImageSources()
+        => (_settings.OrynivoServers ?? []).Select(server => (
+            Server: new OrynivoServerSettings
+            {
+                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+                StreamingFormat = server.StreamingFormat, StreamingBitrateKbps = server.StreamingBitrateKbps
+            },
+            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
+
+    /// <summary>Stores images using captured sources and notifies exact local image identities before mutation.</summary>
+    /// <param name="artistName">Artist name used for normalized matching.</param>
+    /// <param name="imageData">Selected image bytes.</param>
+    /// <param name="mimeType">Image MIME type.</param>
+    /// <param name="sources">Copied connections and original configuration ownership guards.</param>
+    /// <param name="cancellationToken">Cancellation between operations.</param>
+    /// <returns>A task completing the manual image batch.</returns>
+    private async Task SynchronizeUnifiedArtistImageCoreAsync(string? artistName, byte[] imageData,
+        string? mimeType, (OrynivoServerSettings Server, Func<bool> IsCurrent)[] sources,
+        CancellationToken cancellationToken)
     {
         var comparisonKey = ArtistNameNormalizer.CreateComparisonKey(artistName);
         if (comparisonKey.Length == 0)
             return;
 
-        var localArtists = await Task.Run(() =>
+        cancellationToken.ThrowIfCancellationRequested();
+
+        try
         {
-            using var db = AudioDatabase.OpenDefault();
-            return db.GetArtistsLite()
-                .Where(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist) == comparisonKey)
-                .ToList();
-        }, cancellationToken);
-        foreach (var artist in localArtists)
-        {
-            var imagePath = await ArtistImageSearchService.SaveImageAsync(
-                artist.Id,
-                imageData,
-                mimeType,
-                cancellationToken);
-            await Task.Run(() =>
+            var localArtists = await Task.Run(() =>
             {
                 using var db = AudioDatabase.OpenDefault();
-                db.UpdateArtistImage(artist.Id, imagePath);
+                cancellationToken.ThrowIfCancellationRequested();
+                return db.GetArtistsLite()
+                    .Where(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist) == comparisonKey)
+                    .ToList();
             }, cancellationToken);
-        }
-
-        foreach (var server in _settings.OrynivoServers)
-        {
-            try
+            foreach (var artist in localArtists)
             {
-                var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
-                foreach (var artist in artists.Where(candidate =>
-                             ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
+                cancellationToken.ThrowIfCancellationRequested();
+                AdmitArtistImageWrite(null, artist.Id, artist.Artist);
+                var imagePath = await ArtistImageSearchService.SaveImageAsync(
+                    artist.Id,
+                    imageData,
+                    mimeType,
+                    cancellationToken);
+                await Task.Run(() =>
                 {
-                    await _orynivoClient.UploadArtistImageAsync(
-                        server,
-                        artist.Id,
-                        imageData,
-                        mimeType,
-                        cancellationToken);
+                    using var db = AudioDatabase.OpenDefault();
+                    cancellationToken.ThrowIfCancellationRequested();
+                    db.UpdateArtistImage(artist.Id, imagePath);
+                }, cancellationToken);
+            }
+
+            foreach (var source in sources)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!source.IsCurrent()) continue;
+                var server = source.Server;
+                try
+                {
+                    var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (!source.IsCurrent()) continue;
+                    foreach (var artist in artists.Where(candidate =>
+                                 ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        if (!source.IsCurrent()) break;
+                        await _orynivoClient.UploadArtistImageAsync(
+                            server,
+                            artist.Id,
+                            imageData,
+                            mimeType,
+                            cancellationToken);
+                    }
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (source.IsCurrent()) DeleteOrynivoArtistListCache(server);
                 }
-                DeleteOrynivoArtistListCache(server);
-            }
-            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch
-            {
-                // The image remains available in every reachable matching library.
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    throw;
+                }
+                catch
+                {
+                    // The image remains available in every reachable matching library.
+                }
             }
         }
-        InvalidateUnifiedLibraryViewCache();
+        finally
+        {
+            // Admitted writes may complete before cancellation; never retain stale catalog snapshots.
+            InvalidateUnifiedLibraryViewCache();
+        }
     }
 
     /// <summary>
@@ -568,6 +657,7 @@ public partial class MainWindow : Window
     /// <param name="imageData">Optional downloaded image bytes.</param>
     /// <param name="imageMimeType">Optional image MIME type.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="canPublish">Optional enclosing profile ownership guard.</param>
     /// <returns>A task representing the synchronization.</returns>
     private async Task SynchronizeUnifiedArtistProfileAsync(
         string? artistName,
@@ -576,12 +666,48 @@ public partial class MainWindow : Window
         string language,
         byte[]? imageData,
         string? imageMimeType,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<bool>? canPublish = null)
     {
+        bool IsCurrent() => !cancellationToken.IsCancellationRequested && (canPublish?.Invoke() ?? true);
+        if (!IsCurrent()) return;
+        var servers = (_settings.OrynivoServers ?? []).Select(server => (
+            Server: new OrynivoServerSettings
+            {
+                Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl,
+                ApiKey = server.ApiKey, ProfileId = server.ProfileId,
+                StreamingFormat = server.StreamingFormat,
+                StreamingBitrateKbps = server.StreamingBitrateKbps
+            },
+            IsCurrent: CreateArtistProfileSourceGuard(server))).ToArray();
         var comparisonKey = ArtistNameNormalizer.CreateComparisonKey(artistName);
         if (comparisonKey.Length == 0)
             return;
 
+        await _artistImageWriteQueue.RunAsync(comparisonKey, IsCurrent, async () =>
+        {
+            await SynchronizeUnifiedArtistProfileCoreAsync(biography, sourceUrl, language,
+                imageData, imageMimeType, cancellationToken, comparisonKey, servers, IsCurrent);
+            return true;
+        });
+    }
+
+    /// <summary>Completes admitted automatic profile writes before a later manual batch may write.</summary>
+    /// <param name="biography">Downloaded biography.</param>
+    /// <param name="sourceUrl">Biography source URL.</param>
+    /// <param name="language">Profile language.</param>
+    /// <param name="imageData">Optional downloaded image bytes.</param>
+    /// <param name="imageMimeType">Optional image MIME type.</param>
+    /// <param name="cancellationToken">Cancellation between operations.</param>
+    /// <param name="comparisonKey">Captured normalized artist identity.</param>
+    /// <param name="servers">Original copied source connections and ownership guards.</param>
+    /// <param name="isCurrent">Enclosing profile/image ownership checked between operations.</param>
+    /// <returns>A task completing the admitted synchronization batch.</returns>
+    private async Task SynchronizeUnifiedArtistProfileCoreAsync(string? biography, string? sourceUrl,
+        string language, byte[]? imageData, string? imageMimeType, CancellationToken cancellationToken,
+        string comparisonKey, (OrynivoServerSettings Server, Func<bool> IsCurrent)[] servers,
+        Func<bool> isCurrent)
+    {
         var localArtists = await Task.Run(() =>
         {
             using var db = AudioDatabase.OpenDefault();
@@ -589,8 +715,10 @@ public partial class MainWindow : Window
                 .Where(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist) == comparisonKey)
                 .ToList();
         }, cancellationToken);
+        if (!isCurrent()) return;
         foreach (var artist in localArtists)
         {
+            if (!isCurrent()) return;
             string? imagePath = null;
             if (imageData is { Length: > 0 } && !artist.ImageIsManual)
             {
@@ -599,22 +727,32 @@ public partial class MainWindow : Window
                     imageData,
                     imageMimeType,
                     cancellationToken);
+                if (!isCurrent()) return;
             }
             await Task.Run(() =>
             {
                 using var db = AudioDatabase.OpenDefault();
+                cancellationToken.ThrowIfCancellationRequested();
                 db.UpdateArtistProfile(artist.Id, biography, imagePath, sourceUrl, language);
             }, cancellationToken);
+            if (!isCurrent()) return;
         }
 
-        foreach (var server in _settings.OrynivoServers)
+        foreach (var source in servers)
         {
+            if (!isCurrent()) return;
+            if (!source.IsCurrent()) continue;
+            var server = source.Server;
             try
             {
                 var artists = await _orynivoClient.GetArtistsAsync(server, cancellationToken);
+                if (!isCurrent()) return;
+                if (!source.IsCurrent()) continue;
                 foreach (var artist in artists.Where(candidate =>
                              ArtistNameNormalizer.CreateComparisonKey(candidate.Name) == comparisonKey))
                 {
+                    if (!isCurrent()) return;
+                    if (!source.IsCurrent()) break;
                     var synchronizedImageData = artist.ImageIsManual ? null : imageData;
                     await _orynivoClient.UpdateArtistProfileAsync(
                         server,
@@ -625,8 +763,9 @@ public partial class MainWindow : Window
                         synchronizedImageData,
                         synchronizedImageData is null ? null : imageMimeType,
                         cancellationToken);
+                    if (!isCurrent()) return;
                 }
-                DeleteOrynivoArtistListCache(server);
+                if (source.IsCurrent()) DeleteOrynivoArtistListCache(server);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -637,7 +776,7 @@ public partial class MainWindow : Window
                 // Profile synchronization is best-effort for temporarily unavailable servers.
             }
         }
-        InvalidateUnifiedLibraryViewCache();
+        if (isCurrent()) InvalidateUnifiedLibraryViewCache();
     }
 
     private async Task ReloadAlbumRowsAsync(

@@ -245,7 +245,41 @@ public partial class MainWindow : Window
     // Einstellungen
     // ------------------------------------------------------------------
 
-    /// <summary>Opens embedded Settings after abandoning pending library search work.</summary>
+    /// <summary>Removes indexed rows outside copied roots off the dispatcher and invalidates only after a successful mutation.</summary>
+    /// <param name="paths">Current configured roots, copied before worker admission.</param>
+    /// <returns>The number of removed rows, or zero when cleanup fails or changes nothing.</returns>
+    private Task<int> CleanupLibraryRootsAsync(IReadOnlyCollection<string> paths)
+    {
+        var capturedPaths = paths.ToArray();
+        return Task.Run(() =>
+        {
+            try
+            {
+                var removed = LibraryScanner.RemoveTracksOutsideRoots(capturedPaths);
+                if (removed > 0)
+                    OnWatchedLibraryChanged();
+                return removed;
+            }
+            catch (Exception ex)
+            {
+                CrashLogger.Log(ex, "Library root cleanup");
+                return 0;
+            }
+        });
+    }
+
+    /// <summary>Copies configured roots and reveals the library when its first local source is added.</summary>
+    /// <param name="paths">New local roots; later caller edits must not change configured state.</param>
+    /// <returns>The copied, non-null configured roots.</returns>
+    private List<string> SetConfiguredLibraryPaths(IReadOnlyCollection<string> paths)
+    {
+        if ((_settings.LibraryPaths?.Count ?? 0) == 0 && paths.Count > 0)
+            _settings.IsLocalLibrarySectionExpanded = true;
+        _settings.LibraryPaths = paths.ToList();
+        return _settings.LibraryPaths;
+    }
+
+    /// <summary>Opens embedded Settings with shared artist write ownership after abandoning pending navigation work.</summary>
     /// <param name="sender">Settings action source.</param>
     /// <param name="e">Button activation event.</param>
     private void SettingsButton_OnClick(object? sender, RoutedEventArgs e)
@@ -253,18 +287,17 @@ public partial class MainWindow : Window
         if (SettingsViewHost.IsVisible)
             return;
 
+        _navigationRestores.Invalidate();
+        CancelProviderAlbumLoad();
+        CancelTopLevelViewLoad();
+        CancelRemoteViewLoad();
         CancelLibrarySearch();
         var view = new SettingsView(_settings, paths =>
         {
-            _settings.LibraryPaths = paths;
+            var configuredPaths = SetConfiguredLibraryPaths(paths);
             _settingsStore.Save(_settings);
-            _libraryWatcher?.UpdatePaths(paths);
-            var cleanupPaths = paths.ToList();
-            _ = Task.Run(() =>
-            {
-                try { LibraryScanner.RemoveTracksOutsideRoots(cleanupPaths); }
-                catch (Exception ex) { CrashLogger.Log(ex, "Library root cleanup"); }
-            });
+            _libraryWatcher?.UpdatePaths(configuredPaths);
+            _ = CleanupLibraryRootsAsync(configuredPaths);
             // Show/hide the Local section and the empty-library hint immediately
             // when directories are added or removed while Settings is open.
             ApplySidebarNavigationSettings();
@@ -289,6 +322,8 @@ public partial class MainWindow : Window
             _settings.LastFmSessionKey = string.Empty;
             _settings.LastFmUsername = string.Empty;
         });
+        view.ArtistImageWriter = new MissingArtistImageWriter(_artistImageWriteQueue, AdmitArtistImageWrite);
+        view.ArtistImagesChanged += InvalidateUnifiedLibraryViewCache;
         var completionHandled = false;
         view.RunScheduledBackup = async force =>
         {
@@ -354,9 +389,7 @@ public partial class MainWindow : Window
         ApplyServerProfileContext();
         _settingsStore.Save(_settings);
         StopInfiniteMix();
-        InvalidateDashboardCatalogCache();
-        InvalidateGenreCloudViewCache();
-        InvalidateUnifiedLibraryViewCache();
+        InvalidateCatalogConfiguration();
         if (!string.IsNullOrWhiteSpace(_currentTopLevelTag))
             await ShowTopLevelViewAsync(_currentTopLevelTag);
     }
@@ -442,6 +475,18 @@ public partial class MainWindow : Window
         SettingsViewHost.Content = null;
         SettingsViewHost.IsVisible = false;
     }
+
+    /// <summary>Opens library setup through the shared embedded settings path.</summary>
+    /// <param name="sender">The empty-library setup button.</param>
+    /// <param name="e">The button activation event.</param>
+    private void LibrarySetupButton_OnClick(object? sender, RoutedEventArgs e) =>
+        OpenSettingsAt("Library");
+
+    /// <summary>Opens server setup through the shared embedded settings path.</summary>
+    /// <param name="sender">The empty-library server setup button.</param>
+    /// <param name="e">The button activation event.</param>
+    private void LibraryServerSetupButton_OnClick(object? sender, RoutedEventArgs e) =>
+        OpenSettingsAt("OrynivoServers");
 
     private void OpenSettingsAt(string sectionTag, bool scrollToEqualizer = false)
     {
@@ -554,6 +599,9 @@ public partial class MainWindow : Window
     /// <returns>A task representing the asynchronous device switch.</returns>
     private async Task SelectOutputProfileAsync(OutputProfile profile)
     {
+        if (_playbackShuttingDown)
+            return;
+        var selectionVersion = ++_outputProfileSelectionVersion;
         if (string.Equals(profile.Name, _settings.SelectedOutputProfileName, StringComparison.Ordinal)) return;
 
         var outputChanged =
@@ -570,8 +618,15 @@ public partial class MainWindow : Window
         var wasPaused      = outputChanged && _player?.IsPaused == true;
         var shouldResume   = outputChanged && _player is not null && !string.IsNullOrEmpty(resumePath);
 
-        if (outputChanged && _player is not null)
-            await StopPlaybackAsync();
+        if (outputChanged)
+        {
+            var stopped = StopPlaybackAsync();
+            var stoppedIntent = _playbackStarts.Current;
+            await stopped;
+            if (_playbackShuttingDown || selectionVersion != _outputProfileSelectionVersion ||
+                !_playbackStarts.IsCurrent(stoppedIntent))
+                return;
+        }
 
         _settings.SelectedOutputProfileName  = profile.Name;
         _settings.OutputBackend              = profile.Backend;
@@ -586,12 +641,10 @@ public partial class MainWindow : Window
 
         if (!shouldResume)
             return;
-        try
-        {
-            await StartPlaybackAsync(resumePath, resumeStation, resumePodcast, resumePosition);
-            if (wasPaused)
-                PausePlayback();
-        }
+        var ready = StartReadyPlaybackAsync(resumePath, resumeStation, resumePodcast, resumePosition, wasPaused);
+        var resumeIntent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(resumeIntent)) { }
         catch (OperationCanceledException)
         {
             StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;
@@ -603,6 +656,9 @@ public partial class MainWindow : Window
         }
     }
 
+    /// <summary>Opens existing output Settings from the transport or empty-library setup.</summary>
+    /// <param name="sender">The output Settings action.</param>
+    /// <param name="e">The button activation event.</param>
     private void OutputPickerSettingsButton_OnClick(object? sender, RoutedEventArgs e)
     {
         OutputPickerPopup.IsOpen = false;
@@ -624,7 +680,11 @@ public partial class MainWindow : Window
             _releasedOutputPodcastPlayback = _currentPodcastPlayback;
             _releasedOutputPosition = player.Position;
             _releasedOutputWasPaused = player.IsPaused;
-            await StopPlaybackAsync(waitForCompleteDisposal: true);
+            var release = StopPlaybackAsync(waitForCompleteDisposal: true);
+            var releaseIntent = _playbackStarts.Current;
+            await release;
+            if (_playbackShuttingDown || !_playbackStarts.IsCurrent(releaseIntent))
+                return;
             _audioDeviceExplicitlyReleased = true;
             UpdateOutputDeviceLockButton();
             StatusTextBlock.Text = LocalizationManager.Current.OutputDeviceReleased;
@@ -639,23 +699,26 @@ public partial class MainWindow : Window
         var podcast = _releasedOutputPodcastPlayback;
         var position = _releasedOutputPosition;
         var wasPaused = _releasedOutputWasPaused;
-        try
-        {
-            await StartPlaybackAsync(path, station, podcast, position);
-            if (wasPaused)
-                PausePlayback();
-        }
-        catch (OperationCanceledException)
-        {
-            _audioDeviceExplicitlyReleased = true;
-            UpdateOutputDeviceLockButton();
-            StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;
-        }
+        var ready = StartReadyPlaybackAsync(path, station, podcast, position, wasPaused);
+        var resumeIntent = _playbackStarts.Current;
+        try { await ready; }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(resumeIntent)) { }
         catch (Exception ex)
         {
+            var stopped = StopPlaybackAsync(waitForCompleteDisposal: true);
+            var stoppedIntent = _playbackStarts.Current;
+            await stopped;
+            if (_playbackShuttingDown || !_playbackStarts.IsCurrent(stoppedIntent))
+                return;
+            _releasedOutputPath = path;
+            _releasedOutputRadioStation = station;
+            _releasedOutputPodcastPlayback = podcast;
+            _releasedOutputPosition = position;
+            _releasedOutputWasPaused = wasPaused;
             _audioDeviceExplicitlyReleased = true;
             UpdateOutputDeviceLockButton();
-            StatusTextBlock.Text = ex.Message;
+            StatusTextBlock.Text = ex is OperationCanceledException
+                ? LocalizationManager.Current.PlaybackStopped : ex.Message;
         }
     }
 
@@ -759,7 +822,7 @@ public partial class MainWindow : Window
             var plexServersChanged = !PlexServerSettingsEqual(
                 _settings.PlexServers,
                 window.SelectedPlexServers);
-            var orynivoServersChanged = !OrynivoServerSettingsEqual(
+            var orynivoServersChanged = !LibraryCatalogConfiguration.MatchesServers(
                 _settings.OrynivoServers,
                 window.SelectedOrynivoServers);
             var libraryPathsChanged = !(_settings.LibraryPaths ?? []).SequenceEqual(window.SelectedLibraryPaths);
@@ -812,24 +875,11 @@ public partial class MainWindow : Window
             _settings.EqualizerProfile      = window.SelectedEqualizerProfile;
             _settings.EqualizerProfiles     = window.SelectedEqualizerProfiles.ToList();
             _settings.SelectedEqualizerProfileName = window.SelectedEqualizerProfileName;
-            _settings.LibraryPaths           = window.SelectedLibraryPaths.ToList();
+            var configuredLibraryPaths = SetConfiguredLibraryPaths(window.SelectedLibraryPaths);
             _libraryWatcher?.UpdateReplayGainAnalysis(_settings.CalculateMissingReplayGainDuringScan);
-            _libraryWatcher?.UpdatePaths(_settings.LibraryPaths);
+            _libraryWatcher?.UpdatePaths(configuredLibraryPaths);
             if (libraryPathsChanged)
-            {
-                var cleanupPaths = _settings.LibraryPaths.ToList();
-                _ = Task.Run(() =>
-                {
-                    try
-                    {
-                        LibraryScanner.RemoveTracksOutsideRoots(cleanupPaths);
-                    }
-                    catch (Exception ex)
-                    {
-                        CrashLogger.Log(ex, "Library root cleanup");
-                    }
-                });
-            }
+                _ = CleanupLibraryRootsAsync(configuredLibraryPaths);
             _settings.Theme                  = window.SelectedTheme;
             _settings.Language               = window.SelectedLanguage;
             _settings.GenreCloudBackground   = window.SelectedGenreCloudBackground;
@@ -845,6 +895,8 @@ public partial class MainWindow : Window
             _settings.QobuzApplicationId      = window.SelectedQobuzApplicationId;
             _settings.PlexServers             = window.SelectedPlexServers.ToList();
             _settings.OrynivoServers          = window.SelectedOrynivoServers.ToList();
+            if (orynivoServersChanged)
+                InvalidateCatalogConfiguration();
             if (!hadOrynivoServers && _settings.OrynivoServers.Count > 0)
                 _settings.IsLocalLibrarySectionExpanded = true;
             _settings.McpServerEnabled        = window.McpServerEnabled;
@@ -938,6 +990,7 @@ public partial class MainWindow : Window
                 LocalizationManager.Apply(_settings.Language);
                 UpdateUnifiedLibraryLoadNotice();
                 RefreshLibrarySearchPresentation();
+                RefreshPlaylistPlaceholderText();
                 // Recreate dynamic navigation entries so headers such as the
                 // local Playlists group use the newly selected language.
                 LoadNavPlaylists();

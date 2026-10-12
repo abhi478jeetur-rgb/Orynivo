@@ -39,12 +39,22 @@ internal partial class SettingsView : UserControl
     }
 
 
+    /// <summary>A missing-image identity with its original source ownership.</summary>
+    /// <param name="ArtistId">Source-local artist identifier.</param>
+    /// <param name="ArtistName">Original artist name.</param>
+    /// <param name="MusicBrainzArtistId">Optional provider lookup identifier.</param>
+    /// <param name="SourceName">Source display label.</param>
+    /// <param name="Server">Copied remote connection, or null for local artists.</param>
+    /// <param name="IsSourceCurrent">Original source configuration guard.</param>
     private sealed record MissingArtistImageTarget(
-        long ArtistId,
-        string ArtistName,
-        string? MusicBrainzArtistId,
-        string SourceName,
-        OrynivoServerSettings? Server);
+        long ArtistId, string ArtistName, string? MusicBrainzArtistId,
+        string SourceName, OrynivoServerSettings? Server, Func<bool> IsSourceCurrent);
+
+    /// <summary>Gets or sets ordered persistence shared with the owning window.</summary>
+    internal MissingArtistImageWriter ArtistImageWriter { get; set; } = new(new ArtistImageWriteQueue());
+
+    /// <summary>Raised after an admitted artist image mutation invalidates catalog snapshots.</summary>
+    internal event Action? ArtistImagesChanged;
 
     private sealed record OrynivoServerScanAction(
         OrynivoServerSettings Server,
@@ -63,7 +73,8 @@ internal partial class SettingsView : UserControl
     private readonly List<PlexServerSettings> _plexServers = [];
     private readonly Dictionary<string, string> _plexTokens = [];
     private readonly List<OrynivoServerSettings> _orynivoServers = [];
-    private readonly Dictionary<string, CancellationTokenSource> _activeScans = [];
+    /// <summary>Owns active directory scans through completion, including cancellation after removal.</summary>
+    private readonly Dictionary<string, CancellationTokenSource> _activeScans = new(StringComparer.OrdinalIgnoreCase);
     private readonly Action<List<string>>? _onLibraryPathsChanged;
     private readonly Action<bool, EqualizerProfile?>? _onEqualizerPreviewChanged;
     private readonly Func<Task<string?>>? _onLastFmBeginAuthorization;
@@ -86,10 +97,14 @@ internal partial class SettingsView : UserControl
     private bool _profileSelectionUpdating;
 
     /// <summary>
-    /// Occurs after a manual local-library scan has added, updated, or removed
+    /// Occurs after a local-library scan has added, updated, or removed
     /// indexed tracks so catalog consumers can invalidate their session caches.
     /// </summary>
     internal event Action? LocalLibraryChanged;
+
+    /// <summary>Runs ordinary directory scans; isolated workflow checks may replace the transport.</summary>
+    internal Func<string, IProgress<ScanProgress>?, bool, CancellationToken, Task<ScanResult>> DirectoryScanner { get; set; }
+        = LibraryScanner.ScanAsync;
 
     /// <summary>Raised when the user asks to review and resolve duplicate files.</summary>
     internal event Action? DuplicateResolutionRequested;
@@ -834,12 +849,18 @@ internal partial class SettingsView : UserControl
         BaseUrl = server.BaseUrl
     };
 
+    /// <summary>Copies the complete in-memory server connection and streaming preferences.</summary>
+    /// <param name="server">Original server configuration.</param>
+    /// <returns>An independent connection retaining profile and streaming identity.</returns>
     private static OrynivoServerSettings CloneOrynivoServer(OrynivoServerSettings server) => new()
     {
         Id = server.Id,
         Name = server.Name,
         BaseUrl = server.BaseUrl,
-        ApiKey = server.ApiKey
+        ApiKey = server.ApiKey,
+        ProfileId = server.ProfileId,
+        StreamingFormat = server.StreamingFormat,
+        StreamingBitrateKbps = server.StreamingBitrateKbps
     };
 
     private static OutputProfile CloneOutputProfile(OutputProfile profile) => new()
@@ -2625,6 +2646,9 @@ internal partial class SettingsView : UserControl
     // Bibliothek
     // ------------------------------------------------------------------
 
+    /// <summary>Accepts a picker result and starts its initial scan through the existing row controls.</summary>
+    /// <param name="sender">Add-directory button.</param>
+    /// <param name="e">Click event.</param>
     private async void AddDirectoryButton_OnClick(object? sender, RoutedEventArgs e)
     {
         var topLevel = TopLevel.GetTopLevel(this)!;
@@ -2636,11 +2660,22 @@ internal partial class SettingsView : UserControl
         if (folders.Count == 0)
             return;
         var path = folders[0].TryGetLocalPath() ?? string.Empty;
-        if (string.IsNullOrEmpty(path) || _libraryPaths.Contains(path, StringComparer.OrdinalIgnoreCase))
-            return;
+        await AddLibraryDirectoryAsync(path);
+    }
+
+    /// <summary>Adds a directory and awaits its initial scan without rebuilding active rows.</summary>
+    /// <param name="path">Selected local directory path.</param>
+    /// <returns>Whether a new directory was admitted, regardless of scan outcome.</returns>
+    internal async Task<bool> AddLibraryDirectoryAsync(string path)
+    {
+        if (_metadataDeactivated || string.IsNullOrWhiteSpace(path) ||
+            _libraryPaths.Contains(path, StringComparer.OrdinalIgnoreCase) || _activeScans.ContainsKey(path))
+            return false;
         _libraryPaths.Add(path);
-        RebuildDirectoryList();
+        DirectoriesPanel.Children.Add(BuildDirectoryRow(path, out var startScan));
         _onLibraryPathsChanged?.Invoke(_libraryPaths.ToList());
+        await startScan();
+        return true;
     }
 
     private void RebuildDirectoryList()
@@ -2667,7 +2702,16 @@ internal partial class SettingsView : UserControl
         }
     }
 
-    private Control BuildDirectoryRow(string path)
+    /// <summary>Builds an existing directory row without starting a scan.</summary>
+    /// <param name="path">Configured directory.</param>
+    /// <returns>The directory controls.</returns>
+    private Control BuildDirectoryRow(string path) => BuildDirectoryRow(path, out _);
+
+    /// <summary>Builds row controls and exposes their existing ordinary scan action.</summary>
+    /// <param name="path">Configured directory.</param>
+    /// <param name="startScan">Initial scan sharing progress, cancellation and completion handling.</param>
+    /// <returns>The directory controls.</returns>
+    private Control BuildDirectoryRow(string path, out Func<Task> startScan)
     {
         var outer = new StackPanel { Margin = new Thickness(0, 0, 0, 4) };
 
@@ -2762,7 +2806,7 @@ internal partial class SettingsView : UserControl
                         progress,
                         CalculateMissingReplayGainDuringScan,
                         cts.Token)
-                    : await LibraryScanner.ScanAsync(
+                    : await DirectoryScanner(
                         path,
                         progress,
                         CalculateMissingReplayGainDuringScan,
@@ -2797,6 +2841,8 @@ internal partial class SettingsView : UserControl
             }
         }
 
+        startScan = () => RunScanAsync(forceMetadataRefresh: false, scanBtn, refreshMetadataBtn);
+
         scanBtn.Click += async (_, _) =>
             await RunScanAsync(forceMetadataRefresh: false, scanBtn, refreshMetadataBtn);
         refreshMetadataBtn.Click += async (_, _) =>
@@ -2807,11 +2853,9 @@ internal partial class SettingsView : UserControl
             if (_activeScans.TryGetValue(path, out var cts))
             {
                 cts.Cancel();
-                _activeScans.Remove(path);
-                UpdateBackupButtonAvailability();
             }
             _libraryPaths.Remove(path);
-            RebuildDirectoryList();
+            DirectoriesPanel.Children.Remove(outer);
             _onLibraryPathsChanged?.Invoke(_libraryPaths.ToList());
         };
 
@@ -2973,6 +3017,9 @@ internal partial class SettingsView : UserControl
         }
     }
 
+    /// <summary>Reviews missing-image candidates and persists accepted eligible targets in artist write order.</summary>
+    /// <param name="sender">Download or cancellation action source.</param>
+    /// <param name="e">Button activation event.</param>
     private async void DownloadMissingArtistImagesButton_OnClick(object? sender, RoutedEventArgs e)
     {
         if (_missingArtistImagesCts is not null)
@@ -3009,23 +3056,25 @@ internal partial class SettingsView : UserControl
                         artist.Artist,
                         artist.MusicBrainzArtistId,
                         LocalizationManager.Current.LocalSource,
-                        null))
+                        null, () => true))
                     .ToList();
             }, cancellation.Token);
 
             using var serverClient = new OrynivoServerClient();
-            foreach (var server in _orynivoServers)
+            foreach (var original in _orynivoServers.ToArray())
             {
                 cancellation.Token.ThrowIfCancellationRequested();
+                var server = CloneOrynivoServer(original);
+                bool IsCurrent() => _orynivoServers.Any(candidate => ReferenceEquals(candidate, original) &&
+                    candidate.Id == server.Id && candidate.Name == server.Name &&
+                    candidate.BaseUrl == server.BaseUrl && candidate.ApiKey == server.ApiKey &&
+                    candidate.ProfileId == server.ProfileId);
                 var remoteArtists = await serverClient.GetArtistsAsync(server, cancellation.Token);
+                if (!IsCurrent()) continue;
                 artists.AddRange(remoteArtists
                     .Where(artist => !artist.HasImage && !artist.ImageIsManual)
                     .Select(artist => new MissingArtistImageTarget(
-                        artist.Id,
-                        artist.Name,
-                        null,
-                        server.Name,
-                        server)));
+                        artist.Id, artist.Name, null, server.Name, server, IsCurrent)));
             }
 
             for (var index = 0; index < artists.Count; index++)
@@ -3139,33 +3188,21 @@ internal partial class SettingsView : UserControl
                     }
                 }
 
-                if (artist.Server is null)
-                {
-                    var imagePath = await ArtistImageSearchService.SaveImageAsync(
-                        artist.ArtistId,
-                        imageData,
-                        mimeType,
-                        cancellation.Token);
-                    await Task.Run(() =>
-                        {
-                            using var db = AudioDatabase.OpenDefault();
-                            db.UpdateArtistImage(artist.ArtistId, imagePath);
-                        },
-                        cancellation.Token);
-                }
-                else if (!await serverClient.UploadArtistImageAsync(
-                             artist.Server,
-                             artist.ArtistId,
-                             imageData,
-                             mimeType,
-                             cancellation.Token))
+                var stored = await ArtistImageWriter.StoreAsync(artist.ArtistId, artist.ArtistName,
+                    artist.Server, imageData, mimeType, serverClient, cancellation.Token,
+                    () => ReferenceEquals(_missingArtistImagesCts, cancellation) && artist.IsSourceCurrent(),
+                    () =>
+                    {
+                        if (artist.Server is not null && artist.IsSourceCurrent())
+                            MainWindow.DeleteOrynivoArtistListCache(artist.Server);
+                        ArtistImagesChanged?.Invoke();
+                    });
+                cancellation.Token.ThrowIfCancellationRequested();
+                if (stored is null) continue;
+                if (stored == false)
                 {
                     failed++;
                     continue;
-                }
-                else
-                {
-                    MainWindow.DeleteOrynivoArtistListCache(artist.Server);
                 }
                 downloaded++;
             }
@@ -3469,7 +3506,12 @@ internal partial class SettingsView : UserControl
                 LocalizationManager.Current.LibraryImported,
                 LocalizationManager.Current.ImportLibrary,
                 GetHostWindow());
-            (AvaloniaApp.Current?.ApplicationLifetime as IClassicDesktopStyleApplicationLifetime)?.Shutdown();
+            if (AvaloniaApp.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+            {
+                if (desktop.MainWindow is MainWindow playbackWindow)
+                    await playbackWindow.PreparePlaybackShutdownAsync();
+                desktop.Shutdown();
+            }
         }
         catch (Exception ex)
         {

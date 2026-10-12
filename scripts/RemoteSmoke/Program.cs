@@ -16,6 +16,7 @@ using Orynivo;
 using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(45));
 var fixtureDirectory = Path.Combine(Path.GetTempPath(), "orynivo-remote-smoke-" + Guid.NewGuid().ToString("N"));
 Directory.CreateDirectory(fixtureDirectory);
+File.WriteAllText(Path.Combine(fixtureDirectory, ".legacy-data-migrated"), "isolated fixture");
 Environment.SetEnvironmentVariable("ORYNIVO_DATA_DIR", fixtureDirectory);
 AppBuilder.Configure<Application>().UseHeadless(new AvaloniaHeadlessPlatformOptions()).SetupWithoutStarting();
 var dispatcher = Dispatcher.UIThread;
@@ -26,8 +27,11 @@ var run = Task.Run(async () =>
     reserve.Start(); var port = ((IPEndPoint)reserve.LocalEndpoint).Port; reserve.Stop();
     var token = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
     var lastAction = "";
+    var commandEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+    var commandReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
     var bridge = new McpPlayerBridge
     {
+        TogglePauseFunc = async () => { commandEntered.SetResult(); await commandReady.Task; },
         GetStateFunc = () => new PlayerState("playing", "Fixture track", "Fixture artist", "Fixture album",
             "private-path-must-not-escape", 1, 120, .25, 0, 1),
         GetQueueFunc = () => [new QueueEntry(0, true, "secret-path", "Fixture track")],
@@ -51,6 +55,88 @@ var run = Task.Run(async () =>
             Check(denied.StatusCode == HttpStatusCode.Unauthorized, "unauthenticated request");
         }
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        var command = client.PostAsJsonAsync("/remote/api/command", new { command = "pause-resume" });
+        await commandEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(!command.IsCompleted, "command waits for asynchronous preparation");
+        commandReady.SetResult();
+        using var commandResult = await command;
+        Check(commandResult.StatusCode == HttpStatusCode.NoContent, "prepared command acknowledgement");
+        await bridge.OnUiAsync(() =>
+        {
+            bridge.TogglePauseFunc = async () =>
+            {
+                await Task.Yield();
+                throw new InvalidOperationException("Synthetic command failure");
+            };
+        });
+        using var failedCommand = await client.PostAsJsonAsync("/remote/api/command", new { command = "pause-resume" });
+        Check(failedCommand.StatusCode == HttpStatusCode.InternalServerError, "async command failure is not acknowledged as success");
+        var playbackEntered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var playbackReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var legacyLookups = 0;
+        await bridge.OnUiAsync(() =>
+        {
+            bridge.ResolveRemoteTrackFunc = _ =>
+            {
+                legacyLookups++;
+                throw new InvalidOperationException("Play must resolve inside its playback owner");
+            };
+            bridge.PlayFileFunc = async path => { playbackEntered.SetResult(path); await playbackReady.Task; };
+        });
+        const string opaqueReference = "orynivo://fixture/track/70001";
+        var toolPlay = new McpTools(bridge).PlayAsync(opaqueReference);
+        Check(await playbackEntered.Task.WaitAsync(TimeSpan.FromSeconds(10)) == opaqueReference,
+            "MCP playback receives opaque identity before resolution");
+        Check(!toolPlay.IsCompleted && legacyLookups == 0, "MCP lookup bypassed owning playback preparation");
+        playbackReady.SetResult();
+        Check((await toolPlay).Contains(opaqueReference), "MCP confirmation retains opaque identity");
+        var replacementEntered = new TaskCompletionSource<IReadOnlyList<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var replacementReady = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
+        await bridge.OnUiAsync(() =>
+        {
+            bridge.ReplaceQueueFunc = async paths => { replacementEntered.SetResult(paths); return await replacementReady.Task; };
+        });
+        var queuePaths = new[] { opaqueReference, "synthetic-local.flac", "orynivo://missing/track/1" };
+        var replacementTool = new McpTools(bridge).ReplaceQueueAsync(queuePaths);
+        Check((await replacementEntered.Task.WaitAsync(TimeSpan.FromSeconds(10))).SequenceEqual(queuePaths),
+            "MCP queue resolver receives original ordered references");
+        Check(!replacementTool.IsCompleted && legacyLookups == 0, "MCP replacement resolves outside command owner");
+        replacementReady.SetResult(2);
+        Check((await replacementTool).Contains("2 track(s); 1 could not be resolved"), "queue counts use owning resolution result");
+        foreach (var next in new[] { false, true })
+        {
+            var editEntered = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+            var editReady = new TaskCompletionSource<string?>(TaskCreationOptions.RunContinuationsAsynchronously);
+            await bridge.OnUiAsync(() =>
+            {
+                if (next) bridge.PlayNextFunc = async path => { editEntered.SetResult(path); return await editReady.Task; };
+                else bridge.AppendToQueueFunc = async path => { editEntered.SetResult(path); return await editReady.Task; };
+            });
+            var tools = new McpTools(bridge);
+            var edit = next ? tools.QueuePlayNextAsync(opaqueReference) : tools.QueueAppendAsync(opaqueReference);
+            Check(await editEntered.Task.WaitAsync(TimeSpan.FromSeconds(10)) == opaqueReference && legacyLookups == 0 && !edit.IsCompleted,
+                "MCP independent queue edit resolves original identity inside owner");
+            editReady.SetResult("fixture.flac");
+            Check((await edit).Contains(opaqueReference), "edit confirmation retains opaque identity");
+            await bridge.OnUiAsync(() =>
+            {
+                if (next) bridge.PlayNextFunc = _ => Task.FromResult<string?>(null);
+                else bridge.AppendToQueueFunc = _ => Task.FromResult<string?>(null);
+            });
+            var missing = next ? await tools.QueuePlayNextAsync(opaqueReference) : await tools.QueueAppendAsync(opaqueReference);
+            Check(missing.Contains("Could not resolve"), "unresolved independent edit reported success");
+        }
+        var clearEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var clearReady = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        await bridge.OnUiAsync(() => bridge.ClearQueueFunc = async () => { clearEntered.SetResult(); await clearReady.Task; });
+        var clearTool = new McpTools(bridge).ClearQueueAsync();
+        await clearEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        Check(!clearTool.IsCompleted, "MCP Clear acknowledged before gapless preparation");
+        clearReady.SetResult();
+        Check((await clearTool).Contains("cleared"), "MCP Clear confirmation missing");
+        await bridge.OnUiAsync(() => bridge.ClearQueueFunc = () => Task.FromException(new OperationCanceledException()));
+        try { await new McpTools(bridge).ClearQueueAsync(); throw new Exception("Cancelled Clear reported success"); }
+        catch (OperationCanceledException) { }
         var snapshot = await client.GetStringAsync("/remote/api/state");
         Check(!snapshot.Contains("private-path") && !snapshot.Contains("secret-path") && !snapshot.Contains(token), "safe state DTO");
         Check(snapshot.Contains("\"title\":\"Fixture track\""), "camelCase state");
@@ -81,7 +167,7 @@ var run = Task.Run(async () =>
         settings.MobileRemoteAccessToken = "synthetic-rotated-token";
         store.Save(settings);
         Check(store.Load().MobileRemoteAccessToken == "synthetic-rotated-token", "encrypted token round trip");
-        Console.WriteLine("PASS: production host authentication, embedded resources, safe DTOs, playlist routes/actions, body limit, PNG QR generation, encrypted token migration and rotation.");
+        Console.WriteLine("PASS: production host authentication, embedded resources, safe DTOs, playlist routes/actions, asynchronous command completion/failure, body limit, PNG QR generation, encrypted token migration and rotation.");
     }
     finally { await host.StopAsync(); stop.Cancel(); }
 });

@@ -123,17 +123,17 @@ public sealed class McpPlayerBridge
     /// <summary>Gets or sets an action that sets the player volume to a value between 0.0 and 1.0.</summary>
     public Action<double>? SetVolumeFunc { get; set; }
 
-    /// <summary>Gets or sets an action that appends the given path to the end of the playback queue.</summary>
-    public Func<string, Task>? AppendToQueueFunc { get; set; }
+    /// <summary>Gets or sets an owning resolver that appends the original reference and returns its resolved path.</summary>
+    public Func<string, Task<string?>>? AppendToQueueFunc { get; set; }
 
-    /// <summary>Gets or sets an action that inserts the given path as the next queue entry after the current one.</summary>
-    public Func<string, Task>? PlayNextFunc { get; set; }
+    /// <summary>Gets or sets an owning resolver that inserts the original reference next and returns its resolved path.</summary>
+    public Func<string, Task<string?>>? PlayNextFunc { get; set; }
 
-    /// <summary>Gets or sets an action that clears all items from the playback queue without stopping the current track.</summary>
-    public Action? ClearQueueFunc { get; set; }
+    /// <summary>Gets or sets an asynchronous action that clears the queue and prepares current-track-only gapless output.</summary>
+    public Func<Task>? ClearQueueFunc { get; set; }
 
-    /// <summary>Gets or sets a function that replaces the entire playback queue with the given paths and starts playing the first one.</summary>
-    public Func<IReadOnlyList<string>, Task>? ReplaceQueueFunc { get; set; }
+    /// <summary>Gets or sets an owning resolver that replaces the queue and returns its prepared playable track count.</summary>
+    public Func<IReadOnlyList<string>, Task<int>>? ReplaceQueueFunc { get; set; }
 
     /// <summary>Gets or sets an action that triggers a sidebar playlist refresh after a playlist is created via MCP.</summary>
     public Action? RefreshPlaylistsFunc { get; set; }
@@ -230,6 +230,16 @@ public sealed class McpPlayerBridge
     {
         ct.ThrowIfCancellationRequested();
         return await Dispatcher.UIThread.InvokeAsync(func, DispatcherPriority.Normal);
+    }
+
+    /// <summary>Dispatches an asynchronous action and awaits its complete result.</summary>
+    /// <param name="action">Asynchronous action to start on the UI thread.</param>
+    /// <param name="ct">Optional cancellation checked before dispatch.</param>
+    /// <returns>Completion of the dispatched action, including asynchronous failures.</returns>
+    public async Task OnUiAsync(Func<Task> action, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        await Dispatcher.UIThread.InvokeAsync(action, DispatcherPriority.Normal);
     }
 
     /// <summary>

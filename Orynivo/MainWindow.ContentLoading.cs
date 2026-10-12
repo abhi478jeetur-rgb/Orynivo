@@ -44,16 +44,73 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private async Task ShowTopLevelViewAsync(string tag)
+    private readonly NavigationLoadOwnership _topLevelViewLoads = new();
+    private CancellationTokenSource? _topLevelViewCts;
+
+    /// <summary>Detaches outer, cloud, Plex and artist-profile ownership before cancellation callbacks.</summary>
+    private void CancelTopLevelViewLoad()
     {
+        _topLevelViewLoads.Invalidate();
+        var previousCancellation = _topLevelViewCts;
+        _topLevelViewCts = null;
+        var previousCloudCancellation = _genreCloudCts;
+        _genreCloudCts = null;
+        _genreCloudLoads.Invalidate();
+        var previousPlexCancellation = _plexViewCts;
+        _plexViewCts = null;
+        _plexLoads.Invalidate();
+        var previousProfileCancellation = _artistProfileCts;
+        _artistProfileCts = null;
+        _artistProfileLoads.Invalidate();
+        var previousBackgroundCancellation = _backgroundArtistLoadCts;
+        _backgroundArtistLoadCts = new CancellationTokenSource();
+        previousProfileCancellation?.Cancel();
+        previousBackgroundCancellation.Cancel();
+        CancelAndDispose(ref previousCloudCancellation);
+        CancelAndDispose(ref previousPlexCancellation);
+        CancelAndDispose(ref previousCancellation);
+    }
+
+    /// <summary>Loads a top-level view while retaining ownership of its loading and fade publication.</summary>
+    /// <param name="tag">Existing sidebar view identity.</param>
+    /// <returns>A task completing after loading or abandonment by newer navigation.</returns>
+    private Task ShowTopLevelViewAsync(string tag) => LoadTopLevelViewAsync(tag);
+
+    /// <summary>Admits a top-level request and exposes its token before cancellation callbacks run.</summary>
+    /// <param name="tag">Existing sidebar view identity.</param>
+    /// <param name="onAdmitted">Optional adapter capturing this request's exact cancellation token.</param>
+    /// <returns>A task completing after loading or abandonment.</returns>
+    private async Task LoadTopLevelViewAsync(string tag, Action<CancellationToken>? onAdmitted = null)
+    {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        var restoreRequest = _navigationRestores.Context;
+        var previousCancellation = _topLevelViewCts;
+        _topLevelViewCts = new CancellationTokenSource();
+        var token = _topLevelViewCts.Token;
+        var request = _topLevelViewLoads.Begin(token);
+        onAdmitted?.Invoke(token);
+        CancelProviderAlbumLoad();
+        CancelAndDispose(ref previousCancellation);
+        CancelRemoteViewLoad();
+        bool CanPublish() => _topLevelViewLoads.IsCurrent(request) &&
+            (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest));
+        if (!CanPublish()) return;
         var diagnosticStopwatch = Stopwatch.StartNew();
         LogUiDiagnostics($"ShowTopLevelViewAsync start tag={tag}");
         var showLoadingSkeleton = !tag.StartsWith("Radio:", StringComparison.Ordinal);
         if (showLoadingSkeleton)
             ShowContentLoadingSkeleton();
+        using var loading = showLoadingSkeleton ? new ContentLoadingLease(HideContentLoadingSkeleton) : null;
+        using var loadingCancellation = token.Register(() =>
+        {
+            if (Dispatcher.UIThread.CheckAccess()) loading?.Dispose();
+            else Dispatcher.UIThread.Post(() => loading?.Dispose());
+        });
         CancelLibrarySearch();
+        if (!CanPublish()) return;
         _currentTopLevelTag = tag;
         CancelAndDispose(ref _unifiedLibraryAppendCts);
+        if (!CanPublish()) return;
         ClearUnifiedLibraryLoadNotice();
         _orynivoTrackFacets = null;
         // A fresh load reflects current library data, so any pending refresh prompt is stale.
@@ -98,7 +155,11 @@ public partial class MainWindow : Window
         // Stop any in-flight unified folder-tree load so a late completion cannot mutate
         // the tree or the count of the view the user is switching to.
         CancelAndDispose(ref _folderViewCts);
-        CancelAndDispose(ref _genreCloudCts);
+        CancelGenreCloudViewLoad();
+        if (!CanPublish()) return;
+        CancelPlexViewLoad();
+        if (!CanPublish()) return;
+        _plexDetailVisible = false;
         ContentDataGrid.ItemsSource = null;
         AlbumArtworkListBox.ItemsSource = null;
         ArtistArtworkListBox.ItemsSource = null;
@@ -236,9 +297,9 @@ public partial class MainWindow : Window
                 GenreCloudPanel.IsVisible = true;
                 GenreCloudSurface.IsVisible = true;
                 ApplyColumns("Tracks");
-                if (!_restoringNavigationHistory)
+                if (!_navigationRestores.ShouldSuppressHistory)
                     _genreCloudSelectedKey = null;
-                await ShowGenreCloudAsync(_genreCloudSelectedKey);
+                await ShowGenreCloudAsync(_genreCloudSelectedKey, CanPublish);
             }
             else if (tag.StartsWith("Podcast:", StringComparison.Ordinal) &&
                      long.TryParse(tag.AsSpan("Podcast:".Length), out var podcastId))
@@ -262,7 +323,7 @@ public partial class MainWindow : Window
             }
             else if (tag.StartsWith("PlexLibrary:", StringComparison.Ordinal))
             {
-                await ShowPlexLibraryAsync(tag);
+                await ShowPlexLibraryAsync(tag, CanPublish);
             }
             else if (isOrynivoServerTag)
             {
@@ -298,18 +359,24 @@ public partial class MainWindow : Window
                 }
                 else
                 {
-                    var rows = await Task.Run(() => QueryRows(tag));
-                    ApplyColumns(tag);
-                    ContentDataGrid.ItemsSource = rows;
-                    UpdateAlphabetIndex(rows, false);
-                    ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(rows.Count);
+                    if (_activePlaylistId is long storedPlaylistId)
+                        await ShowStoredPlaylistAsync(storedPlaylistId);
+                    else
+                    {
+                        var rows = await Task.Run(() => QueryRows(tag));
+                        if (!CanPublish()) return;
+                        ApplyColumns(tag);
+                        ContentDataGrid.ItemsSource = rows;
+                        UpdateAlphabetIndex(rows, false);
+                        ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(rows.Count);
+                    }
                 }
             }
         }
         finally
         {
-            HideContentLoadingSkeleton();
-            FadeInVisibleContentSurface();
+            loading?.Dispose();
+            if (CanPublish()) FadeInVisibleContentSurface(CanPublish);
             LogUiDiagnostics(
                 $"ShowTopLevelViewAsync finish tag={tag} elapsed={diagnosticStopwatch.ElapsedMilliseconds}ms gridVisible={ContentDataGrid.IsVisible} gridItems={GetDiagnosticItemCount(ContentDataGrid.ItemsSource)}");
         }
@@ -318,9 +385,9 @@ public partial class MainWindow : Window
     private void ShowContentLoadingSkeleton()
     {
         _contentLoadingDepth++;
-        var generation = ++_contentLoadingGeneration;
         if (_contentLoadingDepth > 1)
             return;
+        var generation = ++_contentLoadingGeneration;
 
         ContentLoadingOverlay.Opacity = 0;
         ContentLoadingOverlay.IsVisible = true;
@@ -338,9 +405,9 @@ public partial class MainWindow : Window
     {
         if (_contentLoadingDepth > 0)
             _contentLoadingDepth--;
-        var generation = ++_contentLoadingGeneration;
         if (_contentLoadingDepth > 0)
             return;
+        var generation = ++_contentLoadingGeneration;
 
         ContentLoadingOverlay.Opacity = 0;
         ContentLoadingOverlay.IsHitTestVisible = false;
@@ -362,8 +429,11 @@ public partial class MainWindow : Window
         });
     }
 
-    private void FadeInVisibleContentSurface()
+    /// <summary>Fades currently visible surfaces only while the optional view owner remains current.</summary>
+    /// <param name="canFade">Optional guard also checked by the deferred render callback.</param>
+    private void FadeInVisibleContentSurface(Func<bool>? canFade = null)
     {
+        if (canFade is not null && !canFade()) return;
         foreach (var surface in _animatedViewSurfaces)
         {
             if (surface.IsVisible)
@@ -374,6 +444,7 @@ public partial class MainWindow : Window
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (canFade is not null && !canFade()) return;
             foreach (var surface in _animatedViewSurfaces)
             {
                 if (surface.IsVisible)

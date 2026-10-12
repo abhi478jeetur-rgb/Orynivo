@@ -161,13 +161,14 @@ Run the managed unit tests with
 `dotnet test Orynivo.Server.Tests/Orynivo.Server.Tests.csproj`.
 `Orynivo.Core.Tests` covers the cross-platform core library; `Orynivo.Tests`
 covers pure desktop helpers that do not require a running Avalonia UI;
-`Orynivo.Server.Tests` covers server middleware without starting the web host.
+`Orynivo.Server.Tests` covers middleware and isolated in-memory endpoint hosts.
 Do not move shared behavior into a UI-only class when a `Orynivo.Core` type can
 own it and stay cross-platform testable. The Windows build workflow runs all
-three test projects. `scripts/verify-all.ps1` runs the same checks locally in
-one command (managed builds with `--warnaserror`, the non-Windows desktop
-compile via `-p:OS=Unix`, all three test projects, and the three parity scripts)
-and stops at the first failure; CI still runs these steps itself. The
+three test projects plus the isolated Windows headless workflow smoke suite.
+`scripts/verify-all.ps1` runs the same checks locally in one command (managed
+builds with `--warnaserror`, the non-Windows desktop compile via `-p:OS=Unix`,
+all three test projects, Windows UI smoke on Windows, and the three parity
+scripts) and stops at the first failure; CI still runs these steps itself. The
 non-Windows compile matters because the desktop swaps in `Compatibility/Linux`
 implementations for several Windows types, so a Windows-only local build cannot
 see a broken Linux or macOS call site. Use it before declaring work complete.
@@ -392,6 +393,13 @@ environment variable, and the systemd unit sets
 `ORYNIVO_DATA_DIR=/var/lib/orynivo-server` plus `StateDirectory=orynivo-server`
 (the post-install also creates `/var/lib/orynivo-server` owned by the service
 user). The server's SQLite database, caches, and downloaded artwork live there.
+Explicit data roots never import legacy Player settings or caches. Default roots
+copy missing legacy files once, guarded by `.legacy-data-migrated`. A removed
+marker allows migration again; renaming the default root alone is not a clean
+reset when Player still exists. Concurrent destination creation is tolerated
+only for file-exists errors, without overwriting; other I/O failures propagate
+and leave migration unmarked for retry. Regression tests use temporary roots.
+
 Do not remove the data-directory override or the systemd unit will abort on
 startup with `UnauthorizedAccessException`/`SIGABRT`.
 
@@ -406,9 +414,226 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 
 ## Important Architecture
 
+High-resolution WavPack technical properties can be absent or throw through
+TagLib while tags are valid. LibraryScanner preserves those tags and uses
+WavPackTechnicalMetadata to fill missing duration, sample rate, bit depth,
+channels and encoded bitrate. FFprobe reads selected technical fields only, with
+scan cancellation, a 15-second timeout and no source mutation. Failed tag opens
+retain the existing failure/retry contract. Each CUE source is probed once per
+sheet; source duration is available before segment-end projection. Existing
+unchanged rows require explicit Refresh all metadata on their owning library.
+
+WASAPI output rate selection excludes every rate above a positive
+MaxOutputSampleRateHz, including fallback candidates. Zero remains unrestricted.
+FFmpeg resamples PCM to the selected accepted rate. If the driver supports no
+format within the limit, selection fails before output starts; advertised higher
+rates must never bypass an explicit cap. Pure desktop tests cover 384-kHz
+WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
+
 - `Orynivo/OutputProfile.cs`: named audio output configuration (backend, device
   IDs, display name); multiple profiles allow switching between output devices
   without reconfiguring each time
+- `Orynivo/Audio/AudioPlayerRetirement.cs`: UI-free ownership of detached-player
+  background disposal. `MainWindow.StopPlaybackAsync` clears window playback
+  state, removes the gapless event subscription, and transfers its detached
+  player to this helper. Ordinary transitions wait at most two seconds for the
+  current disposal; an empty ordinary transition returns immediately. Timed-out
+  workers remain tracked until completion. A complete output-release wait covers
+  every retirement already registered, even when no active player remains.
+  Disposal and existing error-sink failures are isolated; completed work and
+  unused budget timers are removed. The injected TimeProvider makes deadline
+  tests deterministic. PlaybackSessionCoordinator owns active output and its
+  cancellation. Queue, history, source context and UI cleanup remain
+  window-owned; pending-start tracking is separate from this retirement helper.
+  No backend selection, PCM/DSD processing or native output changes are
+  introduced here.
+- `Orynivo/Audio/PlaybackSessionCoordinator.cs`: single dispatcher-affine active
+  output and linked cancellation owner. TryBegin admits current uncancelled
+  intents only with empty output. TryAttach rejects stale or occupied handoffs;
+  rejected players remain caller-owned. DetachForRetry checks intent and player
+  identity and preserves cancellation for the next gapless preparation. Detach
+  clears ownership before cancellation callbacks and returns output once for
+  retirement. Callback/reporting failures cannot strand output. Window
+  source/history/UI adapters and the authoritative queue remain separate. Tests
+  exercise handoff with fake players without a window or audio hardware. Owns
+  combines intent, live cancellation and identity. SeekAsync checks before and
+  after best-effort initial/resume seek; PrepareReadiness and TrySetPaused guard
+  backend pause/resume callbacks before transport publication.
+  PlaybackSessionLifecycleTests compose held factory/seek, readiness and full
+  release with real helpers, including cancelled late output and unique
+  retirement. Window stop adapters retain their captured intent across every
+  cancellation boundary and abandon obsolete cleanup. Advisory/mix/waveform
+  state and artist background ownership are cleared/replaced before callbacks.
+  System, slider and MCP/mobile seek adapters hold preparation leases, capture
+  output identity and guard completion. Full release drains pending seeks;
+  superseded remote acknowledgement cancels while current errors propagate.
+- `Orynivo/Audio/PlaybackOutputDrain.cs`: composes preparation completion and
+  detached-player retirement after the window's synchronous stop cleanup.
+  Register retirement before awaiting preparation, then await initial disposal
+  and a second retirement pass to include late factory results. Ordinary waits
+  retain the retirement budget and do not await preparation. The helper owns no
+  active player, cancellation, admission or UI; release publication remains
+  guarded by the window. Tests use real trackers and controlled fake disposal
+  without an Avalonia window or audio hardware.
+- `Orynivo/Audio/PlaybackShutdownCoordinator.cs`: dispatcher-owned permanent
+  admission closure and shared shutdown outcome. Publish the result task before
+  invoking synchronous hooks or output drain; reentrant and later requests must
+  return that task without repeating hooks. Success, faults and cancellation
+  retain closed admission. MainWindow's shutdown guards delegate to this state;
+  its adapter closes queue edits and disables the window before full release.
+  Actual Close remains window-owned. Unit tests cover these boundaries without a
+  window; isolated window checks include reentrant queue cancellation.
+- `Orynivo/Audio/PlaybackStartOwnership.cs`: dispatcher-affine intent generation
+  and late-factory cleanup. Start captures ownership before remote lookup; stop
+  invalidates it. Backend creation receives a fixed token, including native DSD
+  fallbacks. Check ownership after retirement, creation and resume seeks before
+  publishing UI state. Late-created players transfer to the shared retirement
+  helper; obsolete lifetime errors do not reach caller stop handlers. Guard
+  remote lookup registration on the dispatcher. Active output is session-owned;
+  the queue remains window-owned.
+- `Orynivo/Audio/PlaybackReadiness.cs`: dispatcher-owned prepared-player result
+  separate from track completion. Initial seek and paused state precede
+  readiness; abandoned starts return null, preparation errors reach the awaiting
+  caller, and later failures reach an active-player-guarded observer. Output
+  switching and lock reacquisition use readiness instead of awaiting the full
+  track. Selection generation guards retirement completion; fades bind to their
+  own ready player and guard every volume write, including after the final
+  delay. Failed reacquisition drains output before publishing release and
+  preserves retry context. `Orynivo/Audio/PlaybackPlayerFactory.cs` is the
+  creation adapter used by production routing and isolated fake-factory window
+  checks; it does not introduce another active player or queue.
+- Single-track MCP Play forwards the original opaque reference to the owning
+  playback callback; do not resolve it through the independent queue resolver
+  first. Mobile single-track Play allocates start ownership and a preparation
+  lease before local/server identity lookup. Its captured token cancels pending
+  work; dispatcher registration and returned paths check the owning intent. End
+  that lease before handing off to the existing readiness start. Stop,
+  replacement and normal full output release include this pending lookup. Queue
+  append/next remain independent queue actions.
+- `MainWindow.ReplacePlaybackQueueAsync` owns an intent/preparation before
+  ordered local/remote resolution, then updates the existing queue and awaits
+  readiness. `McpPlayerBridge.ReplaceQueueFunc` accepts original references and
+  returns the prepared playable count; MCP must not resolve them before
+  dispatch. Preserve duplicate occurrences and retain the old queue if no
+  reference resolves. Mobile playlist Play captures ownership and catalog
+  generation before loading, guards registration/mutation, and ends its lease
+  before replacement handoff. Superseded results cannot replace the queue; full
+  release drains pending lookup. Playlist append keeps its existing independent
+  semantics.
+- Infinite Mix refill captures its mix version and playback intent, with a
+  preparation lease and linked cancellation. Stop, mix pause and replacement
+  reject late queue and metadata publication. Genre and similarity resolvers
+  guard registration on the dispatcher; stale similarity results cannot advance
+  a reset cursor. Only the owning version clears loading/progress state. Full
+  release drains admitted refills. Threshold checks require an active player;
+  idle initial mix start awaits readiness rather than track completion.
+
+- StartPlaybackIntentAsync exposes an intent-owned preparation publication.
+  Queue refresh joins it while a gapless player is seeking, without beginning
+  another start. PrepareCurrentPlaybackPlayerAsync checks the snapshot after
+  seek, detaches/retires stale output and repeats preparation at its actual
+  position within the same token/lease. Publish metadata, pause, history and
+  readiness only for the final player. Every early return/error completes the
+  publication with null; full release still drains pending seek/late cleanup.
+
+- CreateCurrentQueuePlaybackPlayerAsync compares ordered playable paths before
+  and after creation. Retire unpublished gapless results whose snapshot changed
+  and retry within the same intent/token/preparation lease. Native single-track
+  output does not retry for unrelated queue edits. Store the prepared path
+  snapshot in memory only; never persist or log authenticated paths. Coalesced
+  refresh compares it with the latest queue to avoid a redundant rebuild after
+  creation already incorporated admitted changes. Position/pause apply to the
+  final player; obsolete retries remain part of full preparation drain.
+
+- `Orynivo/Audio/GaplessQueueRefreshCoordinator.cs` owns dispatcher-affine
+  refresh joining, revision changes and retry decisions without owning a player,
+  queue, or UI. Inject active-output eligibility, existing preparation, guarded
+  readiness, intent ownership and snapshot checks. Window adapters retain
+  position/pause capture and prepared-player identity validation. Each run keeps
+  independent revision and completion state; old completion/failure cannot clear
+  newer pending work. Window-free tests control readiness gates and cover
+  joining, retries, supersession, errors and recovery.
+- Gapless queue refresh is dispatcher-coalesced. Requests share the pending task
+  only while its playback intent remains current and increment a revision. After
+  readiness, rebuild again for a changed revision using current position and
+  pause state. All admitted callers await the final snapshot. Stop, Clear,
+  release and newer starts prevent obsolete rebuild loops; never overwrite a
+  newer task. Clear with no active player cancels pending preparation without
+  joining its obsolete refresh. Keep the single authoritative queue.
+
+- ClearPlaybackQueueAsync empties the authoritative queue, then rebuilds active
+  gapless output with only the current track at its position and paused state.
+  Desktop, MCP and Mobile await preparation; obsolete MCP clears cancel and
+  mobile clears return false. Ordinary single-track output needs no rebuild.
+  Pending starts are cancelled when no player is active.
+
+- Queue replacement captures queue generation alongside playback intent and
+  links both cancellation tokens during lookup. Clear must reject late metadata
+  and queue publication even when ordinary output remains active. Mobile
+  playlist Play links its queue cancellation token before loading. Append/Next
+  and playlist append recheck queue generation after gapless readiness;
+  destructive supersession cancels MCP acknowledgement or returns false to
+  Mobile. Ordinary starts preserve already accepted independent edits.
+
+- QueueEditOwnership owns playback-independent queue generation/cancellation for
+  mobile move/remove acknowledgements as well as asynchronous insertions.
+  Capture before mutation, reject shutdown, and recheck after gapless readiness.
+  Suppress obsolete preparation errors after Clear/replacement/shutdown while
+  preserving current failures and accepted edits across ordinary start/Stop.
+  Wholesale clears invalidate it; replacement owns intent before lookup and
+  shutdown closes it. MCP append/next forward original references to
+  InsertPlaybackQueueAsync, returning resolved paths or null. Mobile
+  track/playlist append guards registration and handoff. Old edits cannot
+  populate a replaced/cleared queue; ordinary start/Stop preserves them.
+  Independent lookup owns no device and does not delay full output release.
+
+- Mobile/MCP play and queue replacement use readiness; mobile track and
+  queue-index callbacks return false without their current prepared player, and
+  MCP play/replace commands cancel abandoned or unavailable starts. Skip and
+  initial play-toggle complete after preparation; automatic queue advancement
+  still awaits its normal lifecycle. Later errors remain observed by readiness.
+  `McpPlayerBridge.OnUiAsync(Func<Task>, CancellationToken)` unwraps
+  asynchronous actions and propagates their failures, checking cancellation
+  before dispatch. This does not add request-token cancellation of an accepted
+  playback session.
+- Radio and podcast actions use the same readiness boundary and reject obsolete
+  preparation error handlers. Later lifetime failures stay observed. Saved
+  podcast resume applies only when initial position is zero; nonzero explicit
+  positions retain precedence. Source/history publication follows guarded seeks.
+  Stop saves episode progress only after resume preparation, preserving stored
+  positions when a pending seek is abandoned. Gapless notifications check
+  active-player identity on the dispatcher before advancing queue occurrences
+  and closing/opening their history records.
+
+- Radio metadata monitoring captures start intent, player, station and token;
+  dispatcher publication checks all of them for successful and failed probes.
+  Cross-device resume lookup starts after current source metadata assignment,
+  captures player/row/start ownership and a request version, and passes linked
+  playback cancellation to the server. Old same-track responses cannot restore a
+  prompt. Stop and gapless transitions clear ownership and cancel lookup.
+  Accepted resume seeks retain a preparation lease until completion, observe
+  failures without stopping playback and guard subsequent UI messages. Full
+  release waits for admitted seeks; advisory lookup is cancelled but does not
+  delay device release.
+
+- `MainWindow.RefreshActiveGaplessQueueAsync` recreates the current source at
+  the captured audible position and passes paused state into readiness. It
+  returns after preparation; never pause whichever player is active after a
+  whole-track await. Pending independent append/next lookups remain a separate
+  queue-edit ownership concern.
+
+- `Orynivo/Audio/PlaybackPreparationTracker.cs`: dispatcher-owned cancellation
+  and completion leases for lookup, creation and initial/resume seek. They end
+  before waiting for track completion. Cancellation never removes an unresolved
+  factory; late player cleanup must be registered before ending preparation.
+  Complete output release cancels pending preparation, waits for its snapshot,
+  then drains retirement again. Transport stop detaches immediately and
+  registers background disposal. Normal window close keeps the dispatcher alive
+  and blocks new starts until preparation and disposal finish, then closes once.
+  Release completion checks its generation before changing lock/status state.
+  Update installation and library import await the shared
+  `MainWindow.PreparePlaybackShutdownAsync` drain before direct lifetime
+  shutdown.
 - `Orynivo/Audio/AirPlayDeviceDiscovery.cs` and `AirPlayAudioPlayer.cs`:
   cross-platform classic AirPlay/RAOP output. Profiles retain the stable DNS-SD
   service name and last resolved endpoint, discovery refreshes it before
@@ -591,6 +816,52 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   entities reuse the same `ContentRow`-bound masks, local and remote share it.
   Set `DisplayName` (bound to the row `Title` or an element reference) and
   `FontSize` to scale the initials to the slot size.
+- Successfully loaded empty Artists/Albums/Tracks views use a separate
+  `LibraryEmptyNotice` in the existing header notice row. Publication requires
+  complete source outcomes, zero displayed rows, configured sources and the
+  original reload/detail exclusion guard. Its localized text refers to this view
+  and suggests filters/source setup, not a definitive empty catalog. Settings
+  routes server-only profiles to OrynivoServers and others to Library.
+  Navigation clearing hides both empty and failed-load notices. Empty guidance
+  also retains the coordinator Request that published its result. Version,
+  generation and cancellation must remain current; new load admission and
+  catalog invalidation refresh visibility. Watcher changes do this in their
+  existing coalesced dispatcher pass, never on the worker.
+
+- The empty-library sidebar hint offers localized Directories, Orynivo servers
+  and Output device actions through `MainWindow.Settings.cs`. They open the
+  existing Library, OrynivoServers and AudioDevice sections of embedded
+  Settings. The output entry shares the transport Settings action. The row has
+  no height cap or transition; both captions wrap and provide explicit
+  accessible names. Existing source visibility rules hide the hint when a local
+  folder or Orynivo Server is configured. The navigation ListBox uses Continue
+  tab traversal so all nested setup buttons are reachable with Tab/Shift+Tab and
+  activate through normal Enter handling rather than being skipped by the
+  default single-entry tab policy. The setupAction class adds focus-visible
+  accent border/fill in the existing header/Settings button templates. It
+  changes no geometry and adds no motion; the empty-view Settings and
+  output-profile actions share that marker. setupAction suppresses the duplicate
+  default focus adorner. Small sidebar and folder-scan hints use secondary text.
+  Headless checks simulate 100/200% scaling and assert opaque text/focus
+  contrast; physical display evidence is separate. Fresh transport disables Play
+  until it knows a source, and empty Stop/failed restoration preserve that state
+  without changing output lifetime.
+- Both live Settings root changes and accepted Settings use
+  `SetConfiguredLibraryPaths` in `MainWindow.Settings.cs`. It copies the roots,
+  expands Library when the first local root is added, and retains collapsed
+  state on later changes. Watcher and cleanup receive that copied root set.
+- Settings folder-picker admission adds a new row, publishes the copied root
+  list, then awaits that row's ordinary scan action. Automatic and manual scans
+  share progress, cancellation, error handling, ReplayGain preference and
+  catalog invalidation. Existing folders are not scanned just by opening
+  Settings; duplicate selections are ignored. Adding/removing another folder
+  preserves active rows. Removed scans retain ownership until cancellation
+  completes. DirectoryScanner defaults to LibraryScanner.ScanAsync and permits
+  synthetic transport substitution in the isolated workflow fixture.
+- Settings output-profile setup uses a full-width ComboBox above a WrapPanel of
+  the existing create/configure/delete actions. Their captions wrap with bounded
+  widths and flexible heights; selection and callbacks are unchanged.
+
 - `Orynivo/Controls/StatusBadge.cs`: small pill indicator (`TemplatedControl`,
   default template in `App.axaml`) with a coloured dot and short label, driven
   by `Text` and a `State` (`StatusBadgeState.Ok`/`Warning`/`Off`). Settings uses
@@ -813,6 +1084,33 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   that day get a chip. Album/artist links are available for local, remote
   Orynivo Server, and Plex entries; Plex clickability requires the stored Plex
   context (album/artist rating keys) and a still-configured Plex server
+- Plex page, child and folder requests retain their own cancellation identity,
+  copied connection, token, library section, sidebar identity and enclosing
+  root/Back ownership. Guard rows, status, lazy expansion and metadata after
+  awaits. History entry rows retain their owning server without borrowing a
+  library section; base details use global Back and never clear newer Plex
+  history after awaiting. Sectionless Back keeps library controls hidden. Paging
+  retains admitted offset/rows; child history retains pre-load rows/title, exact
+  selected row and vertical offset. Plex Back uses NavigationRestoreOwnership
+  before cancellation, checks between adapters and guards deferred position with
+  both restore and binding identity. Replacement navigation cannot lose its
+  history entry or receive an obsolete layout callback. Child state retains
+  copied source/connection, transient credential, section and navigation tag.
+  Reject changed/removed sources before binding and during deferred layout;
+  return through the global origin, or Tracks when no origin exists or its Plex
+  source has been removed. Keep snapshots in memory and never log them. Global
+  Back payloads retain published Plex detail rows, selection/position, paging
+  and the existing parent states when leaving for another view. A visibility
+  marker excludes stale ambient Plex fields. Restore revalidates configured
+  source and encrypted credentials off the UI thread, guards the continuation
+  and repopulates the existing Plex stack in original order. Invalid global
+  snapshots fall back to Tracks. Only admitted restored tracks register playback
+  metadata; no new stack/cache is introduced. The shared Plex table adapter
+  hides competing surfaces and unrelated view/queue controls. Independent Plex
+  actions release old root loading and reject old fades. Back clears loading
+  text and restores root paging. Top-level cancellation detaches top/cloud/Plex
+  sources before callbacks so newly admitted replacements cannot be cancelled by
+  older cleanup.
 - `Orynivo/SettingsStore.cs`: persists non-secret settings in
   `%LOCALAPPDATA%\Orynivo\settings.json`, overlays secrets from
   `ApplicationCredentialStore`, and migrates legacy plaintext JSON credentials
@@ -872,14 +1170,25 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   shared Genre Cloud view merges compact snapshots from the local library and
   every configured Orynivo Server; remote recommendations retain their server
   context and client-side favorite state. Older servers fall back to
-  `/api/tracks/facets` when `/api/genres/cloud` is unavailable. Genre nodes
-  carry both matching-track and distinct matching-album counts; the desktop
-  chooses the count matching its current recommendation mode. Local media live
-  under a collapsible **Local** child node followed by local Artists, Albums,
-  Tracks, Folder structure, and a nested local Playlists group. The complete
-  **Local** child node (and its rows/playlists) is hidden whenever no local
-  library directory is configured (`AppSettings.LibraryPaths` empty). When
-  neither a local directory nor any Orynivo Server is configured, a hint row
+  `/api/tracks/facets` when `/api/genres/cloud` is unavailable. Foreground cloud
+  loads own their admission token, taxonomy, catalog/source identity, enclosing
+  root load and outer Back context. They reject obsolete rows and playback
+  metadata after awaits; shared snapshot tasks continue independently, copy
+  connections and map rows without playback registration. Only the admitted view
+  registers metadata. Branch and mode actions replace root loading/fades while
+  reusing shared work. Background resolution/decoding retains foreground and
+  configured-mode ownership, disposing rejected images. Cloud callbacks retain
+  binding identity, foreground cancellation, catalog/source identity, taxonomy
+  key, navigation tag and outer Back ownership for deferred Loaded layout and
+  staggered animations. Removed buttons do not animate after a mode rebuild, and
+  abandoned callbacks do not arrange a replacement. Genre nodes carry both
+  matching-track and distinct matching-album counts; the desktop chooses the
+  count matching its current recommendation mode. Local media live under a
+  collapsible **Local** child node followed by local Artists, Albums, Tracks,
+  Folder structure, and a nested local Playlists group. The complete **Local**
+  child node (and its rows/playlists) is hidden whenever no local library
+  directory is configured (`AppSettings.LibraryPaths` empty). When neither a
+  local directory nor any Orynivo Server is configured, a hint row
   (`LibraryEmptyHintItem`, `L_LibraryEmptyHint`) is shown directly under the
   Library header telling the user to add local directories or one or more
   Orynivo Servers in Settings. The hint disappears immediately when a directory
@@ -960,7 +1269,94 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   `FavoritesOnly` criterion matches the client's favourites; regular remote
   playlists still use `GetPlaylistTracksAsync`. Back navigation must capture
   remote album details as remote states carrying the Orynivo Server navigation
-  tag; never restore a remote album detail through the local
+  tag. `NavigationCaptureDecision` selects typed capture routes from a scalar
+  `NavigationCaptureContext`, preserving visible search/cloud precedence,
+  logical album parts and provider-bound album/artist routes. The decision owns
+  no rows, provider or history; the window adapts its target into the existing
+  Back state and retains selection, scroll and restore work. Window-free tests
+  cover source collisions and capture precedence. `NavigationRestoreDecision`
+  selects eligible source-specific restore adapters from scalar saved state.
+  Required detail identifiers, logical parts and unified artist names preserve
+  the existing top-level fallback for incomplete states. The window retains
+  payloads and loader execution; server adapters retain source validation. Tests
+  cover colliding IDs and incomplete states. `NavigationRestoreOwnership` reuses
+  request identity with an asynchronous call-chain context. Only current nested
+  restore work suppresses history capture; independent navigation abandons the
+  restore and resumes capture immediately. Obsolete contexts cannot admit
+  loaders or invalidate a newer restore. New Back ownership precedes
+  cancellation of prior loaders, with checks between cancellation adapters.
+  Completion clears only its own executing flag and retains publication identity
+  for deferred layout. Outer Back visibility and immediate/deferred selection
+  require ownership. Top-level restoration additionally captures the exact
+  admission token, catalog generation and tag. Remote artist restoration retains
+  both overview and filtered-list tokens. Configuration, Settings and close
+  abandon restore work. Window-free tests cover overlap and context isolation;
+  synthetic window fixtures cover source collisions, same-tag replacement,
+  independent capture, rejected new targets, nested search resets/text changes
+  and abandoned Loaded callbacks without rebinding. Existing stacks, payloads
+  and loader responsibilities remain. `ServerNavigationTarget` parses the
+  existing server tag grammar (including Root defaults) and binds album origins
+  to their owning server. Malformed or removed sources are rejected before
+  remote restore changes the view or requests data. Restore adapters capture the
+  configured server and check active identity, current tag and configuration
+  membership after awaits and before deferred scroll/selection work; ambient
+  server state cannot substitute for a rejected target.
+  `NavigationLoadOwnership` supplies dispatcher-owned remote view request
+  versions without another history or row model. New request/token state is
+  installed before cancelling old work; reentrant callbacks cannot reclaim it.
+  Top-level navigation, detail reset/push and configuration changes abandon
+  remote view loads. Rows, facets, playback registration, errors, status and
+  finally cleanup require current request, tag, server and catalog generation.
+  Each remote request releases its counted loading contribution exactly once,
+  immediately on UI cancellation or via a dispatcher post for worker callbacks.
+  Completion balances the same contribution without an obsolete fade/status.
+  Held fake HTTP tests cover navigation to local Tracks and same-tag overlap.
+  Outer top-level calls also reuse `NavigationLoadOwnership` for counted loading
+  and fade publication. Navigation/detail/configuration abandonment cancels the
+  outer scope immediately. `ContentLoadingLease` releases each acquired loading
+  contribution once on cancellation or completion; radio views that acquire no
+  contribution must not decrement another scope. Fade guards run before changing
+  opacity and in deferred render work. Overlay generations change at zero-depth
+  transitions, preserving pending rendering across nested scopes. Tests exercise
+  complete held top-level calls, same-tag overlap, deferred fade rejection and
+  nested overlay visibility. Provider-backed album track loads now capture their
+  server, copied album IDs and artist scope before awaiting. The same ownership
+  helper guards request, catalog generation, active provider/album, tag and
+  server. Cancellation reaches each provider call; results are checked before
+  mapping or playback registration. Counted release and deferred fades use the
+  shared lease and ownership guard. Held tests cover navigation/configuration
+  abandonment, ambient server changes and same-album replacement. Remote album
+  metadata opens also retain separate request/token ownership, cancelled with
+  provider detail abandonment. Both entry routes capture server, scope, fallback
+  metadata and copied IDs before awaiting, and reject conflicting row sources
+  before HTTP. Copied catalog connection objects resolve by exact source ID to
+  the current configured server; legitimate snapshots need not share settings
+  object identity. Detail admission checks request, generation, tag, active
+  server and configuration membership. Back restore captures the exact overview
+  token before cancellation callbacks via `LoadTopLevelViewAsync`; the existing
+  `ShowTopLevelViewAsync` wrapper stays unchanged for callers. Metadata request
+  ownership also guards deferred restoration. Held tests cover same-tag overview
+  and metadata replacement, scope/fallback capture and source rejection. Local
+  album workers also reuse request ownership and the counted lease. Copy IDs and
+  artist scope before `Task.Run`, which must not reread window fields. The token
+  prevents cancelled work starting; running SQLite reads may complete but
+  publication requires current request, generation, tag, album ID and local
+  detail kind. Check before rows/header/rating refresh admission and gate fades
+  separately. Return ownership to guard the opening caller's Back-button update.
+  Held dispatcher tests cover reset, top-level navigation, configuration,
+  same-album overlap and input/window ID mutation. Logical detail uses the same
+  request ownership with copied source parts resolved to configured server IDs.
+  Capture artist scope before awaits and stage tracks from every source before
+  mapping or playback registration. Guard request, generation, tag, logical row/
+  parts and source membership; the shared lease balances loading and ownership
+  guards header/rating admission, fade and Back. Artwork uses linked navigation/
+  timeout cancellation and ownership guards before metadata, write admission and
+  row hydration. Successful writes invalidate caches in finally even if
+  subsequent refresh is abandoned. A still-current owner accounts for exactly
+  one own cache generation advance; external invalidation remains obsolete.
+  Optional artwork adapters preserve other callers. Held tests cover
+  track/metadata/write abandonment, same-album overlap and own versus external
+  invalidation. Never restore a remote album detail through the local
   `ShowAlbumTracksAsync` path because server and local album IDs can collide.
   Remote artist-info views must use the bound remote row/server profile data,
   not local `AudioDatabase.GetArtistById`, because server IDs can collide with
@@ -1230,7 +1626,12 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   uses embedded MusicBrainz IDs or an unambiguous exact MusicBrainz match. The
   Fanart.tv key may only be persisted in `ApplicationCredentialStore`; it must
   never be written to JSON or caches, logged, sent to an Orynivo Server, or
-  exposed to a model.
+  exposed to a model. Wikipedia/Last.fm image content is saved through shared
+  serialized stream staging rather than opening the final cache file directly.
+  Transfer failure, cancellation and empty content preserve the previous file;
+  supported MIME and URL-extension fallback behavior remains unchanged. This
+  protects file publication, not the semantic order of older automatic requests
+  against later manual selections or SQLite metadata.
 - `Orynivo.Core/Library/ArtistImageSearchService.cs` and
   `Orynivo/ArtistImageSearchWindow.*`: manual artist-image search with an
   editable query; it tries Fanart.tv first when a key is configured and falls
@@ -1243,7 +1644,12 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   falls back to Wikimedia Commons. Every in-memory candidate must be explicitly
   accepted or rejected in a preview before it may be saved to its owning local
   or remote library; progress includes a provider-search-based remaining-time
-  estimate.
+  estimate. Cache saves and deletions share in-process exclusive admission per
+  canonical data directory and artist ID. Unique staging is cleaned on failed
+  publication or cancellation; old formats are removed while ownership is held.
+  `DeleteImageAsync` supports cancellable admission; legacy deletion remains
+  compatible. Idle gates are removed. This file contract does not provide
+  cross-process ordering, user-intent ordering or a SQLite/file transaction.
 - `Orynivo/EditArtistNameDialog.*` and `Orynivo/ArtistMergeDialog.*`:
   artist-info rename flow; collisions require an explicit merge-profile priority
   choice
@@ -1516,7 +1922,45 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   album-track scope, expose the existing show-all-tracks checkbox, and keep the
   artist detail visible until the album detail has finished loading. Back from
   that album must restore the same unified artist detail rather than a generic
-  Artists or Albums view.
+  Artists or Albums view. Local profile publication retains request/token,
+  sidebar tag, detail version/name, visibility and enclosing Back ownership.
+  Database, synchronization and image continuations reject abandoned work; old
+  errors/completion cannot change newer profile controls. Retained-row refresh
+  stages image decodes before guarded metadata assignment and disposes rejected
+  images. Profile admission installs new profile/background ownership before
+  cancellation; top-level cancellation detaches these alongside top/cloud/Plex
+  before callbacks so replacements remain admitted. Remote-library and
+  now-playing profiles use the same admission ownership; retain configured
+  source identity and reject changed/removed connections, credentials or server
+  profiles. Now-playing publication also retains the exact track row, artist ID
+  and metadata provider. Nested artist album/track loads check the enclosing
+  guard before cards, playback metadata, tracks and failure cleanup. Rejected
+  decoded profile images are disposed. Profile synchronization retains its
+  enclosing guard between local reads, image saves, writes and remote awaits;
+  stop later writes/cache cleanup after abandonment. Capture copied server
+  connections and source guards before any await and skip changed sources.
+  Already admitted writes are not rolled back. Automatic row profiles retain
+  background CTS, sidebar tag, language, row identity/manual-image state and
+  visible binding identity. Do not scan the entire bound catalog per completion.
+  Guard before persistence, after decoding and before row publication; dispose
+  rejected images. Per-artist loading markers retain their background owner so
+  old completion cannot remove a newer marker. Keep the initial negative-result
+  freshness stamp to bound retries. Remote now-playing profile resolution passes
+  the enclosing guard into `GetArtistProfileForViewAsync`; the standard metadata
+  interface delegates without a view guard. Copy source settings per request and
+  retain original connection/profile identity. Recheck after cached profile,
+  external download, image read, upload and server-image awaits. Reject
+  abandoned work before the next operation or cache write and before returning a
+  publishable profile. Already admitted operations are not rolled back. Keep
+  source snapshots only in memory and preserve the existing server-owned cache
+  paths. Refresh lookup selection captures displayed local/remote/now-playing
+  identity, source, sidebar/detail/name, profile observation and outer Back
+  before the dialog. NavigationLoadOwnership.CaptureCurrent observes without
+  admitting or cancelling work; a later Begin/Invalidate rejects the
+  observation. Recheck before selection and after its await, then refresh only
+  the captured target. Do not restore an old unified name or run an
+  uncancellable album reload after profile completion; profile refresh already
+  preserves the unified strip.
 - Artwork A-Z navigation indexes the complete lightweight artist/album result,
   but binds rows to the virtualized wrap panels in pages. A jump must append
   through the target row and defer `ScrollIntoView` until layout has processed
@@ -1544,6 +1988,84 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   unified album strip. Local artwork decoding also stays off the UI thread so
   playback and transport interaction remain responsive.
 - Artist images remain visible even when no biography is available.
+- Manual artist-image upload/deletion synchronization copies the original server
+  set before local work and retains configured source identity. Recheck after
+  lookup, before each remote mutation and before list/artwork cache cleanup.
+  Skip changed/removed sources; newly added servers stay outside the admitted
+  operation. Local workers check cancellation after opening SQLite and before
+  writes, and remote operations check between requests. Shared catalogs are
+  invalidated in finally after admission, including cancellation following a
+  write. Never roll back admitted changes or replace biography metadata. Dialog
+  and hero publication require their own enclosing ownership guards; source-safe
+  synchronization alone does not protect UI.
+- Artist-detail image search/upload/delete adapters capture displayed
+  local/remote/now-playing identity, source, sidebar/detail/name, profile
+  observation and outer Back before selection or synchronization. Independent
+  manual-image publication ownership rejects older completion after a newer
+  action. Recheck after selection before mutation, then after synchronization,
+  decoding and local reads. Decode uploaded bitmaps off UI and dispose rejected
+  images. Publish only the retained hero/captured row; local row refresh,
+  failures and final status use the same guard. Accepted data writes remain
+  navigation-independent. Search retains its query and adapts the selected bytes
+  into the same flow, sharing publication ownership with file upload. Preserve
+  the direct search upload to a copied owning-server connection and current
+  failure feedback. Recheck afterward before subsequent
+  synchronization/publication. Accepted direct writes invalidate catalogs even
+  after navigation; only clean the source cache while its identity is valid.
+  Separate library context-menu artwork adapters and automatic-profile/manual
+  data-write overlap still need their audits.
+- `Orynivo/ArtistImageWriteQueue.cs` orders complete manual artist-detail image
+  search/upload/deletion batches per normalized name within one window. Reserve
+  before waiting, recheck original publication/source ownership before the first
+  write, and retain ordering through local file/SQLite work and server fan-out.
+  Owning-server search uploads share the queue. Capture destination connections
+  before waiting; new servers are excluded. Idle entries are removed and failed
+  or obsolete batches release successors. The caller synchronization context
+  remains intact for ownership checks. Unified automatic profile synchronization
+  shares this queue through its local file/SQLite and remote batch, rechecking
+  enclosing profile/image ownership after waiting and between operations. A
+  later manual batch writes last. Primary server artist-detail uploads also join
+  via UpdateArtistProfileInWriteOrderAsync. Recheck view/source/cancellation
+  after waiting and form image payloads only after image ownership validation;
+  current biography-only uploads remain admitted after manual image
+  supersession. Local foreground profiles use
+  DownloadLocalArtistProfileInWriteOrderAsync for ordered download, SQLite
+  persistence and image-byte capture. Determine download policy after waiting,
+  preserve current biography after image supersession, and capture image bytes
+  before releasing ownership. Unified synchronization is admitted afterwards to
+  avoid nested same-artist waits. Server artist-detail downloads use
+  DownloadServerArtistProfileInWriteOrderAsync for ordered download and byte
+  capture, checking policy after waiting and retaining biography after image
+  supersession. Check authoritative server manual-image state after waiting and
+  protect images when that state is unavailable.
+  ServerArtistProfileCacheIdentity derives stable negative download cache IDs
+  from opaque server ID and artist ID using SHA-256; positive local SQLite
+  artist cache files remain separate. Real artist IDs remain unchanged in API
+  requests. Cache file stems and save/delete wildcard patterns use invariant
+  numeric formatting. Release before the separately guarded/ordered primary
+  upload and unified synchronization. Now Playing supplies an independent image
+  guard and shared ordered-write adapter to GetArtistProfileForViewAsync.
+  Initial metadata reads stay outside write admission. Ordered work refreshes
+  manual-image state after waiting and uses source-owned negative cache IDs.
+  Superseded cached images return biography without image writes. Forced
+  biography refresh retains manual server artwork; unique server-image staging
+  rechecks ownership before replacing cached bytes and cleans rejected/cancelled
+  staging. Release before unified synchronization. Standard metadata callers
+  leave optional adapters unset. Automatic row jobs, Settings/context-menu and
+  other windows/clients still need coordination. This does not provide a
+  transaction.
+- Foreground profiles separately observe admitted manual-image changes. Advance
+  manual-image write ownership after accepted selection or at deletion
+  admission; cancelled selection keeps profile images admitted. Older profiles
+  skip image/placeholder/status and retained-row image publication, preserve
+  current manual row metadata and dispose rejected decodes. Current biography,
+  source and loading cleanup retain the original profile owner. Profile
+  synchronization uses the additional image guard to stop later work after
+  manual admission. Retain source-local artist identity and normalized name with
+  the manual mutation so cancellation reentry cannot suppress a different
+  artist's image while equivalent local/server identities still share image
+  protection. Already-admitted file/server writes and automatic row jobs remain
+  separate acceptance work.
 - The artist information view can rename artists. A matching normalized name
   opens a merge dialog that asks which artist record and profile data survive;
   the transaction consolidates duplicate albums, reassigns tracks, preserves
@@ -1552,6 +2074,14 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 - Artist rename/merge dialogs must not be awaited while an `AudioDatabase`
   connection remains open. Resolve a possible collision first, dispose the
   connection, show the modal choice, then run the rename transaction.
+- Cross-server artist rename synchronization captures the original source set
+  and copied connection settings before its first await. Retain source ID, name,
+  URL, credentials and profile identity in memory only; recheck configured
+  membership before lookup, after responses and before every rename/merge.
+  Changed or removed sources report incomplete synchronization; newly added
+  servers are excluded. Accepted data changes complete independently of view
+  navigation. Do not roll back admitted writes or delete a changed source's
+  artist-list cache. Equivalent configuration objects remain eligible.
 - Manual artist renames persist exactly one `artist_aliases` comparison-key
   mapping from the original tag name to the surviving artist ID. The new
   canonical name must never be written as an alias because it is already the
@@ -1559,10 +2089,29 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   Scanner and watcher upserts must resolve this alias and keep the canonical
   database display name in denormalized track fields; unchanged audio tags must
   never recreate or restore the pre-rename artist name.
-- After the rename transaction, update `ArtistInfoTitleButton` and related
-  current/filter artist state immediately. The potentially expensive complete
-  Lucene rebuild runs afterward in the background and must not delay visible
-  confirmation of the new name.
+- Local rename flows capture displayed identity/title, sidebar/detail/name,
+  profile observation and outer Back before background artist lookup. Recheck
+  before opening a merge dialog and after its choice before admitting the
+  transaction. Accepted changes still synchronize and schedule Lucene updates
+  independently of view navigation. Background indexing must not delay visible
+  confirmation. Only the retained detail may update title, status, filter, list
+  selection or profile refresh; obsolete failures cannot replace current status.
+  Empty filter/playback IDs never match an absent merge target. Local playback
+  publication retains track/provider identity and rejects remote numeric ID
+  collisions. Final synchronization failure retains exactly the edit's next
+  profile admission, including cancellation callback replacements.
+- Server edits likewise retain displayed row identity/title, copied connection,
+  sidebar/detail/name, profile observation and outer Back before dialogs.
+  Resolve without activating another server; guard the edit commit callback
+  before HTTP and recheck before merge admission and after every awaited UI
+  operation. Accepted writes invalidate shared catalogs and still synchronize
+  local metadata after navigation. Changed sources cannot receive additional
+  remote synchronization or cache deletion. Playback updates require the
+  original track/provider and complete owning-server identity, preventing
+  collisions between numeric artist IDs on different servers. Refresh the
+  retained detail directly without opening the overview or hiding its hero;
+  reject obsolete metadata before row mapping/profile admission. Final failure
+  retains exactly the edit's next profile admission.
 - On large libraries, do not open `AudioDatabase` for collision lookup on the UI
   thread after the rename dialog. Collision lookup and a collision-free rename
   share one background connection; only an actual collision returns to the UI
@@ -1752,6 +2301,52 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   cancelled requests independently of row count. The UI keeps successful rows
   when another source fails; only complete results enter `LibraryViewCache`.
   That cache atomically rejects results from an invalidated catalog generation.
+  `LibraryCatalogLoadCoordinator` owns this single cache and shared-view load
+  versions. A request captures owner, credential-free key, generation, version
+  and navigation token before source work. Independent typed source adapters
+  start together and combine in input order. Remote shared-view fan-out uses
+  `LibrarySourceBatchLoader` with all configured servers admitted concurrently
+  and one independent 20-second budget per server. Window server adapters return
+  rows or propagate errors; the scheduler alone creates sanitized outcomes.
+  Search/playlist concurrency remains independently bounded to three. Tests
+  compose this scheduler with catalog ownership for five-server admission,
+  ordered partial outcomes, late invalidation and complete empty recovery.
+  Obsolete/cancelled requests return no publishable result. Store checks current
+  request, key and filter eligibility before the existing complete-result/LRU
+  policy. Search, playlists and Mobile share this generation without sharing
+  catalog request versions. The window keeps source/filter adapters,
+  sorting/merging, binding and remote registration. LibraryCatalogLoadContext
+  captures copied track facets, entity favorite filters, artwork/drilldown
+  choices, remote favorites and cloned server/profile settings before loading.
+  Remote cache readers reapply captured favorites; full cache validation and
+  complete-only writes are unchanged. Local profile identity is inherited
+  through AudioDatabase's AsyncLocal into Task.Run. Contexts are transient and
+  never logged or persisted. LibraryCatalogConfiguration compares source order,
+  identity, name, connection/authentication, profile and streaming options.
+  Saving changed servers invokes InvalidateCatalogConfiguration immediately
+  after replacement and before subsequent awaits; profile changes share this
+  Dashboard/Genre Cloud/unified/similarity invalidation path. This also abandons
+  independent search/playlist publication through the unified invalidator. Tests
+  cover every compared field, held configuration publication/recovery and local
+  worker profile/favorite/artist/album scope isolation using synthetic SQLite.
+  Watcher callbacks may run on workers: immediately invalidate only thread-safe
+  Dashboard/Genre Cloud/unified cache generations. Coalesce UI cleanup and
+  refresh hints on the dispatcher. Capture search and playlist versions before
+  invalidation and abandon each independently only while its version remains
+  current; deferred watcher work must preserve newly admitted requests.
+  Similarity cleanup and notice updates stay on the dispatcher. Worker
+  invalidation and burst/newer-owner behavior have window-free and actual-window
+  regression coverage. Both Settings root-change callbacks use
+  CleanupLibraryRootsAsync with copied roots. Only a successful nonzero SQLite
+  removal raises the safe watcher notification; no-op/failure does not announce
+  a mutation. PrepareForLibraryImport invalidates shared catalog snapshots,
+  cancels the pending unified-load token and clears its outcome/retry state
+  before archive replacement, retaining existing search/playlist/playback
+  abandonment. Synthetic SQLite/HTTP tests reject held pre-cleanup and
+  pre-import publication and verify no-op generation stability. New
+  cancellation/request ownership is installed before cancelling old work, so
+  reentrant reloads retain the latest request. Coordinator tests run without a
+  window; isolated notice/search tests use synthetic data and fake HTTP.
   Navigation cancellation and load versions also reject late publication, and
   remote playback registration happens only after those checks. The current
   source outcomes drive a localized incomplete-load notice and **Try again**
@@ -1842,7 +2437,7 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   the source rate, then the first supported stereo format from 32-bit float,
   packed 24-bit PCM, and 16-bit PCM. Sources above the endpoint maximum are
   converted by FFmpeg; when only higher rates are available, the lowest one is
-  used.
+  used only if it remains within a configured positive output ceiling.
 - WASAPI plays DSF/DFF by converting DSD to PCM through `ffmpeg` without a
   temporary file using the same endpoint-aware sample-rate and precision
   selection as other PCM playback.
@@ -2065,6 +2660,10 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   language-specific title casing, not all caps.
 - All Settings buttons use the shared themed button style, including dynamic
   scan and remove buttons
+- Directories includes localized scan guidance below its folder list: use the
+  existing per-folder Scan action, follow row progress, save Settings after
+  completion, then open Tracks for normal double-click playback. This text
+  neither starts a scan nor implies that a configured source has indexed rows.
 - Settings ComboBoxes use fully themed templates, inputs should stretch to the
   available content width, and device information follows the active theme and
   title-bar color
@@ -2523,13 +3122,47 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
 - **Playlists**: display position, title, artist, album, and duration; sidebar
   entries open their live track list. Playlist tables include a first-column
   favorite heart and a source column immediately beside it.
+  `MainWindow.Playlists.Loading.cs` snapshots regular mixed-playlist entries and
+  batches local metadata off the dispatcher, closing SQLite before network work.
+  `PlaylistTrackBatchLoader` deduplicates IDs per server and sends at most 200
+  per request, with three concurrent requests and separate 20-second budgets
+  after admission. Successful batches survive other failures. Recompose rows in
+  stored order with distinct row objects and original entry IDs for duplicate
+  occurrences. Missing/deleted/unavailable entries carry a localized title and
+  opaque source context, without a playable path or track ID. They offer removal
+  only. Failed sources offer **Try again**, preserving usable rows, selection by
+  entry ID, and guarded deferred scroll restoration. Navigation and catalog
+  changes cancel/reject pending publication and playback registration. Mobile
+  browsing uses the same resolver without registration; mobile queue actions
+  register on the dispatcher and reject changed catalog generations. Imported
+  safe HTTP streams remain playable on desktop and omitted from mobile results.
+  Smart criteria use the asynchronous resolver described below.
 - **Smart playlists**: store JSON criteria instead of track rows, show an orange
   vector lightning icon using the same 13-px footprint and spacing as other
   sidebar icons, resolve live when opened, and do not permit manual entry
   removal. Criteria can include favourites, genre, format, bitrate, year,
   artist, album, duration, recently added/played windows, never played,
   playback-count ranges, alphabetical/random/recent/least-recent ordering, and a
-  result limit.
+  result limit. `MainWindow.SmartPlaylists.Loading.cs` captures criteria and
+  source/profile/favorite context, loads local candidates off the dispatcher,
+  and loads remote catalogs and strict similarity feature pages with at most
+  three simultaneous source loads and 60-second budgets starting after
+  admission. Sources excluded by criteria are skipped, except the similarity
+  reference's source, which must still provide its seed. SQLite is closed before
+  network awaits; matched local IDs are hydrated together after evaluation.
+  Source failures retain available rows and the existing retry notice. A missing
+  configured source is a failure, while a successful empty catalog is valid.
+  `SmartPlaylistSimilarityProjection` maps both remote feature vectors and the
+  persisted seed identity onto negative candidate IDs, retaining local IDs and
+  every stored filter without modifying saved JSON. Provider-local ID collisions
+  remain isolated. Only current version/generation results register playback
+  metadata; mobile browsing shares resolution without registration. Retry
+  preserves source/track selection and guarded scroll. Count previews use the
+  same resolver without row hydration, report only complete current-generation
+  counts, and display a seven-language unavailable message otherwise. Criteria
+  changes cancel before debounce; dialog close cancels pending work. Obsolete
+  completions and errors cannot replace current text. This path does not reuse
+  tolerant feature caches or schedule opportunistic audio-feature analysis.
 - **Save smart playlist**: available in the local and remote Orynivo Server
   Tracks views when facet filters are active **or** the search box holds a
   query; opens the compact `NewPlaylistDialog` and serializes the active
@@ -2588,3 +3221,237 @@ unsigned fallback or allow client-provided commands/paths to reach the helper.
   configured Orynivo Server / Plex server row additionally shows a live
   connection badge probed asynchronously so opening Settings stays instant.
   Reachable Orynivo Server rows also show the version returned by `/api/info`.
+
+### Background artist profile write ownership
+
+`EnsureArtistProfileAsync` delegates to an injectable download adapter and
+reserves the window artist write queue before authoritative SQLite manual-state
+readback. Download, profile persistence and off-thread artwork decoding share
+that reservation. Original row binding, identity, language and background owner
+remain required. Manual image observations independently reject old image
+publication. Session freshness suppression and owner-specific loading cleanup
+remain intact. This ordering is scoped to the window, not a SQLite/file
+transaction or a cross-client coordinator.
+
+### Remote artist context-menu image ownership
+
+`OpenOrynivoArtistImageSearchAsync` uses an injectable selection adapter
+retaining original binding, row identity, navigation and copied server
+connection. Its manual action shares ownership with detail image actions. After
+valid selection, it admits image intent and reserves the shared artist write
+queue through primary upload and unified synchronization. Recheck ownership
+after waiting and primary upload; obsolete work cannot begin fan-out or publish
+row artwork/status. Completed writes invalidate catalog snapshots even when
+publication is abandoned.
+
+### Settings missing artist image acceptance
+
+`MissingArtistImageWriter` retains shared artist admission through authoritative
+state readback, file/SQLite work or source-only upload. Embedded Settings
+injects the window queue and image-intent notification; standalone Settings owns
+its own queue. Recheck run/source ownership and normalized artist identity after
+waiting and readback. Skip manual, populated, unknown or obsolete targets
+without replacing biography. Complete server connection copies retain personal
+profile and streaming preferences. Eligibility is rechecked after preview
+acceptance; provider search and review remain sequential and outside write
+admission. Catalog invalidation follows admitted mutations, including
+cancellation after local file publication. This is window-scoped ordering, not a
+transaction or cross-client lock.
+
+### Missing artist artwork synchronization ownership
+
+`SynchronizeMissingArtistArtworkAsync` reserves the shared artist write queue
+through authoritative source refresh, bounded byte capture and local/remote
+mutations. Original copied source connections and enclosing artist-detail
+ownership are retained before waiting. Recheck donor availability and source
+identity; re-read each target before writing, skipping manual, populated,
+renamed or unavailable identities. Preserve the target biography from current
+metadata. Manual donor propagation notifies image intent and renews this
+operation's own observation; later user changes still reject subsequent writes.
+Catalog invalidation runs in finally after admitted changes, including
+cancellation after file publication. This is window-scoped ordering, not a
+transaction or cross-client lock.
+
+### Artist image intent observation lifetime
+
+`ArtistImageIntentOwnership` replaces last-target manual image epochs with
+disposable, dispatcher-affine observations for live operations. Each observed
+identity retains its rejection independently of later unrelated writes. Fixed
+source-local IDs and normalized names match across libraries; no mutation
+history survives completed observations. Profile loaders, background rows and
+missing artwork copying dispose observations on every exit. Local profiles bind
+resolved canonical metadata after readback without borrowing the previous
+artist's name. Manual upload/deletion fan-out notifies exact local IDs on the
+caller context before file/SQLite work, protecting profiles whose canonical name
+is still unresolved. Manual donor copying renews only its own observation. The
+pure helper is covered by tracked identity/lifetime tests and actual offline
+overlap fixtures. Write ordering remains window-scoped.
+
+Local artwork decoding opens read streams with deletion sharing. Atomic cache
+replacement and variant cleanup can proceed while an existing reader finishes
+decoding its original published bytes. Enclosing image guards still decide
+whether that decoded result may publish.
+
+### Artist detail Back scroll acceptance
+
+Artist detail captures the offset of its named outer `ArtistInfoScrollViewer`
+and exposes no selection from overlaid table rows. New unified artist admission
+starts at zero. Restore routes schedule the saved offset after layout, retaining
+the enclosing Back guard plus detail version, canonical name and visibility.
+Metadata refresh within the same detail retains its position. Actual offline
+Back-button fixtures cover source-aware origin selection/history, late
+remote/Now Playing profiles, delayed upload/search/refresh selection, and
+admitted image changes whose data may finish while UI publication is rejected. A
+bounded headless scroll host checks the compiled artist scroll control and
+current or obsolete deferred callbacks; MainWindow stays unshown and no playback
+starts.
+
+### Tracked Windows headless workflow suite
+
+`Orynivo.Ui.Smoke` is a separate executable in the solution, invoked by local
+full verification and Windows CI in Debug and Release. It seeds unique temporary
+SQLite data before application creation, never shows MainWindow, injects
+synthetic server transport and blocks external profile/image HTTP handlers.
+Fixed workflow diagnostics contain no credentials or real catalog metadata.
+Cached artist/Back scenarios include source-ID collision, deliberately late
+metadata response, valid image selection after navigation and compiled outer
+scroll layout. Reflection is confined to fixture adapters for the existing
+window-owned navigation model; production gains no test navigation model. A
+nonzero exit fails verification. The initial runtime contract is Windows-only.
+Ten additional search groups exercise real search/retry/restore adapters with
+synthetic source collisions, cancellation-insensitive late responses,
+partial/full failure versus successful empty results, seven-language
+presentation, retained retry rows, duplicate retry rejection and cache
+invalidation. Search Back retains source selection and history; newly typed
+queries reject obsolete restoration. Twelve remote album groups exercise both
+open overloads and the existing album restore adapter: deliberately held
+metadata must reject navigation/configuration/source changes before requesting
+tracks, overlapping opens/restores retain only the latest owner, mutable row
+fallbacks and logical IDs stay captured, and copied sources resolve their
+configured owner. These remote metadata groups use empty overview/track replies.
+Five local album groups hold dispatcher publication during reset, top-level or
+configuration changes, reject obsolete rows/header/fade/Back updates, retain the
+latest same-album publication and copy caller-owned logical IDs. A separate
+populated synthetic journey searches for a remote album with a colliding local
+ID, opens it through the existing row adapter, checks remote tracks/detail, and
+uses the actual Back handler to restore search selection, source, surface and
+history. It does not simulate pointer double-click dispatch or playback. Eight
+album cache groups use the actual remote catalog adapter and process-owned disk
+cache. Failed loads create no valid empty cache; full and empty recovery remain
+distinct from failure. A valid snapshot avoids another catalog request while
+applying current favorites. Changed library timestamps reject stale data;
+corrupt files rebuild, missing payloads preserve validated bytes, and artwork
+invalidation deletes the album list cache. Synthetic server stamps/responses
+only. Five unified catalog recovery groups use actual binding and Retry
+handlers. An isolated synchronization context observes the async-void Retry
+lifetime through its finally block, including abandoned requests; no fixed sleep
+stands in for completion. Tests retain partial rows/busy state, suppress
+duplicate retries, recover after failure, reject navigation/cache/configuration
+changes and retain newer admission during cancellation callbacks. All captured
+gates release during teardown. Server endpoint integration and Linux/macOS UI
+execution remain separate follow-ups.
+
+### Track endpoint integration and personal state
+
+LibraryEndpoints.MapLibraryEndpoints delegates track paging, by-ID resolution,
+single detail and favorite writes to MapTrackCatalogEndpoints. Production uses
+AudioDatabase.OpenDefault; an optional caller-owned connection factory permits
+isolated TestServer fixtures. Every request disposes its own connection, and the
+existing API-key/profile middleware remains required. Eight integration cases
+exercise ordered disjoint pages, page bounds, missing IDs, rejected requests
+before database access and overlapping profile reads after a favorite write.
+GetTrackListPage and GetTrackListByIds overlay active-profile favorites and
+ratings in SQLite, retaining existing legacy-column fallback and bounded paging.
+Tests seed synthetic SQLite, use fixed synthetic keys, disable host logging and
+release only their own SQLite pool. They do not start Program, hosted services,
+watchers, scans, FFmpeg or a listening TCP port. Playlist and original-file
+streaming integration are described below; generated-library measurements remain
+open.
+
+### Compact track profile consistency
+
+All five compact track query methods (GetTrackList, GetTrackListByAlbum,
+GetTrackListByPaths, GetTrackListByIds and GetTrackListPage) read active-profile
+favorites and personal ratings directly in SQLite. Explicit false and zero
+values override legacy columns; absent profile fields retain the established
+legacy fallback. Four synthetic Core profile cases check standard, alpha, beta
+and uninitialized profiles across all readers, including album artist filtering,
+duplicate/missing path or ID input and existing page/order semantics. Other DTO
+and entity query paths are outside this compact-track regression scope.
+
+### Playlist endpoint integration
+
+MapLibraryEndpoints delegates existing playlist routes to
+MapPlaylistCatalogEndpoints. Its optional connection factory follows the same
+per-request ownership and production OpenDefault contract as track mapping.
+Seven TestServer cases verify regular order/duplicates and missing input IDs,
+append/entry removal/deletion, shared playlists with request-profile track
+favorites/ratings, client favorite overrides and matching resolve counts,
+similarity vector resolution, invalid criteria/names and rejected mutations
+before database access. Playlist definitions remain shared; personal track state
+follows the request profile. Synthetic databases, fixed test keys and disabled
+host logging only; no startup services or TCP listener. Original-file
+range/cancellation and process-lifetime checks are described below; FFmpeg codec
+validation remains separate.
+
+### Original-file streaming integration
+
+MapStreamEndpoints delegates audio routes to MapAudioStreamEndpoints; artwork
+routes stay in the original mapper. The optional indexed-track connection
+factory uses OpenDefault in production and temporary SQLite in TestServer.
+Thirteen cases check full bytes/content type/length, closed/open/suffix ranges
+with 206 and Content-Range, unsatisfiable 416, invalid/multipart full fallback,
+missing tracks/files, invalid transcode options and authentication/profile
+rejection before database access. A gated response stream observes the actual
+file-result write token: after the write starts, client cancellation must reach
+RequestAborted, cancel writing and unwind the server request. Diagnostic
+timeouts are not latency budgets. Fixtures use synthetic opaque bytes without
+decoding audio, listening TCP ports or FFmpeg. This proves original-file
+cancellation through the in-memory pipeline, not FFmpeg process termination or a
+physical network disconnect; those require separate evidence.
+
+### Transcode process lifetime
+
+StreamEndpoints uses Services.TranscodeProcessRunner.PipeAsync for process
+start, stdout copy and natural exit. On every successfully started path, cleanup
+requests entire-tree termination if the child is still alive and awaits parent
+process exit without the already-cancelled request token. Already-exited races
+are accepted; a live-child kill failure is not silently swallowed. The caller
+retains Process disposal and response-stream ownership. Existing endpoint
+diagnostics remain outside the runner.
+
+Five tests execute a small managed child from the test-only TranscodeChild
+project: natural output, cancellation during a gated write, write failure,
+pre-cancellation and startup failure. They assert process exit before runner
+completion and keep the borrowed output stream open. Parent teardown stops only
+its own fixture process. The fixture is built/copied transitively by server
+tests, not shipped with the server. This tests a real managed-child lifetime,
+not FFmpeg codec behavior, descendant-process trees or a physical network
+disconnect.
+
+### Synthetic catalog measurements
+
+scripts/CatalogBench generates production-schema metadata in an explicit owned
+temporary SQLite directory, measures eight actual synchronous readers at 1,000
+and 100,000 tracks, validates counts and records seven samples after one warmup.
+Seeding is outside samples; no OpenDefault, UI, HTTP, scan or audio work runs.
+Reports contain fixed phases, counts, runtime/OS/architecture/processor count,
+elapsed samples and current-thread managed allocations, without source paths or
+personal data. Allocation counts exclude native SQLite memory and process RSS.
+Cleanup validates its temporary parent/prefix and clears only its own pools.
+This opt-in tool is not a CI latency gate. The maintained methodology and dated
+observations are in [CATALOG-MEASUREMENTS.md](CATALOG-MEASUREMENTS.md).
+
+### Composed playback workflow verification
+
+PlaybackSessionLifecycleTests composes production start/session ownership,
+preparation/readiness, retirement/drain and GaplessQueueRefreshCoordinator with
+controlled fake outputs. Four output-switch cases capture simulated current
+positions 25/69 seconds in running/paused state, wait for held old disposal,
+then seek and apply pause on the replacement before readiness. One queue-edit
+case changes synthetic queue input during held seek; all callers join until a
+second owned preparation captures the final queue and preserves position. Old
+tokens cancel, each output is disposed once and audible-lifetime tasks remain
+distinct from readiness. These checks do not initialize MainWindow, enumerate
+hardware or produce physical audio. The maintained evidence matrix is
+[WORKFLOW-TEST-COVERAGE.md](WORKFLOW-TEST-COVERAGE.md).

@@ -43,8 +43,85 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
+    private readonly QueueEditOwnership _queueEdits = new();
+    private GaplessQueueRefreshCoordinator? _gaplessQueueRefresh;
+
+    /// <summary>Owns original-reference resolution before an independent queue insertion.</summary>
+    /// <param name="path">Local path or opaque remote reference.</param>
+    /// <param name="playNext">Whether to insert after the current queue position.</param>
+    /// <returns>The resolved path, or null if unavailable; destructive supersession cancels lookup and acknowledgement.</returns>
+    private async Task<string?> InsertPlaybackQueueAsync(string path, bool playNext)
+    {
+        if (_playbackShuttingDown) throw new OperationCanceledException();
+        var edit = _queueEdits.Capture();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version);
+        string? resolved;
+        try { resolved = await ResolveRemoteMcpTrackForPlaybackAsync(path, IsCurrent, edit.Token); }
+        catch (Exception) when (!IsCurrent()) { throw new OperationCanceledException(); }
+        if (!IsCurrent()) throw new OperationCanceledException();
+        if (resolved is null) return null;
+        if (playNext) _queue.Insert(Math.Clamp(_queueIndex + 1, 0, _queue.Count), CreatePlaylistItem(resolved));
+        else _queue.Add(CreatePlaylistItem(resolved));
+        ResetQueuePlaybackState();
+        PersistPlaybackQueue();
+        RefreshQueueRowsIfVisible();
+        RefreshQueueNavigationButtons();
+        try { await RefreshActiveGaplessQueueAsync(); }
+        catch (Exception) when (!IsCurrent()) { throw new OperationCanceledException(); }
+        if (!IsCurrent()) throw new OperationCanceledException();
+        return resolved;
+    }
+
+    /// <summary>Owns queue generation and playback intent before resolution, replacement and player preparation.</summary>
+    /// <param name="paths">Ordered local paths or opaque remote references.</param>
+    /// <returns>The prepared queue size, or zero if no supplied track resolves.</returns>
+    private async Task<int> ReplacePlaybackQueueAsync(IReadOnlyList<string> paths)
+    {
+        if (_playbackShuttingDown)
+            throw new OperationCanceledException();
+        _queueEdits.Invalidate();
+        var edit = _queueEdits.Capture();
+        var intent = _playbackStarts.Begin();
+        bool IsCurrent() => !_playbackShuttingDown && _queueEdits.IsCurrent(edit.Version) && _playbackStarts.IsCurrent(intent);
+        _playbackPreparations.CancelAll();
+        using var preparation = _playbackPreparations.Begin();
+        using var lookupCancellation = CancellationTokenSource.CreateLinkedTokenSource(preparation.Token, edit.Token);
+        var requested = paths.ToArray();
+        var resolved = new List<string>(requested.Length);
+        try
+        {
+            foreach (var path in requested)
+            {
+                var playable = await ResolveRemoteMcpTrackForPlaybackAsync(path,
+                    IsCurrent, lookupCancellation.Token);
+                if (!IsCurrent())
+                    throw new OperationCanceledException();
+                if (playable is not null) resolved.Add(playable);
+            }
+        }
+        catch (Exception) when (!IsCurrent())
+        {
+            throw new OperationCanceledException();
+        }
+        if (!IsCurrent())
+            throw new OperationCanceledException();
+        if (resolved.Count == 0) return 0;
+        preparation.Dispose();
+        _queueEdits.Invalidate();
+        _queue.Clear();
+        foreach (var path in resolved) _queue.Add(CreatePlaylistItem(path));
+        _queueIndex = 0;
+        ResetQueuePlaybackState();
+        PersistPlaybackQueue();
+        RefreshQueueRowsIfVisible();
+        RefreshQueueNavigationButtons();
+        await StartCommandPlaybackAsync(resolved[0]);
+        return resolved.Count;
+    }
+
     private void RestorePlaybackQueueState()
     {
+        _queueEdits.Invalidate();
         _queue.Clear();
         using var db = AudioDatabase.OpenDefault();
         var snapshot = db.GetPlaybackQueue();
@@ -213,6 +290,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _queueEdits.Invalidate();
         _queue.Clear();
         foreach (var path in paths)
             _queue.Add(CreatePlaylistItem(path));
@@ -484,16 +562,33 @@ public partial class MainWindow : Window
     /// <summary>Handles the Up Next header button that clears the complete queue.</summary>
     /// <param name="sender">The button.</param>
     /// <param name="e">The click event data.</param>
-    private void ClearQueueButton_OnClick(object? sender, RoutedEventArgs e)
+    private async void ClearQueueButton_OnClick(object? sender, RoutedEventArgs e)
     {
-        ClearPlaybackQueue();
-        StatusTextBlock.Text = LocalizationManager.Current.QueueCleared;
+        var clearing = ClearPlaybackQueueAsync();
+        var intent = _playbackStarts.Current;
+        try
+        {
+            await clearing;
+            if (!_playbackShuttingDown && _playbackStarts.IsCurrent(intent))
+                StatusTextBlock.Text = LocalizationManager.Current.QueueCleared;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
+        catch (Exception) { StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped; }
     }
 
-    /// <summary>Clears the editable playback queue without stopping the currently playing item.</summary>
-    private void ClearPlaybackQueue()
+    /// <summary>Clears the queue and prepares current-track-only gapless output at its position and pause state.</summary>
+    /// <returns>Completion after the active gapless snapshot has been rebuilt.</returns>
+    private async Task ClearPlaybackQueueAsync()
     {
+        if (_playbackShuttingDown) throw new OperationCanceledException();
+        if (_player is null)
+        {
+            _playbackStarts.Invalidate();
+            _playbackPreparations.CancelAll();
+        }
         StopInfiniteMix();
+        _queueEdits.Invalidate();
         _queue.Clear();
         _queueIndex = -1;
         ResetQueuePlaybackState();
@@ -502,6 +597,7 @@ public partial class MainWindow : Window
         RefreshQueueNavigationButtons();
         ClearQueueButton.IsEnabled = false;
         SaveQueueAsPlaylistButton.IsEnabled = false;
+        if (_player is IGaplessAudioPlayer && !await RefreshActiveGaplessQueueAsync()) throw new OperationCanceledException();
     }
 
     private PlaylistItem? GetCurrentQueueItem() =>
@@ -525,20 +621,47 @@ public partial class MainWindow : Window
             RefreshQueueRows();
     }
 
-    private async Task RefreshActiveGaplessQueueAsync()
+    /// <summary>Coalesces queue changes until the owning gapless output reflects the latest queue.</summary>
+    /// <returns>Whether the final rebuilt player remains current, or no rebuild was needed.</returns>
+    private Task<bool> RefreshActiveGaplessQueueAsync()
     {
-        if (_player is not IGaplessAudioPlayer ||
-            string.IsNullOrWhiteSpace(_currentFilePath))
-        {
-            return;
-        }
+        return (_gaplessQueueRefresh ??= new GaplessQueueRefreshCoordinator(
+            () => _player is IGaplessAudioPlayer && !string.IsNullOrWhiteSpace(_currentFilePath),
+            JoinCurrentPlaybackPreparation, PrepareGaplessQueueRefresh,
+            _playbackStarts.IsCurrent,
+            () => _preparedGaplessQueuePaths.SequenceEqual(
+                BuildGaplessPlaybackItems(_currentFilePath!, true).Select(item => item.FilePath))))
+            .RefreshAsync();
+    }
 
-        var path = _currentFilePath;
-        var position = _player.Position;
-        var wasPaused = _player.IsPaused;
-        await StartPlaybackAsync(path, initialPosition: position);
-        if (wasPaused)
-            PausePlayback();
+    /// <summary>Adapts pending gapless seek preparation without creating another start.</summary>
+    /// <returns>Guarded readiness to join, or null when no current seek preparation exists.</returns>
+    private Task<bool>? JoinCurrentPlaybackPreparation()
+    {
+        if (_player is IGaplessAudioPlayer && _playbackPreparationReady is { IsCompleted: false } preparing &&
+            _playbackStarts.IsCurrent(_playbackPreparationIntent))
+            return AwaitPlaybackPreparationAsync(preparing, _playbackPreparationIntent);
+        return null;
+    }
+
+    /// <summary>Joins a pending seek without superseding its original playback command.</summary>
+    /// <param name="preparing">Current preparation publication.</param>
+    /// <param name="intent">Captured owning start.</param>
+    /// <returns>Whether its final player remains active after readiness.</returns>
+    private async Task<bool> AwaitPlaybackPreparationAsync(Task<IAudioPlayer?> preparing, long intent)
+    {
+        var player = await preparing;
+        return _playbackStarts.IsCurrent(intent) && player is not null && ReferenceEquals(_player, player);
+    }
+
+    /// <summary>Adapts current position and pause to one rebuild owned by the refresh coordinator.</summary>
+    /// <returns>The synchronously captured start intent and guarded prepared-player readiness.</returns>
+    private (long Intent, Task<bool> Ready) PrepareGaplessQueueRefresh()
+    {
+        var preparing = StartReadyPlaybackAsync(_currentFilePath!, initialPosition: _player!.Position,
+            initiallyPaused: _player.IsPaused);
+        var intent = _playbackStarts.Current;
+        return (intent, AwaitPlaybackPreparationAsync(preparing, intent));
     }
 
     private async void SaveQueueAsPlaylistButton_OnClick(object? sender, RoutedEventArgs e)

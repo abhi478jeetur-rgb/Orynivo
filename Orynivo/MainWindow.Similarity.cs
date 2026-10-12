@@ -92,6 +92,7 @@ public partial class MainWindow
             _infiniteMixEnabled = true;
             _infiniteMixPaused = false;
             _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
+            _queueEdits.Invalidate();
             _queue.Clear();
             // Keep an already playing title at the head of the queue. Replacing
             // the queue must never tear down the active player.
@@ -187,6 +188,7 @@ public partial class MainWindow
             _infiniteMixEnabled = true;
             _infiniteMixPaused = false;
             _lastInfiniteMixRefillAttempt = DateTimeOffset.MinValue;
+            _queueEdits.Invalidate();
             _queue.Clear();
             if (!string.IsNullOrWhiteSpace(activePlaybackPath))
                 _queue.Add(CreatePlaylistItem(activePlaybackPath));
@@ -318,7 +320,10 @@ public partial class MainWindow
     /// <summary>Appends the next distinct resolved similarity candidates to the active queue.</summary>
     /// <param name="batchSize">Maximum number of tracks to append.</param>
     /// <param name="refreshActivePlayback">Whether an active gapless player must receive the revised queue.</param>
-    private async Task RefillSimilarityMixAsync(int batchSize, bool refreshActivePlayback)
+    /// <param name="isCurrent">Dispatcher-owned publication guard.</param>
+    /// <param name="cancellationToken">Owning refill cancellation.</param>
+    /// <returns>The guarded refill lifetime.</returns>
+    private async Task RefillSimilarityMixAsync(int batchSize, bool refreshActivePlayback, Func<bool> isCurrent, CancellationToken cancellationToken)
     {
         var queued = _queue.Select(item => item.FilePath).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var added = 0;
@@ -330,8 +335,9 @@ public partial class MainWindow
                     _similarityMixCandidates.Skip(_similarityMixCursor).Take(take).ToList(),
                     vector => CamelotKey.TryParse(vector.CamelotKey, out var camelot) ? camelot : null)
                 .ToList();
+            var rows = await ResolveSimilarityRowsAsync(vectors, isCurrent, cancellationToken);
+            if (!isCurrent()) return;
             _similarityMixCursor += take;
-            var rows = await ResolveSimilarityRowsAsync(vectors);
             foreach (var row in rows)
             {
                 if (added == batchSize)
@@ -348,6 +354,7 @@ public partial class MainWindow
         RefreshQueueNavigationButtons();
         if (refreshActivePlayback && added > 0)
             await RefreshActiveGaplessQueueAsync();
+        if (!isCurrent()) return;
         if (_similarityMixCursor >= _similarityMixCandidates.Count && added == 0)
             StopInfiniteMix();
     }
@@ -440,61 +447,6 @@ public partial class MainWindow
         }).ConfigureAwait(true);
     }
 
-    /// <summary>
-    /// Loads the similarity vectors used to resolve a similarity smart playlist.
-    /// Remote vectors are re-keyed onto the smart-playlist candidate provider key
-    /// and pseudo-IDs so the shared Core resolver can match them; unavailable
-    /// servers are skipped. Blocks on the cached feature load, so it must run off
-    /// the UI thread.
-    /// </summary>
-    /// <param name="criteria">Criteria being resolved; vectors load only for a configured reference.</param>
-    /// <param name="remoteTracks">Pseudo-ID to (server, track) map produced by the candidate build.</param>
-    /// <returns>The translated vectors, or <see langword="null"/> when none are available.</returns>
-    private IReadOnlyList<SimilarityFeatureVector>? BuildSmartPlaylistSimilarityFeatures(
-        SmartPlaylistCriteria criteria,
-        Dictionary<long, (Orynivo.Streaming.OrynivoServerSettings Server, LibraryCatalogTrack Track)> remoteTracks)
-    {
-        if (string.IsNullOrWhiteSpace(criteria.SimilaritySourceKey) || criteria.SimilarityTrackId is null)
-            return null;
-
-        try
-        {
-            var vectors = LoadAvailableSimilarityFeaturesAsync().GetAwaiter().GetResult();
-            if (vectors.Count == 0)
-                return null;
-
-            var pseudoIdByRealTrack = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
-            foreach (var (pseudoId, entry) in remoteTracks)
-                pseudoIdByRealTrack[$"{entry.Server.Id}\u001f{entry.Track.Id}"] = pseudoId;
-
-            var translated = new List<SimilarityFeatureVector>(vectors.Count);
-            foreach (var vector in vectors)
-            {
-                if (!vector.SourceKey.StartsWith("orynivo:", StringComparison.Ordinal))
-                {
-                    translated.Add(vector);
-                    continue;
-                }
-
-                var serverId = vector.SourceKey["orynivo:".Length..];
-                if (!pseudoIdByRealTrack.TryGetValue($"{serverId}\u001f{vector.TrackId}", out var pseudoId))
-                    continue;
-                translated.Add(vector with
-                {
-                    SourceKey = GetServerSourceKey(serverId),
-                    TrackId = pseudoId
-                });
-            }
-
-            return translated.Count > 0 ? translated : null;
-        }
-        catch (Exception exception)
-        {
-            Debug.WriteLine($"Smart playlist similarity features failed: {exception.GetType().Name}");
-            return null;
-        }
-    }
-
     private async Task<List<SimilarityFeatureVector>> LoadAllSimilarityFeaturesAsync(Orynivo.Streaming.OrynivoServerSettings server)
     {
         var result = new List<SimilarityFeatureVector>();
@@ -508,11 +460,19 @@ public partial class MainWindow
         }
     }
 
-    private async Task<List<ContentRow>> ResolveSimilarityRowsAsync(IReadOnlyList<SimilarityFeatureVector> vectors)
+    /// <summary>Resolves similarity rows while guarding owning metadata publication.</summary>
+    /// <param name="vectors">Ordered recommendations.</param>
+    /// <param name="isCurrent">Optional dispatcher-owned publication guard.</param>
+    /// <param name="cancellationToken">Owning cancellation.</param>
+    /// <returns>Current resolved rows.</returns>
+    private async Task<List<ContentRow>> ResolveSimilarityRowsAsync(IReadOnlyList<SimilarityFeatureVector> vectors, Func<bool>? isCurrent = null, CancellationToken cancellationToken = default)
     {
+        isCurrent ??= () => true;
         var resolved = new Dictionary<(string SourceKey, long TrackId), ContentRow>();
         var localIds = vectors.Where(vector => vector.SourceKey == "local").Select(vector => vector.TrackId).ToList();
-        foreach (var track in await _localCatalogProvider.GetTracksByIdsAsync(localIds).ConfigureAwait(false))
+        var localTracks = await _localCatalogProvider.GetTracksByIdsAsync(localIds, cancellationToken);
+        if (!isCurrent()) return [];
+        foreach (var track in localTracks)
             resolved[("local", track.Id)] = ToCatalogTrackContentRow(track);
 
         foreach (var group in vectors.Where(vector => vector.SourceKey.StartsWith("orynivo:", StringComparison.Ordinal))
@@ -523,8 +483,8 @@ public partial class MainWindow
             if (server is null)
                 continue;
             var tracks = await CreateOrynivoCatalogProvider(server)
-                .GetTracksByIdsAsync(group.Select(vector => vector.TrackId).ToList())
-                .ConfigureAwait(false);
+                .GetTracksByIdsAsync(group.Select(vector => vector.TrackId).ToList(), cancellationToken);
+            if (!isCurrent()) return [];
             foreach (var track in tracks)
                 resolved[(group.Key, track.Id)] = ToCatalogTrackContentRow(track, server);
         }

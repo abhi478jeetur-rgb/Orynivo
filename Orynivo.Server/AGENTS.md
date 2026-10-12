@@ -180,3 +180,31 @@ This file applies to `Orynivo.Server/` and supplements `../AGENTS.md`.
 Consult the detailed endpoint, configuration, scan, cache, and package rules in
 the [project reference](../docs/PROJECT-REFERENCE.md) before changing those
 areas.
+
+- Track paging, by-ID/detail resolution and favorites map through
+  LibraryEndpoints.MapTrackCatalogEndpoints, called by MapLibraryEndpoints.
+  Production retains OpenDefault; injected factories are per-request owned and
+  disposed. Preserve authentication/profile middleware and SQLite paging.
+  TestServer integration must use explicit temporary databases without startup
+  scans/watchers/FFmpeg or process-wide data-directory changes.
+
+- Playlist routes map through MapPlaylistCatalogEndpoints, called by the normal
+  library mapper. Preserve shared playlist definitions and per-request profile
+  state for their tracks, ordered duplicate entries, current HTTP statuses and
+  client favorite overrides. Smart resolution and count must retain the shared
+  vector resolver. Isolated TestServer factories own one connection per request.
+
+- MapStreamEndpoints delegates audio routes to MapAudioStreamEndpoints while
+  retaining artwork routes. The optional factory owns one indexed-track
+  connection per request and defaults to OpenDefault. Preserve framework byte
+  ranges and response cancellation. Original-file TestServer cancellation must
+  observe a held actual write and server completion; it is not evidence of
+  FFmpeg process termination or physical-network behavior.
+
+- TranscodeProcessRunner owns start/copy/exit cleanup for the endpoint's
+  borrowed Process and response stream. Cancellation/write failure must request
+  child-tree termination and await parent exit before return; cleanup cannot
+  reuse the cancelled request token. Preserve natural exit and already-exited
+  races. Managed test children validate process lifetime, not FFmpeg codecs or
+  physical network/audio behavior; never launch arbitrary user-controlled test
+  commands.

@@ -2,7 +2,7 @@ using Orynivo.Library;
 
 namespace Orynivo;
 
-/// <summary>Owns copied facet selections for an asynchronous search without reading mutable window state.</summary>
+/// <summary>Owns copied facet selections for asynchronous catalog work without reading mutable window state.</summary>
 internal sealed class TrackFacetFilterSnapshot
 {
     private readonly bool _favoritesOnly;
@@ -31,6 +31,9 @@ internal sealed class TrackFacetFilterSnapshot
     /// <param name="sourceKey">Opaque local or server identity.</param>
     /// <returns>Whether the source may contribute search results.</returns>
     internal bool IncludesSource(string sourceKey) => _sources.Count == 0 || _sources.Contains(sourceKey);
+
+    /// <summary>Gets whether any captured facet, including source selection, is active.</summary>
+    internal bool HasFilters => HasTrackFilters || _sources.Count > 0;
 
     /// <summary>Gets whether track metadata filtering requires local facet rows.</summary>
     internal bool HasTrackFilters => _favoritesOnly || _genres.Count > 0 || _formats.Count > 0 || _bitrates.Count > 0;

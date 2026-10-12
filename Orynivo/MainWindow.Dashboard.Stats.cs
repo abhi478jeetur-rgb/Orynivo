@@ -1033,6 +1033,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _queueEdits.Invalidate();
         _queue.Clear();
         _queue.Add(CreatePlaylistItem(path));
         _queueIndex = 0;

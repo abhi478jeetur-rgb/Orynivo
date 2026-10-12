@@ -127,7 +127,7 @@ public sealed class McpTools(McpPlayerBridge bridge)
     // Playback control
     // ------------------------------------------------------------------
 
-    /// <summary>Plays the specified file or resumes the current track.</summary>
+    /// <summary>Starts playback through its owning source resolver or resumes the current track.</summary>
     /// <param name="path">Absolute path to play. Omit to resume.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Confirmation message.</returns>
@@ -144,12 +144,10 @@ public sealed class McpTools(McpPlayerBridge bridge)
                 await bridge.OnUiAsync(async () => await bridge.TogglePauseFunc(), ct);
             return "Resumed playback.";
         }
-        var resolved = await ResolvePlayablePathAsync(path);
-        if (resolved is null)
-            return $"Could not resolve remote track reference: {path}";
+        // Playback owns remote lookup, cancellation and stale metadata guards.
         if (bridge.PlayFileFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.PlayFileFunc(resolved), ct);
-        return $"Playing: {DisplayNameForPath(path, resolved)}";
+            await bridge.OnUiAsync(async () => await bridge.PlayFileFunc(path), ct);
+        return $"Playing: {DisplayNameForPath(path, path)}";
     }
 
     /// <summary>Toggles between paused and playing states.</summary>
@@ -250,11 +248,10 @@ public sealed class McpTools(McpPlayerBridge bridge)
         CancellationToken ct = default)
     {
         if (!bridge.IsToolEnabled("queue_append")) return "Tool is disabled.";
-        var resolved = await ResolvePlayablePathAsync(path);
+        var resolved = bridge.AppendToQueueFunc is null ? null :
+            await bridge.OnUiAsync(() => bridge.AppendToQueueFunc(path), ct);
         if (resolved is null)
             return $"Could not resolve remote track reference: {path}";
-        if (bridge.AppendToQueueFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.AppendToQueueFunc(resolved), ct);
         return $"Appended to queue: {DisplayNameForPath(path, resolved)}";
     }
 
@@ -269,11 +266,10 @@ public sealed class McpTools(McpPlayerBridge bridge)
         CancellationToken ct = default)
     {
         if (!bridge.IsToolEnabled("queue_play_next")) return "Tool is disabled.";
-        var resolved = await ResolvePlayablePathAsync(path);
+        var resolved = bridge.PlayNextFunc is null ? null :
+            await bridge.OnUiAsync(() => bridge.PlayNextFunc(path), ct);
         if (resolved is null)
             return $"Could not resolve remote track reference: {path}";
-        if (bridge.PlayNextFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.PlayNextFunc(resolved), ct);
         return $"Inserted as next: {DisplayNameForPath(path, resolved)}";
     }
 
@@ -290,8 +286,8 @@ public sealed class McpTools(McpPlayerBridge bridge)
         return "Playback queue cleared.";
     }
 
-    /// <summary>Replaces the entire playback queue with the given file paths and starts playback from the first track.</summary>
-    /// <param name="paths">Ordered list of absolute audio file paths for the new queue.</param>
+    /// <summary>Resolves and replaces the queue through its owning playback command.</summary>
+    /// <param name="paths">Ordered local paths or opaque remote references for the new queue.</param>
     /// <param name="ct">Cancellation token.</param>
     /// <returns>Confirmation message.</returns>
     [McpServerTool(Name = "replace_queue")]
@@ -301,21 +297,14 @@ public sealed class McpTools(McpPlayerBridge bridge)
         CancellationToken ct = default)
     {
         if (!bridge.IsToolEnabled("replace_queue")) return "Tool is disabled.";
-        var resolved = new List<string>(paths.Length);
-        foreach (var p in paths)
-        {
-            var r = await ResolvePlayablePathAsync(p);
-            if (r is not null)
-                resolved.Add(r);
-        }
-        if (resolved.Count == 0)
+        var count = bridge.ReplaceQueueFunc is null ? 0
+            : await bridge.OnUiAsync(() => bridge.ReplaceQueueFunc(paths), ct);
+        if (count == 0)
             return "No playable tracks: could not resolve any of the supplied paths.";
-        if (bridge.ReplaceQueueFunc is not null)
-            await bridge.OnUiAsync(async () => await bridge.ReplaceQueueFunc(resolved), ct);
-        var skipped = paths.Length - resolved.Count;
+        var skipped = paths.Length - count;
         return skipped > 0
-            ? $"Queue replaced with {resolved.Count} track(s); {skipped} could not be resolved."
-            : $"Queue replaced with {resolved.Count} track(s).";
+            ? $"Queue replaced with {count} track(s); {skipped} could not be resolved."
+            : $"Queue replaced with {count} track(s).";
     }
 
     // ------------------------------------------------------------------
@@ -624,19 +613,6 @@ public sealed class McpTools(McpPlayerBridge bridge)
     /// <returns>An <c>orynivo://serverId/track/trackId</c> reference.</returns>
     private static string BuildOrynivoTrackReference(OrynivoServerSettings server, long trackId) =>
         $"orynivo://{Uri.EscapeDataString(server.Id)}/track/{trackId.ToString(CultureInfo.InvariantCulture)}";
-
-    /// <summary>
-    /// Resolves a tool-supplied path (local file, real URL, or <c>orynivo://</c> remote reference)
-    /// into a playable path, registering remote track metadata as a side effect.
-    /// </summary>
-    /// <param name="path">The path or reference to resolve.</param>
-    /// <returns>The playable path, or <see langword="null"/> when a remote reference cannot be resolved.</returns>
-    private async Task<string?> ResolvePlayablePathAsync(string path)
-    {
-        if (bridge.ResolveRemoteTrackFunc is null || string.IsNullOrWhiteSpace(path))
-            return path;
-        return await bridge.ResolveRemoteTrackFunc(path);
-    }
 
     /// <summary>Masks the API key in a remote stream URL so it is never shown to the model.</summary>
     /// <param name="path">A path or URL that may contain a <c>key=</c> query parameter.</param>

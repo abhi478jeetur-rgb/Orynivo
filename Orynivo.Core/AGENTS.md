@@ -136,6 +136,13 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
 - A failed TagLib read must never upsert the file-system-only fallback record.
   Full, forced, watcher, and reconciliation scans retry boundedly, count a final
   failure, and preserve the existing database metadata unchanged.
+- For WavPack, technical property access can fail at extended sample rates while
+  tags remain readable. Preserve successful tags and supplement missing source
+  properties with a cancellable, 15-second FFprobe read of technical fields
+  only. Never probe failed tag opens, replace valid values or write source
+  files. CUE projection caches each physical source probe, including failure,
+  per sheet and applies source duration before computing the final segment
+  duration.
 - When an upsert changes a track's album identity inside the same physical album
   directory, carry the previous album's artwork and favorite flag to the target.
   Existing target artwork wins; favorites are combined rather than cleared.
@@ -310,7 +317,21 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
   diagnostics. `ArtistProfileService` prefers that image only when automatic
   image refresh is allowed; manual artist images must remain untouched.
   `ArtistImageSearchService` owns writes and explicit deletion of the
-  provider-local `artist-images/<id>.*` cache variants.
+  provider-local `artist-images/<id>.*` cache variants. Cache file stems and
+  save/delete wildcard patterns must use invariant-culture numeric artist IDs,
+  including negative server download cache identities. Shared in-process
+  mutation admission uses canonical data-directory plus artist identity, never
+  logged or persisted. Hold ownership through unique staging, publication and
+  old-format cleanup; remove idle gates after all active/waiting reservations
+  leave. Cancelled waiters must not release another writer. Cancellation before
+  publication and failed publication clean staging and preserve the prior image.
+  Wikipedia/Last.fm profile image downloads must use the same stream staging
+  path; never open the final cache file for direct provider streaming. Keep
+  caller-owned streams open, reject empty transfers before publication, and
+  preserve provider MIME/URL-extension fallback rules. UI callers must await
+  `DeleteImageAsync` or use a worker for legacy deletion. File serialization
+  does not order user intent or make SQLite metadata and cache files
+  transactional, and does not coordinate separate processes.
 - Web page fetching must retain SSRF protection, connect-time address checks,
   redirect and size limits, text-only responses, timeouts, and audit logging.
   The loopback/private/link-local/CGNAT/multicast/reserved address
@@ -319,12 +340,13 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
 - Streaming URL builders may carry credentials for immediate playback, but such
   URLs must never be persisted, logged, documented, or returned to a model.
 - Catalog reads expose an opt-in `requireComplete` mode for artists, albums,
-  track pages, facets, ID resolution, and categorized full search. Strict full
-  search requires all three category arrays; missing categories are invalid,
-  while three empty arrays are a valid no-match result. It must propagate HTTP,
-  payload, and cancellation failures; successful empty lists remain valid. Keep
-  the tolerant fallback for existing callers. Complete-catalog cache writers use
-  strict mode so a failed page cannot masquerade as the end of a catalog.
+  track pages, facets, ID resolution, similarity feature pages, and categorized
+  full search. Strict full search requires all three category arrays; missing
+  categories are invalid, while three empty arrays are a valid no-match result.
+  It must propagate HTTP, payload, and cancellation failures; successful empty
+  lists remain valid. Keep the tolerant fallback for existing callers.
+  Complete-catalog cache writers use strict mode so a failed page cannot
+  masquerade as the end of a catalog.
 - Shared release-update models verify the ECDSA P-256 signed manifest before an
   asset is selected and verify its SHA-256 digest after download. Consumers must
   never bypass either verification or accept an unsigned fallback.
@@ -344,3 +366,15 @@ areas.
   file at a reused path must discard the old initialization marker.
 - Use `GetTrackListPage` when only one ordered page is required; do not load the
   complete track list and page it in managed memory.
+
+- All compact track readers (full list, album, paths, IDs and pages) must
+  overlay active-profile favorites and user ratings in SQLite with the
+  established legacy-column fallback. Explicit false/zero state overrides legacy
+  values; absent state keeps fallback. Preserve bounded paging/batching and
+  caller ID order; never materialize the whole library to apply personal state
+  after paging.
+
+- Explicit ORYNIVO_DATA_DIR roots never import legacy Player data. Default-root
+  migration preserves current destination files, tolerates concurrent file
+  creation only for file-exists errors and marks completion only after success.
+  Keep migration tests on fixture-owned roots, never personal application data.

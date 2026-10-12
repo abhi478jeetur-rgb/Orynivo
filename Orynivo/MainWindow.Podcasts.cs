@@ -647,8 +647,13 @@ public partial class MainWindow : Window
             : string.Empty;
     }
 
+    /// <summary>Prepares an episode with saved resume progress without awaiting its end.</summary>
+    /// <param name="podcast">Owning podcast.</param>
+    /// <param name="episode">Selected episode.</param>
+    /// <returns>Player preparation, including initial resume seek.</returns>
     private async Task PlayPodcastEpisodeAsync(PodcastRecord podcast, PodcastEpisode episode)
     {
+        var intent = _playbackStarts.Current;
         RefreshQueueNavigationButtons();
         try
         {
@@ -658,10 +663,13 @@ public partial class MainWindow : Window
             if (downloaded is not null)
                 PodcastDownloadService.MarkUsed(podcast, episode);
 
-            await StartPlaybackAsync(
+            var ready = StartReadyPlaybackAsync(
                 downloaded ?? episode.AudioUrl,
                 podcastPlayback: new PodcastPlayback(podcast, episode));
+            intent = _playbackStarts.Current;
+            await ready;
         }
+        catch (Exception) when (_playbackShuttingDown || !_playbackStarts.IsCurrent(intent)) { }
         catch (OperationCanceledException)
         {
             StatusTextBlock.Text = LocalizationManager.Current.PlaybackStopped;

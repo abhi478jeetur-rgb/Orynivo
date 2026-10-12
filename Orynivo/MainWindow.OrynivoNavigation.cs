@@ -49,12 +49,66 @@ public partial class MainWindow : Window
     private Task OpenOrynivoArtistAlbumsAsync(long artistId, string? title) =>
         ShowUnifiedArtistAlbumsAsync(title ?? LocalizationManager.Current.Unknown);
 
-    /// <summary>Opens the tracks of a remote server album, pushing navigation state.</summary>
-    /// <param name="albumId">Remote server album identifier.</param>
-    /// <param name="title">Album title for the header.</param>
-    /// <param name="artist">Album artist for the header, or <see langword="null"/>.</param>
-    /// <param name="artistFilterId">Optional provider-local artist scope applied initially.</param>
-    /// <param name="artistFilterName">Optional artist name shown for the active scope.</param>
+    private readonly NavigationLoadOwnership _remoteAlbumOpens = new();
+    private CancellationTokenSource? _remoteAlbumOpenCts;
+
+    /// <summary>Abandons pending remote album metadata and deferred detail restoration.</summary>
+    private void CancelRemoteAlbumOpen()
+    {
+        _remoteAlbumOpens.Invalidate();
+        CancelAndDispose(ref _remoteAlbumOpenCts);
+    }
+
+    /// <summary>Loads remote metadata and opens detail only while the captured source owns navigation.</summary>
+    /// <param name="server">Captured owning server.</param>
+    /// <param name="fallback">Captured metadata used when the provider finds no album.</param>
+    /// <param name="artistFilterId">Captured provider-local artist scope.</param>
+    /// <param name="artistFilterName">Captured artist display name.</param>
+    /// <param name="logicalAlbumIds">Optional same-provider album IDs copied before awaiting.</param>
+    /// <returns>Current request after detail loading, or null when abandoned.</returns>
+    private async Task<NavigationLoadOwnership.Request?> LoadRemoteAlbumDetailAsync(
+        OrynivoServerSettings server,
+        LibraryCatalogAlbum fallback,
+        long? artistFilterId,
+        string? artistFilterName,
+        IReadOnlyList<long>? logicalAlbumIds = null)
+    {
+        var tag = _currentTopLevelTag;
+        var generation = _unifiedLibraryLoads.Generation;
+        var albumIds = logicalAlbumIds?.ToArray();
+        var previousCancellation = _remoteAlbumOpenCts;
+        _remoteAlbumOpenCts = new CancellationTokenSource();
+        var token = _remoteAlbumOpenCts.Token;
+        var request = _remoteAlbumOpens.Begin(token);
+        CancelAndDispose(ref previousCancellation);
+        bool CanPublish() => _remoteAlbumOpens.IsCurrent(request) &&
+            generation == _unifiedLibraryLoads.Generation &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, tag, StringComparison.Ordinal) &&
+            (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
+        if (!CanPublish()) return null;
+        try
+        {
+            var provider = CreateOrynivoCatalogProvider(server);
+            var album = await provider.GetAlbumAsync(fallback.Id, includeArtwork: true, cancellationToken: token);
+            if (!CanPublish()) return null;
+            await ShowProviderAlbumTracksAsync(provider, album ?? fallback,
+                artistFilterId, artistFilterName, albumIds);
+            return CanPublish() ? request : null;
+        }
+        catch (Exception) when (!CanPublish())
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Opens remote album tracks with source and artist scope captured before metadata loading.</summary>
+    /// <param name="albumId">Remote album identifier.</param>
+    /// <param name="title">Fallback album title.</param>
+    /// <param name="artist">Fallback album artist.</param>
+    /// <param name="artistFilterId">Optional provider-local artist scope.</param>
+    /// <param name="artistFilterName">Optional artist display scope.</param>
+    /// <returns>A task completing after detail loading or abandonment.</returns>
     private async Task OpenOrynivoAlbumTracksAsync(
         long albumId,
         string? title,
@@ -62,60 +116,46 @@ public partial class MainWindow : Window
         long? artistFilterId = null,
         string? artistFilterName = null)
     {
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        if (_activeOrynivoServer is not { } activeServer) return;
+        var server = (_settings.OrynivoServers ?? []).FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, activeServer.Id, StringComparison.Ordinal));
+        if (server is null) return;
+        _activeOrynivoServer = server;
+        var scopeId = artistFilterId ?? _activeArtistFilterId;
+        var scopeName = artistFilterName ?? _activeArtistFilterName;
+        var fallback = new LibraryCatalogAlbum(LibraryCatalogSource.OrynivoServer,
+            albumId, title ?? LocalizationManager.Current.Unknown, artist, null, null, null,
+            IsOrynivoFavorite(server, "Album", albumId));
         PushCurrentNavigationState();
         _orynivoNavigationStack.Push((_activeOrynivoView, null, null));
         BackButton.IsVisible = true;
-        if (_activeOrynivoServer is null)
-            return;
-
-        var provider = CreateOrynivoCatalogProvider(_activeOrynivoServer);
-        var album = await provider.GetAlbumAsync(albumId, includeArtwork: true)
-                    ?? new LibraryCatalogAlbum(
-                        LibraryCatalogSource.OrynivoServer,
-                        albumId,
-                        title ?? LocalizationManager.Current.Unknown,
-                        artist,
-                        null,
-                        null,
-                        null,
-                        IsOrynivoFavorite(_activeOrynivoServer, "Album", albumId));
-        await ShowProviderAlbumTracksAsync(
-            provider,
-            album,
-            artistFilterId ?? _activeArtistFilterId,
-            artistFilterName ?? _activeArtistFilterName);
+        await LoadRemoteAlbumDetailAsync(server, fallback, scopeId, scopeName);
     }
 
+    /// <summary>Opens remote row detail with fallback metadata and scope captured before awaiting.</summary>
+    /// <param name="row">Selected remote album row.</param>
+    /// <returns>A task completing after detail loading or abandonment.</returns>
     private async Task OpenOrynivoAlbumTracksAsync(ContentRow row)
     {
-        if (row.Id is not long albumId)
-            return;
-
+        if (!_navigationRestores.TryAdmitNavigation()) return;
+        if (row.Id is not long albumId) return;
+        var source = row.OrynivoServer ?? _activeOrynivoServer;
+        if (source is null || !string.Equals(_activeOrynivoServer?.Id, source.Id, StringComparison.Ordinal)) return;
+        var server = (_settings.OrynivoServers ?? []).FirstOrDefault(candidate =>
+            string.Equals(candidate.Id, source.Id, StringComparison.Ordinal));
+        if (server is null) return;
+        _activeOrynivoServer = server;
         var (artistFilterId, artistFilterName) = GetAlbumArtistScope(row);
+        var albumIds = row.LogicalAlbumIds?.ToArray();
+        var fallback = new LibraryCatalogAlbum(LibraryCatalogSource.OrynivoServer,
+            albumId, row.Title ?? LocalizationManager.Current.Unknown, row.Artist,
+            int.TryParse(row.Year, NumberStyles.Integer, CultureInfo.CurrentCulture, out var year) ? year : null,
+            row.ArtworkPath, row.ThumbnailPath, row.IsFavorite, row.ArtistId);
         PushCurrentNavigationState();
         _orynivoNavigationStack.Push((_activeOrynivoView, null, null));
         BackButton.IsVisible = true;
-        if (_activeOrynivoServer is null)
-            return;
-
-        var provider = CreateOrynivoCatalogProvider(_activeOrynivoServer);
-        var album = await provider.GetAlbumAsync(albumId, includeArtwork: true)
-                    ?? new LibraryCatalogAlbum(
-                        LibraryCatalogSource.OrynivoServer,
-                        albumId,
-                        row.Title ?? LocalizationManager.Current.Unknown,
-                        row.Artist,
-                        int.TryParse(row.Year, NumberStyles.Integer, CultureInfo.CurrentCulture, out var year) ? year : null,
-                        row.ArtworkPath,
-                        row.ThumbnailPath,
-                        row.IsFavorite,
-                        row.ArtistId);
-        await ShowProviderAlbumTracksAsync(
-            provider,
-            album,
-            artistFilterId,
-            artistFilterName,
-            row.LogicalAlbumIds);
+        await LoadRemoteAlbumDetailAsync(server, fallback, artistFilterId, artistFilterName, albumIds);
     }
 
     /// <summary>Deletes the cached remote album list after album artwork metadata changes.</summary>
@@ -156,6 +196,15 @@ public partial class MainWindow : Window
             : (_activeArtistFilterId, _activeArtistFilterName);
     }
 
+    /// <summary>Restores a source-bound album only while its overview and metadata requests remain current.</summary>
+    /// <param name="navigationTag">Source-bound remote navigation tag.</param>
+    /// <param name="albumId">Owning server's album identifier.</param>
+    /// <param name="albumTitle">Saved album title.</param>
+    /// <param name="artistFilterId">Optional provider-local artist scope.</param>
+    /// <param name="artistFilterName">Optional scoped artist display name.</param>
+    /// <param name="verticalOffset">Saved scroll offset.</param>
+    /// <param name="logicalAlbumIds">Optional album identifiers from the same provider.</param>
+    /// <returns>A task completing after restoration or rejection of an unavailable source.</returns>
     private async Task RestoreOrynivoAlbumTracksAsync(
         string? navigationTag,
         long albumId,
@@ -165,40 +214,43 @@ public partial class MainWindow : Window
         double? verticalOffset,
         IReadOnlyList<long>? logicalAlbumIds = null)
     {
-        if (string.IsNullOrWhiteSpace(navigationTag))
+        if (!ServerNavigationTarget.TryParse(navigationTag, out var target))
             return;
+        var server = (_settings.OrynivoServers ?? [])
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, target.ServerId, StringComparison.Ordinal));
+        if (server is null) return;
+        var restoreRequest = _navigationRestores.Context;
+        bool CanRestore() => (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest)) &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
+            (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
 
-        SelectNavigationItem(navigationTag);
-        await ShowTopLevelViewAsync(navigationTag);
-        if (_activeOrynivoServer is null)
-            return;
+        var generation = _unifiedLibraryLoads.Generation;
+        var albumIds = logicalAlbumIds?.ToArray();
+        var fallback = new LibraryCatalogAlbum(LibraryCatalogSource.OrynivoServer,
+            albumId, albumTitle ?? LocalizationManager.Current.Unknown, null, null, null, null,
+            IsOrynivoFavorite(server, "Album", albumId));
+        SelectNavigationItem(navigationTag!);
+        var overviewToken = new CancellationToken(canceled: true);
+        var overview = LoadTopLevelViewAsync(navigationTag!, token => overviewToken = token);
+        await overview;
+        if (overviewToken.IsCancellationRequested || generation != _unifiedLibraryLoads.Generation || !CanRestore()) return;
 
-        var provider = CreateOrynivoCatalogProvider(_activeOrynivoServer);
-        var album = await provider.GetAlbumAsync(albumId, includeArtwork: true)
-                    ?? new LibraryCatalogAlbum(
-                        LibraryCatalogSource.OrynivoServer,
-                        albumId,
-                        albumTitle ?? LocalizationManager.Current.Unknown,
-                        null,
-                        null,
-                        null,
-                        null,
-                        IsOrynivoFavorite(_activeOrynivoServer, "Album", albumId));
-        await ShowProviderAlbumTracksAsync(
-            provider,
-            album,
-            artistFilterId,
-            artistFilterName,
-            logicalAlbumIds);
-        RestoreSelectionFromCurrentItems(null, verticalOffset);
+        var request = await LoadRemoteAlbumDetailAsync(server, fallback,
+            artistFilterId, artistFilterName, albumIds);
+        if (request is null) return;
+        bool CanRestoreDetail() => _remoteAlbumOpens.IsCurrent(request) &&
+            generation == _unifiedLibraryLoads.Generation && CanRestore();
+        RestoreSelectionFromCurrentItems(null, verticalOffset, canRestore: CanRestoreDetail);
     }
 
-    /// <summary>Restores the filtered album list for a remote server artist.</summary>
+    /// <summary>Restores a remote artist list while its Back execution, overview and filtered load remain current.</summary>
     /// <param name="navigationTag">Remote server navigation tag to restore.</param>
     /// <param name="artistId">Remote server artist identifier.</param>
     /// <param name="artistName">Artist display name for the header.</param>
     /// <param name="selectedAlbumId">Album identifier to reselect.</param>
     /// <param name="verticalOffset">Optional vertical scroll offset to restore.</param>
+    /// <returns>A task completing after restoration or rejection of an unavailable source.</returns>
     private async Task RestoreOrynivoArtistAlbumsAsync(
         string? navigationTag,
         long artistId,
@@ -206,34 +258,55 @@ public partial class MainWindow : Window
         long? selectedAlbumId,
         double? verticalOffset)
     {
-        if (string.IsNullOrWhiteSpace(navigationTag))
+        if (!ServerNavigationTarget.TryParse(navigationTag, out var target))
             return;
+        var server = (_settings.OrynivoServers ?? [])
+            .FirstOrDefault(candidate => string.Equals(candidate.Id, target.ServerId, StringComparison.Ordinal));
+        if (server is null) return;
+        var restoreRequest = _navigationRestores.Context;
+        bool CanRestore() => (restoreRequest is null || _navigationRestores.IsCurrent(restoreRequest)) &&
+            ReferenceEquals(_activeOrynivoServer, server) &&
+            string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
+            (_settings.OrynivoServers ?? []).Any(candidate => ReferenceEquals(candidate, server));
 
-        SelectNavigationItem(navigationTag);
-        await ShowTopLevelViewAsync(navigationTag);
-        if (_activeOrynivoServer is null)
-            return;
+        var generation = _unifiedLibraryLoads.Generation;
+        SelectNavigationItem(navigationTag!);
+        var overviewToken = new CancellationToken(canceled: true);
+        await LoadTopLevelViewAsync(navigationTag!, admitted => overviewToken = admitted);
+        if (overviewToken.IsCancellationRequested || generation != _unifiedLibraryLoads.Generation || !CanRestore()) return;
 
-        _currentTopLevelTag = navigationTag;
+        _currentTopLevelTag = navigationTag!;
         _activeOrynivoView = "Albums";
         _activeArtistFilterId = artistId;
         _activeArtistFilterName = artistName;
-        ContentTitleTextBlock.Text = $"{_activeOrynivoServer.Name} · {artistName}";
-        await LoadOrynivoViewAsync(filterArtistId: artistId);
-        RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset);
+        ContentTitleTextBlock.Text = $"{server.Name} · {artistName}";
+        var detail = LoadOrynivoViewAsync(filterArtistId: artistId);
+        var detailToken = _orynivoViewCts?.Token;
+        await detail;
+        RestoreSelectionFromCurrentItems(selectedAlbumId, verticalOffset,
+            canRestore: () => CanRestore() && detailToken.HasValue && !detailToken.Value.IsCancellationRequested &&
+                generation == _unifiedLibraryLoads.Generation);
     }
 
+    /// <summary>Queues playable rows and starts the selected occurrence, preserving playlist duplicates.</summary>
+    /// <param name="row">Selected row occurrence.</param>
+    /// <param name="allRows">Ordered context rows, including any non-playable placeholders.</param>
+    /// <returns>A task completing after playback starts or reports its failure.</returns>
     private async Task PlayTrackFromRowsAsync(ContentRow row, List<ContentRow> allRows)
     {
         if (string.IsNullOrEmpty(row.FilePath))
             return;
 
+        var playableRows = allRows.Where(r => !string.IsNullOrEmpty(r.FilePath)).ToList();
+        var selectedIndex = PlaylistRowPlaybackIndex.Find(row, playableRows);
+        if (selectedIndex < 0) return;
         StopInfiniteMix();
+        _queueEdits.Invalidate();
         _queue.Clear();
-        foreach (var r in allRows.Where(r => !string.IsNullOrEmpty(r.FilePath)))
+        foreach (var r in playableRows)
             _queue.Add(ToPlaylistItem(r));
 
-        _queueIndex = _queue.IndexOf(_queue.FirstOrDefault(p => p.FilePath == row.FilePath) ?? _queue[0]);
+        _queueIndex = selectedIndex;
         ResetQueuePlaybackState();
         PersistPlaybackQueue();
         RefreshQueueNavigationButtons();

@@ -260,71 +260,153 @@ internal sealed class OrynivoServerNowPlayingMetadataProvider : INowPlayingMetad
         }
     }
 
-    /// <inheritdoc/>
-    public async Task<NowPlayingArtistProfile?> GetArtistProfileAsync(
+    /// <summary>Resolves a source-owned artist profile through the standard metadata interface.</summary>
+    /// <param name="artist">The artist identity to resolve.</param>
+    /// <param name="language">Preferred profile language.</param>
+    /// <param name="forceRefresh">Whether to download a fresh profile.</param>
+    /// <param name="cancellationToken">Token cancelling the profile request.</param>
+    /// <returns>The resolved profile, or <see langword="null"/> when unavailable or abandoned.</returns>
+    public Task<NowPlayingArtistProfile?> GetArtistProfileAsync(
         NowPlayingArtistContext artist,
         string language,
         bool forceRefresh,
         CancellationToken cancellationToken = default)
+        => GetArtistProfileForViewAsync(artist, language, forceRefresh, cancellationToken, null);
+
+    /// <summary>Retains copied source identity and enclosing view ownership between profile and image operations.</summary>
+    /// <param name="artist">The artist identity to resolve.</param>
+    /// <param name="language">Preferred profile language.</param>
+    /// <param name="forceRefresh">Whether to download a fresh profile.</param>
+    /// <param name="cancellationToken">Token cancelling the profile request.</param>
+    /// <param name="canPublish">Optional enclosing view ownership guard.</param>
+    /// <param name="canPublishImage">Optional independent manual-image ownership guard.</param>
+    /// <param name="runOrderedWrite">Optional shared artist batch admission adapter; invoked only for data work.</param>
+    /// <param name="downloadProfile">Optional external download adapter receiving source-owned cache identity and image policy.</param>
+    /// <returns>The resolved profile, or <see langword="null"/> when unavailable or abandoned.</returns>
+    internal async Task<NowPlayingArtistProfile?> GetArtistProfileForViewAsync(
+        NowPlayingArtistContext artist,
+        string language,
+        bool forceRefresh,
+        CancellationToken cancellationToken,
+        Func<bool>? canPublish,
+        Func<bool>? canPublishImage = null,
+        Func<Func<Task>, Task>? runOrderedWrite = null,
+        Func<long, bool, Task<ArtistProfileDownload?>>? downloadProfile = null)
     {
+        var server = new OrynivoServerSettings
+        {
+            Id = _server.Id, Name = _server.Name, BaseUrl = _server.BaseUrl,
+            ApiKey = _server.ApiKey, ProfileId = _server.ProfileId,
+            StreamingFormat = _server.StreamingFormat,
+            StreamingBitrateKbps = _server.StreamingBitrateKbps
+        };
+        bool IsCurrent() => !cancellationToken.IsCancellationRequested &&
+            _server.Id == server.Id && _server.Name == server.Name &&
+            _server.BaseUrl == server.BaseUrl && _server.ApiKey == server.ApiKey &&
+            _server.ProfileId == server.ProfileId && (canPublish?.Invoke() ?? true);
+        bool IsImageCurrent() => IsCurrent() && (canPublishImage?.Invoke() ?? true);
+        if (!IsCurrent()) return null;
         if (artist.ArtistId is not long artistId)
             return null;
 
-        var serverArtist = await _client.GetArtistAsync(_server, artistId, cancellationToken);
-        var imageIsManual = serverArtist?.ImageIsManual ?? false;
-
-        if (NowPlayingMetadataHelpers.NeedsProfileDownload(
-                forceRefresh,
-                serverArtist?.Biography,
-                serverArtist?.ProfileLanguage,
-                serverArtist?.ProfileFetchedAt,
-                language))
+        var serverArtist = await _client.GetArtistAsync(server, artistId, cancellationToken);
+        if (!IsCurrent()) return null;
+        // Metadata-only cached results need no mutation admission after image supersession.
+        if (!IsImageCurrent() && !NowPlayingMetadataHelpers.NeedsProfileDownload(forceRefresh,
+                serverArtist?.Biography, serverArtist?.ProfileLanguage, serverArtist?.ProfileFetchedAt, language))
         {
-            var profile = await ArtistProfileService.DownloadAsync(
-                artistId, artist.ArtistName, language, downloadImage: !imageIsManual, cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-
-            byte[]? imageData = null;
-            string? imageMime = null;
-            if (!string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
-            {
-                imageData = await File.ReadAllBytesAsync(profile.ImagePath, cancellationToken);
-                imageMime = NowPlayingMetadataHelpers.GuessImageMimeType(profile.ImagePath);
-            }
-
-            await _client.UpdateArtistProfileAsync(
-                _server, artistId, profile?.Biography, profile?.SourceUrl,
-                profile?.Language ?? language, imageData, imageMime, cancellationToken);
-
-            return new NowPlayingArtistProfile(
-                profile?.Biography, profile?.SourceUrl, profile?.Language ?? language,
-                profile?.ImagePath, DateTimeOffset.UtcNow.ToUnixTimeSeconds(), imageIsManual);
+            return new NowPlayingArtistProfile(serverArtist?.Biography, serverArtist?.SourceUrl,
+                serverArtist?.ProfileLanguage, null, serverArtist?.ProfileFetchedAt, serverArtist?.ImageIsManual ?? true);
         }
 
-        var imagePath = serverArtist?.HasImage == true
-            ? await DownloadServerArtistImageAsync(artistId, cancellationToken)
-            : null;
-        return new NowPlayingArtistProfile(
-            serverArtist?.Biography, serverArtist?.SourceUrl, serverArtist?.ProfileLanguage,
-            imagePath, serverArtist?.ProfileFetchedAt, imageIsManual);
+        NowPlayingArtistProfile? result = null;
+        async Task ResolveDataAsync()
+        {
+            if (!IsCurrent()) return;
+            if (runOrderedWrite is not null && IsImageCurrent())
+            {
+                // Manual data may have changed while this operation waited for admission.
+                serverArtist = await _client.GetArtistAsync(server, artistId, cancellationToken);
+                if (!IsCurrent()) return;
+            }
+            var imageIsManual = serverArtist?.ImageIsManual ?? true;
+            if (NowPlayingMetadataHelpers.NeedsProfileDownload(forceRefresh, serverArtist?.Biography,
+                    serverArtist?.ProfileLanguage, serverArtist?.ProfileFetchedAt, language))
+            {
+                var cacheId = ServerArtistProfileCacheIdentity.Create(server.Id, artistId);
+                var allowImage = IsImageCurrent() && !imageIsManual;
+                var profile = downloadProfile is null
+                    ? await ArtistProfileService.DownloadAsync(cacheId, artist.ArtistName, language,
+                        downloadImage: allowImage, cancellationToken)
+                    : await downloadProfile(cacheId, allowImage);
+                if (!IsCurrent()) return;
+                byte[]? imageData = null;
+                string? imageMime = null;
+                if (IsImageCurrent() && !string.IsNullOrWhiteSpace(profile?.ImagePath) && File.Exists(profile.ImagePath))
+                {
+                    imageData = await File.ReadAllBytesAsync(profile.ImagePath, cancellationToken);
+                    if (!IsCurrent()) return;
+                    if (!IsImageCurrent()) imageData = null;
+                    else imageMime = NowPlayingMetadataHelpers.GuessImageMimeType(profile.ImagePath);
+                }
+                await _client.UpdateArtistProfileAsync(server, artistId, profile?.Biography, profile?.SourceUrl,
+                    profile?.Language ?? language, imageData, imageMime, cancellationToken);
+                if (!IsCurrent()) return;
+                var imagePath = IsImageCurrent() ? profile?.ImagePath : null;
+                if (IsImageCurrent() && imageIsManual && serverArtist?.HasImage == true)
+                    imagePath = await DownloadServerArtistImageAsync(server, artistId, cancellationToken, IsImageCurrent);
+                if (!IsCurrent()) return;
+                result = new NowPlayingArtistProfile(profile?.Biography, profile?.SourceUrl,
+                    profile?.Language ?? language, IsImageCurrent() ? imagePath : null,
+                    DateTimeOffset.UtcNow.ToUnixTimeSeconds(), imageIsManual);
+                return;
+            }
+            var cachedPath = IsImageCurrent() && serverArtist?.HasImage == true
+                ? await DownloadServerArtistImageAsync(server, artistId, cancellationToken, IsImageCurrent)
+                : null;
+            if (!IsCurrent()) return;
+            result = new NowPlayingArtistProfile(serverArtist?.Biography, serverArtist?.SourceUrl,
+                serverArtist?.ProfileLanguage, IsImageCurrent() ? cachedPath : null,
+                serverArtist?.ProfileFetchedAt, imageIsManual);
+        }
+        if (runOrderedWrite is null) await ResolveDataAsync();
+        else await runOrderedWrite(ResolveDataAsync);
+        return IsCurrent() ? result : null;
     }
 
-    /// <summary>Downloads the server-cached artist image to the local remote-artwork cache for display.</summary>
+    /// <summary>Stages server-cached artist artwork and publishes it only while image ownership remains current.</summary>
+    /// <param name="server">Copied source connection admitted by the profile request.</param>
     /// <param name="artistId">Database ID of the artist on the remote server.</param>
-    /// <param name="cancellationToken">Cancellation token.</param>
-    /// <returns>The local cache file path, or <see langword="null"/> when the download fails.</returns>
-    private async Task<string?> DownloadServerArtistImageAsync(long artistId, CancellationToken cancellationToken)
+    /// <param name="cancellationToken">Cancellation during transfer or before cache publication.</param>
+    /// <param name="canPublish">Enclosing profile and source ownership guard.</param>
+    /// <returns>The published cache path, or <see langword="null"/> after failure or abandonment.</returns>
+    private async Task<string?> DownloadServerArtistImageAsync(
+        OrynivoServerSettings server,
+        long artistId,
+        CancellationToken cancellationToken,
+        Func<bool> canPublish)
     {
+        if (!canPublish()) return null;
         try
         {
-            var url = OrynivoServerClient.GetArtistArtworkUrl(_server, artistId);
+            var url = OrynivoServerClient.GetArtistArtworkUrl(server, artistId);
             var bytes = await ImageClient.GetByteArrayAsync(url, cancellationToken);
-            if (bytes.Length == 0)
+            if (!canPublish() || bytes.Length == 0)
                 return null;
-            var path = AppPaths.GetDataPath("remote-artworks", $"artist-info-{_server.Id}-{artistId}.img");
+            var path = AppPaths.GetDataPath("remote-artworks", $"artist-info-{server.Id}-{artistId}.img");
             Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-            await File.WriteAllBytesAsync(path, bytes, cancellationToken);
-            return path;
+            var temporaryPath = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+            try
+            {
+                await File.WriteAllBytesAsync(temporaryPath, bytes, cancellationToken);
+                if (!canPublish()) return null;
+                File.Move(temporaryPath, path, true);
+                return path;
+            }
+            finally
+            {
+                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
+            }
         }
         catch
         {

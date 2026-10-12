@@ -703,6 +703,7 @@ public partial class MainWindow : Window
                     .Where(folder => folder.IsFile)
                     .Select(folder => folder.FilePath)
                     .ToList() ?? [filePath];
+                _queueEdits.Invalidate();
                 _queue.Clear();
                 foreach (var path in siblingPaths)
                     _queue.Add(CreatePlaylistItem(path));
@@ -721,6 +722,7 @@ public partial class MainWindow : Window
                 return db.GetTracksByDirectory(folderPath);
             });
 
+            _queueEdits.Invalidate();
             _queue.Clear();
             foreach (var t in folderTracks)
             _queue.Add(CreatePlaylistItem(t.Path));

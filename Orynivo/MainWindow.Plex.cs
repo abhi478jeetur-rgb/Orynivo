@@ -44,7 +44,75 @@ namespace Orynivo;
 /// </summary>
 public partial class MainWindow : Window
 {
-    private async Task ShowPlexLibraryAsync(string tag)
+    private readonly NavigationLoadOwnership _plexLoads = new();
+
+    /// <summary>Captures transient Plex request inputs and publication ownership.</summary>
+    /// <param name="Request">Foreground cancellation and request identity.</param>
+    /// <param name="Server">Copied connection settings, never persisted by this context.</param>
+    /// <param name="Token">Transient authentication token.</param>
+    /// <param name="Section">Library section identity.</param>
+    /// <param name="View">Admitted view mode.</param>
+    /// <param name="NavigationTag">Admitted sidebar identity.</param>
+    /// <param name="Restore">Optional enclosing Back request.</param>
+    /// <param name="ParentIsCurrent">Optional enclosing root load ownership.</param>
+    private sealed record PlexLoadContext(NavigationLoadOwnership.Request Request,
+        PlexServerSettings Server, string? Token, string? Section, string View,
+        string NavigationTag, NavigationLoadOwnership.Request? Restore, Func<bool>? ParentIsCurrent);
+
+    /// <summary>Abandons Plex page, child and lazy-folder publication.</summary>
+    private void CancelPlexViewLoad()
+    {
+        _plexLoads.Invalidate();
+        CancelAndDispose(ref _plexViewCts);
+    }
+
+    /// <summary>Admits copied Plex inputs before cancelling older requests.</summary>
+    /// <param name="isParentCurrent">Optional enclosing root load ownership.</param>
+    /// <param name="allowSectionless">Whether a source-owned history detail may omit a library section.</param>
+    /// <returns>Admitted inputs, or null when the current view cannot load Plex.</returns>
+    private PlexLoadContext? BeginPlexLoad(Func<bool>? isParentCurrent, bool allowSectionless = false)
+    {
+        if (_activePlexServer is null || _currentTopLevelTag is null ||
+            !_navigationRestores.TryAdmitNavigation()) return null;
+        var isLibrary = !string.IsNullOrWhiteSpace(_activePlexSectionKey) &&
+            _currentTopLevelTag == $"PlexLibrary:{_activePlexServer.Id}:{_activePlexSectionKey}";
+        if (!isLibrary && !(allowSectionless && _activePlexSectionKey is null)) return null;
+        var previousCancellation = _plexViewCts;
+        _plexViewCts = new CancellationTokenSource();
+        var context = new PlexLoadContext(_plexLoads.Begin(_plexViewCts.Token),
+            new PlexServerSettings { Id = _activePlexServer.Id, Name = _activePlexServer.Name,
+                BaseUrl = _activePlexServer.BaseUrl },
+            _activePlexToken, _activePlexSectionKey, _activePlexView, _currentTopLevelTag,
+            _navigationRestores.Context, isParentCurrent);
+        if (isParentCurrent is null)
+        {
+            _topLevelViewLoads.Invalidate();
+            var previousTopLevelCancellation = _topLevelViewCts;
+            _topLevelViewCts = null;
+            CancelAndDispose(ref previousTopLevelCancellation);
+        }
+        CancelAndDispose(ref previousCancellation);
+        return IsCurrentPlexLoad(context) ? context : null;
+    }
+
+    /// <summary>Checks Plex request, source, section, navigation and enclosing ownership.</summary>
+    /// <param name="context">Captured transient request inputs.</param>
+    /// <returns>Whether the request may publish into the current window.</returns>
+    private bool IsCurrentPlexLoad(PlexLoadContext context) =>
+        _plexLoads.IsCurrent(context.Request) && _currentTopLevelTag == context.NavigationTag &&
+        _activePlexSectionKey == context.Section && _activePlexToken == context.Token &&
+        _activePlexServer?.Id == context.Server.Id &&
+        _activePlexServer.BaseUrl == context.Server.BaseUrl && _activePlexServer.Name == context.Server.Name &&
+        (_settings.PlexServers ?? []).Any(server => server.Id == context.Server.Id &&
+            server.BaseUrl == context.Server.BaseUrl && server.Name == context.Server.Name) &&
+        (context.Restore is null || _navigationRestores.IsCurrent(context.Restore)) &&
+        (context.ParentIsCurrent is null || context.ParentIsCurrent());
+
+    /// <summary>Initializes one configured Plex library under its enclosing root request.</summary>
+    /// <param name="tag">Configured library sidebar identity.</param>
+    /// <param name="isParentCurrent">Enclosing root load publication guard.</param>
+    /// <returns>A task completing after initial page loading or abandonment.</returns>
+    private async Task ShowPlexLibraryAsync(string tag, Func<bool> isParentCurrent)
     {
         var parts = tag.Split(':', 3);
         if (parts.Length != 3)
@@ -74,13 +142,17 @@ public partial class MainWindow : Window
 
         _activePlexView = "Artists";
         _plexNavigationStack.Clear();
+        _plexDetailVisible = false;
         _updatingViewMode = true;
         PlexArtistsViewRadioButton.IsChecked = true;
         _updatingViewMode = false;
         ContentTitleTextBlock.Text = _activePlexSectionTitle;
-        await LoadPlexViewAsync(reset: true);
+        await LoadPlexViewAsync(reset: true, isParentCurrent);
     }
 
+    /// <summary>Leaves published Plex detail for an independently owned library mode load.</summary>
+    /// <param name="sender">Checked Plex mode radio button.</param>
+    /// <param name="e">Mode selection event.</param>
     private async void PlexViewModeRadioButton_OnChecked(object? sender, RoutedEventArgs e)
     {
         if (!IsVisible || _updatingViewMode ||
@@ -91,6 +163,7 @@ public partial class MainWindow : Window
         }
 
         _plexNavigationStack.Clear();
+        _plexDetailVisible = false;
         _activePlexView = view;
         ContentTitleTextBlock.Text = _activePlexSectionTitle;
         BackButton.IsVisible = _navigationStack.Count > 0;
@@ -100,19 +173,22 @@ public partial class MainWindow : Window
     private async void PlexLoadMoreButton_OnClick(object? sender, RoutedEventArgs e)
         => await LoadPlexViewAsync(reset: false);
 
-    private async Task LoadPlexViewAsync(bool reset)
+    /// <summary>Loads a Plex page from captured inputs and rejects abandoned publication.</summary>
+    /// <param name="reset">Whether to replace the page instead of appending.</param>
+    /// <param name="isParentCurrent">Optional enclosing root request guard.</param>
+    /// <returns>A task completing after page publication or abandonment.</returns>
+    private async Task LoadPlexViewAsync(bool reset, Func<bool>? isParentCurrent = null)
     {
-        if (_activePlexServer is null || string.IsNullOrWhiteSpace(_activePlexSectionKey))
-            return;
-
-        CancelAndDispose(ref _plexViewCts);
-        _plexViewCts = new CancellationTokenSource();
-        var cancellationToken = _plexViewCts.Token;
-        var loadVersion = ++_plexViewLoadVersion;
-        var server = _activePlexServer;
-        var token = _activePlexToken;
-        var sectionKey = _activePlexSectionKey;
-        var view = _activePlexView;
+        var context = BeginPlexLoad(isParentCurrent);
+        if (context is null) return;
+        bool CanPublish() => IsCurrentPlexLoad(context) && _activePlexView == context.View;
+        var cancellationToken = context.Request.Token;
+        var server = context.Server;
+        var token = context.Token;
+        var sectionKey = context.Section!;
+        var view = context.View;
+        var start = reset ? 0 : _plexLoadedCount;
+        var previousRows = reset ? [] : ((ContentDataGrid.ItemsSource as IEnumerable<ContentRow>) ?? []).ToList();
         if (reset)
         {
             _plexLoadedCount = 0;
@@ -134,12 +210,8 @@ public partial class MainWindow : Window
             if (view == "Folders")
             {
                 await BuildPlexFolderTreeAsync(
-                    server,
-                    token,
-                    sectionKey,
-                    cancellationToken);
-                if (loadVersion != _plexViewLoadVersion ||
-                    !string.Equals(view, _activePlexView, StringComparison.Ordinal))
+                    context);
+                if (!CanPublish())
                 {
                     return;
                 }
@@ -160,11 +232,10 @@ public partial class MainWindow : Window
                 token,
                 sectionKey,
                 mediaType,
-                _plexLoadedCount,
+                start,
                 PlexPageSize,
                 cancellationToken);
-            if (loadVersion != _plexViewLoadVersion ||
-                !string.Equals(view, _activePlexView, StringComparison.Ordinal))
+            if (!CanPublish())
             {
                 return;
             }
@@ -174,8 +245,7 @@ public partial class MainWindow : Window
                 .ToList();
             var rows = reset
                 ? newRows
-                : ((ContentDataGrid.ItemsSource as IEnumerable<ContentRow>) ?? [])
-                    .Concat(newRows)
+                : previousRows.Concat(newRows)
                     .ToList();
             _plexLoadedCount = rows.Count;
             _plexTotalCount = page.TotalSize;
@@ -191,12 +261,19 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            if (!CanPublish()) return;
             StatusTextBlock.Text = string.Format(
                 LocalizationManager.Current.PlexConnectionFailed,
                 ex.Message);
         }
     }
 
+    /// <summary>Maps an admitted Plex item and registers playable track metadata.</summary>
+    /// <param name="item">Plex metadata to map.</param>
+    /// <param name="view">Entity view mode.</param>
+    /// <param name="server">Captured owning connection.</param>
+    /// <param name="token">Captured transient authentication token.</param>
+    /// <returns>A source-aware playable or navigable row.</returns>
     private ContentRow ToPlexContentRow(
         PlexMediaItem item,
         string view,
@@ -242,52 +319,114 @@ public partial class MainWindow : Window
         return row;
     }
 
-    private async Task ShowPlexChildrenAsync(ContentRow parent)
+    /// <summary>Reveals the shared Plex table while hiding competing full-area surfaces.</summary>
+    private void ShowPlexContentTable()
     {
-        if (_activePlexServer is null || string.IsNullOrWhiteSpace(parent.ExternalId))
-            return;
+        ContentDataGrid.IsVisible = true;
+        FolderTreeView.IsVisible = false;
+        AlbumArtworkListBox.IsVisible = false;
+        ArtistArtworkListBox.IsVisible = false;
+        SearchResultsScrollViewer.IsVisible = false;
+        GenreCloudPanel.IsVisible = false;
+        GenreCloudSurface.IsVisible = false;
+        AiChatViewControl.IsVisible = false;
+        PodcastEpisodesView.IsVisible = false;
+        DashboardScrollViewer.IsVisible = false;
+        InternetRadioView.IsVisible = false;
+        PodcastView.IsVisible = false;
+        LyricsView.IsVisible = false;
+        ArtistInfoView.IsVisible = false;
+        PodcastInfoView.IsVisible = false;
+        PlexLoadMoreButton.IsVisible = false;
+        PlexViewModeBorder.IsVisible = false;
+        AlbumViewModeBorder.IsVisible = false;
+        OrynivoServerViewModeBorder.IsVisible = false;
+        ClearQueueButton.IsVisible = false;
+        InfiniteMixButton.IsVisible = false;
+        InfiniteMixActionsPanel.IsVisible = false;
+        InfiniteMixStatusTextBlock.IsVisible = false;
+        SaveQueueAsPlaylistButton.IsVisible = false;
+        RestoreQueueButton.IsVisible = false;
+        TrackFilterPopup.IsOpen = false;
+        UpdateEntityFavoritesFilterToggle(null);
+        SearchTextBox.IsVisible = false;
+        TrackFilterButton.IsVisible = false;
+        SaveSmartPlaylistButton.IsVisible = false;
+        HideAlbumDetailHeader();
+        UpdateLibraryIntroCard(null);
+    }
 
+    /// <summary>Captures the existing Plex binding, source identity and paging before navigation.</summary>
+    /// <returns>Transient saved state, or null when no active Plex source exists.</returns>
+    private PlexNavigationState? CapturePlexNavigationState() => _activePlexServer is null ? null : new(
+        ContentTitleTextBlock.Text ?? string.Empty, _activePlexView,
+        (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? [],
+        ContentDataGrid.SelectedItem as ContentRow, CaptureCurrentVerticalOffset(),
+        _activePlexServer.Id, _activePlexServer.Name, _activePlexServer.BaseUrl,
+        _activePlexToken, _activePlexSectionKey, _currentTopLevelTag, _plexDetailVisible,
+        _activePlexSectionTitle, _plexLoadedCount, _plexTotalCount);
+
+    /// <summary>Checks retained Plex Back inputs against the active and configured source.</summary>
+    /// <param name="state">In-memory parent state captured before child loading.</param>
+    /// <returns>Whether saved rows and position still belong to the current source.</returns>
+    private bool IsCurrentPlexNavigationSource(PlexNavigationState state) =>
+        _currentTopLevelTag == state.NavigationTag && _activePlexSectionKey == state.Section &&
+        _activePlexToken == state.Token && _activePlexServer?.Id == state.ServerId &&
+        _activePlexServer.Name == state.ServerName && _activePlexServer.BaseUrl == state.BaseUrl &&
+        (_settings.PlexServers ?? []).Any(server => server.Id == state.ServerId &&
+            server.Name == state.ServerName && server.BaseUrl == state.BaseUrl);
+
+    /// <summary>Loads source-owned Plex children and retains the pre-load Back state.</summary>
+    /// <param name="parent">Source-aware artist or album selected for drill-down.</param>
+    /// <param name="captureParent">Whether intra-Plex Back should retain the parent view.</param>
+    /// <returns>A task completing after child publication or abandonment.</returns>
+    private async Task ShowPlexChildrenAsync(ContentRow parent, bool captureParent = true)
+    {
+        if (_activePlexServer is null || string.IsNullOrWhiteSpace(parent.ExternalId) ||
+            parent.PlexServerId != _activePlexServer.Id) return;
+        var parentKey = parent.ExternalId;
+        var title = parent.Title ?? _activePlexSectionTitle;
+        var targetView = parent.EntityType == "PlexArtist" ? "Albums" : "Tracks";
+        var previousState = CapturePlexNavigationState()!;
+        var context = BeginPlexLoad(null, allowSectionless: true);
+        if (context is null) return;
         StatusTextBlock.Text = LocalizationManager.Current.PlexLoading;
         try
         {
-            var page = await _plexClient.GetChildrenAsync(
-                _activePlexServer,
-                _activePlexToken,
-                parent.ExternalId);
-            _plexNavigationStack.Push(new PlexNavigationState(
-                ContentTitleTextBlock.Text ?? string.Empty,
-                _activePlexView,
-                (ContentDataGrid.ItemsSource as IEnumerable<ContentRow>)?.ToList() ?? []));
-            BackButton.IsVisible = true;
-            _activePlexView = parent.EntityType == "PlexArtist" ? "Albums" : "Tracks";
-            var rows = page.Items
-                .Select(item => ToPlexContentRow(
-                    item,
-                    _activePlexView,
-                    _activePlexServer,
-                    _activePlexToken))
-                .ToList();
-            ApplyColumns("Plex" + _activePlexView);
+            var page = await _plexClient.GetChildrenAsync(context.Server, context.Token,
+                parentKey, context.Request.Token);
+            if (!IsCurrentPlexLoad(context)) return;
+            var rows = page.Items.Select(item => ToPlexContentRow(item, targetView,
+                context.Server, context.Token)).ToList();
+            if (captureParent) _plexNavigationStack.Push(previousState);
+            BackButton.IsVisible = _plexNavigationStack.Count > 0 || _navigationStack.Count > 0;
+            _activePlexView = targetView;
+            _plexDetailVisible = true;
+            ApplyColumns("Plex" + targetView);
             ContentDataGrid.ItemsSource = rows;
-            ContentTitleTextBlock.Text = parent.Title ?? _activePlexSectionTitle;
+            ContentTitleTextBlock.Text = title;
             ContentCountTextBlock.Text = LocalizationManager.FormatEntryCount(rows.Count);
+            PlexLoadMoreButton.IsVisible = false;
             PlexViewModeBorder.IsVisible = false;
             StatusTextBlock.Text = string.Empty;
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
-            StatusTextBlock.Text = string.Format(
-                LocalizationManager.Current.PlexConnectionFailed,
-                ex.Message);
+            if (!IsCurrentPlexLoad(context)) return;
+            StatusTextBlock.Text = string.Format(LocalizationManager.Current.PlexConnectionFailed, ex.Message);
         }
     }
 
-    private async Task BuildPlexFolderTreeAsync(
-        PlexServerSettings server,
-        string? token,
-        string sectionKey,
-        CancellationToken cancellationToken)
+    /// <summary>Builds the Plex folder root under its captured request ownership.</summary>
+    /// <param name="context">Source-owned folder view request.</param>
+    /// <returns>A task completing after root publication or abandonment.</returns>
+    private async Task BuildPlexFolderTreeAsync(PlexLoadContext context)
     {
+        var server = context.Server;
+        var token = context.Token;
+        var sectionKey = context.Section!;
+        var cancellationToken = context.Request.Token;
         _localFolderTrackItems.Clear();
         _localFolderTrackHeaders.Clear();
         FolderTreeView.Items.Clear();
@@ -297,16 +436,20 @@ public partial class MainWindow : Window
             sectionKey,
             null,
             cancellationToken);
+        if (!IsCurrentPlexLoad(context)) return;
         foreach (var folder in page.Items)
-            FolderTreeView.Items.Add(CreatePlexFolderItem(folder, server, token, sectionKey));
+            FolderTreeView.Items.Add(CreatePlexFolderItem(folder, context));
     }
 
-    private TreeViewItem CreatePlexFolderItem(
-        PlexMediaItem item,
-        PlexServerSettings server,
-        string? token,
-        string sectionKey)
+    /// <summary>Creates one folder node whose lazy descendants retain root ownership.</summary>
+    /// <param name="item">Plex folder or track metadata.</param>
+    /// <param name="context">Owning folder root request and copied source.</param>
+    /// <returns>A node with guarded lazy expansion.</returns>
+    private TreeViewItem CreatePlexFolderItem(PlexMediaItem item, PlexLoadContext context)
     {
+        var server = context.Server;
+        var token = context.Token;
+        var sectionKey = context.Section!;
         var row = item.IsFolder || item.PartKeys.Count == 0
             ? null
             : ToPlexContentRow(item, "Tracks", server, token);
@@ -330,7 +473,7 @@ public partial class MainWindow : Window
 
         async Task LoadChildrenAsync()
         {
-            if (isLoaded)
+            if (!IsCurrentPlexLoad(context) || isLoaded)
                 return;
             if (loadingTask is not null)
             {
@@ -350,15 +493,19 @@ public partial class MainWindow : Window
                         server,
                         token,
                         sectionKey,
-                        item.Key);
+                        item.Key,
+                        context.Request.Token);
+                    if (!IsCurrentPlexLoad(context)) return;
                     treeItem.Items.Clear();
                     foreach (var child in page.Items)
-                        treeItem.Items.Add(CreatePlexFolderItem(child, server, token, sectionKey));
+                        treeItem.Items.Add(CreatePlexFolderItem(child, context));
                     isLoaded = true;
                     treeItem.InvalidateMeasure();
                 }
+                catch (OperationCanceledException) { }
                 catch (Exception ex)
                 {
+                    if (!IsCurrentPlexLoad(context)) return;
                     treeItem.Items.Clear();
                     treeItem.Items.Add(placeholder);
                     StatusTextBlock.Text = string.Format(
@@ -385,7 +532,7 @@ public partial class MainWindow : Window
                         return;
                     e.Handled = true;
                     await LoadChildrenAsync();
-                    if (isLoaded)
+                    if (isLoaded && IsCurrentPlexLoad(context))
                         treeItem.IsExpanded = true;
                     return;
                 }
@@ -401,7 +548,7 @@ public partial class MainWindow : Window
                 }
 
                 await LoadChildrenAsync();
-                if (isLoaded)
+                if (isLoaded && IsCurrentPlexLoad(context))
                     treeItem.IsExpanded = true;
             }),
             RoutingStrategies.Tunnel,
@@ -425,7 +572,7 @@ public partial class MainWindow : Window
 
             treeItem.IsExpanded = false;
             await LoadChildrenAsync();
-            if (isLoaded)
+            if (isLoaded && IsCurrentPlexLoad(context))
                 treeItem.IsExpanded = true;
         };
         return treeItem;
