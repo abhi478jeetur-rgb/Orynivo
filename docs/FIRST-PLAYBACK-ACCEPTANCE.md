@@ -3,9 +3,10 @@
 Updated: 2026-10-12.
 
 Implementation and automated checks are complete for the planned setup changes.
-Phase 5 remains open until human local and server-only audible playback is
-confirmed. A headless host cannot establish physical sound, native OS input,
-monitor rendering or assistive-technology behavior.
+Phase 5 is complete. On 2026-10-12 the user confirmed audible playback with a
+freshly configured local music folder and a server-only profile: both work. This
+is human-reported hardware evidence. Headless checks remain separate from
+physical sound, native OS input, monitor rendering and assistive technology.
 
 | Check                           | Evidence                                                                                                                    | State                         |
 | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------- | ----------------------------- |
@@ -17,8 +18,8 @@ monitor rendering or assistive-technology behavior.
 | Languages/themes/layout         | Seven locales, both themes, narrow/wide bounded controls, simulated 100/200% rendering scale                                | Checked                       |
 | Motion/contrast                 | No setup row/focus transitions; opaque theme text ratio at least 4.5 and focus border/fill ratio at least 3                 | Checked                       |
 | Visual inspection               | Local synthetic PNGs; representative German, Hindi, Russian and Chinese narrow views                                        | Checked within headless scope |
-| Real local first playback       | Human confirmation through normal UI                                                                                        | Pending                       |
-| Real server-only first playback | Human confirmation through normal UI                                                                                        | Pending                       |
+| Real local first playback       | User confirmed audible playback on 2026-10-12                                                                               | Confirmed by user             |
+| Real server-only first playback | User confirmed audible playback on 2026-10-12                                                                               | Confirmed by user             |
 
 The tracked workflow scope is in
 [WORKFLOW-TEST-COVERAGE.md](WORKFLOW-TEST-COVERAGE.md). Simulated scaling does
@@ -35,8 +36,9 @@ that interval and propagates other I/O failures without a completion marker.
 Explicit ORYNIVO_DATA_DIR profiles do not import legacy data, even without the
 marker prepared by the helper. Renaming the default Orynivo folder alone can
 still intentionally migrate the old Player configuration and caches again. Use
-the isolated check below for a clean test without moving personal data. Local
-and server-only audible acceptance remain pending after this fix.
+the isolated check below for a clean test without moving personal data. The
+subsequent user reply confirms both local and server-only audible playback; it
+does not identify a build version or separately confirm the copy-race fix.
 
 ## Isolated human check
 
