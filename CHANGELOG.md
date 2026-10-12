@@ -8,6 +8,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Extend tracked Windows UI smoke coverage with unified catalog retry and
+  configuration recovery: retained rows, duplicate suppression, stale navigation
+  and cache rejection, reentrant cancellation and fresh configuration loading.
+
 - Extend tracked Windows UI smoke coverage with eight remote album cache cases:
   failed/full/empty recovery, timestamp invalidation, current favorites, corrupt
   cache rebuilding, malformed payload preservation and artwork invalidation.

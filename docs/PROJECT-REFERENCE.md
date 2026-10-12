@@ -3269,5 +3269,11 @@ distinct from failure. A valid snapshot avoids another catalog request while
 applying current favorites. Changed library timestamps reject stale data;
 corrupt files rebuild, missing payloads preserve validated bytes, and artwork
 invalidation deletes the album list cache. Synthetic server stamps/responses
-only. Unified catalog UI retry, server endpoint integration and Linux/macOS UI
+only. Five unified catalog recovery groups use actual binding and Retry
+handlers. An isolated synchronization context observes the async-void Retry
+lifetime through its finally block, including abandoned requests; no fixed sleep
+stands in for completion. Tests retain partial rows/busy state, suppress
+duplicate retries, recover after failure, reject navigation/cache/configuration
+changes and retain newer admission during cancellation callbacks. All captured
+gates release during teardown. Server endpoint integration and Linux/macOS UI
 execution remain separate follow-ups.

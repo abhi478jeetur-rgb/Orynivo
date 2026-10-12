@@ -45,3 +45,8 @@ affect the pure desktop unit tests.
   synthetic source. Check actual persisted bytes and request counts; distinguish
   failed loads from successful empty responses and reapply current favorites.
   Never write a personal cache or forward synthetic requests to real HTTP.
+
+- Observe actual async-void Retry completion through its synchronization-context
+  lifetime, including finally and abandoned requests. Do not infer completion
+  from a cleared owner field or fixed sleeps. Continuations must return to the
+  owning UI dispatcher; release all captured transport gates during teardown.
