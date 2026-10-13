@@ -6,6 +6,23 @@ namespace Orynivo.Core.Tests;
 /// <summary>Verifies hierarchical genre aggregation and compact candidate selection.</summary>
 public sealed class GenreCloudServiceTests
 {
+    /// <summary>Precomputed ancestry agrees with independent descendant expansion across every taxonomy pair.</summary>
+    [Fact]
+    public void Ancestry_MatchesCompleteMultiParentTaxonomy()
+    {
+        using var stream = typeof(GenreCloudService).Assembly.GetManifestResourceStream("Orynivo.Library.GenreTaxonomy.json")!;
+        using var document = System.Text.Json.JsonDocument.Parse(stream);
+        var keys = document.RootElement.EnumerateArray().Select(row => row.GetProperty("key").GetString()!).ToArray();
+        foreach (var parent in keys)
+        {
+            var descendants = GenreCloudService.ResolveDescendantGenreKeys([parent]).ToHashSet(StringComparer.Ordinal);
+            foreach (var candidate in keys)
+                Assert.Equal(descendants.Contains(candidate), GenreCloudService.IsDescendantOrSelf(candidate, parent));
+        }
+        Assert.True(GenreCloudService.IsDescendantOrSelf("unmapped:zeuhl", "more-genres"));
+        Assert.False(GenreCloudService.IsDescendantOrSelf("unmapped:zeuhl", "rock"));
+    }
+
     /// <summary>Verifies recursive branch expansion and preservation of dynamic genre leaves.</summary>
     [Fact]
     public void ResolveLeafGenreKeys_ExpandsBranchesAndPreservesDynamicKeys()

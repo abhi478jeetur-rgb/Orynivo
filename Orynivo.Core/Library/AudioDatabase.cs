@@ -1548,8 +1548,20 @@ public sealed class AudioDatabase : IDisposable
     /// <summary>Loads compact album rows identified by album title and album artist.</summary>
     /// <param name="includeArtwork">Whether cached artwork paths should be included.</param>
     /// <returns>Albums ordered by title and album artist.</returns>
-    public List<AlbumInfo> GetAlbumsLite(bool includeArtwork = false)
+    public List<AlbumInfo> GetAlbumsLite(bool includeArtwork = false) => ReadAlbumsLite(includeArtwork, null);
+
+    /// <summary>Loads only existing compact albums with the requested stable identifiers.</summary>
+    /// <param name="ids">Album identifiers; duplicates and missing identifiers are ignored.</param>
+    /// <returns>Matching albums with artwork paths and active-profile favorites.</returns>
+    public List<AlbumInfo> GetAlbumsByIds(IEnumerable<long> ids) => ReadAlbumsLite(true, ids.Distinct().ToList());
+
+    /// <summary>Reads compact albums, optionally restricting the query to selected identifiers.</summary>
+    /// <param name="includeArtwork">Whether artwork paths are included.</param>
+    /// <param name="ids">Selected identifiers, or null for the complete catalog.</param>
+    /// <returns>Matching compact albums.</returns>
+    private List<AlbumInfo> ReadAlbumsLite(bool includeArtwork, IReadOnlyList<long>? ids)
     {
+        if (ids is { Count: 0 }) return [];
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = includeArtwork ? """
             SELECT
@@ -1587,6 +1599,16 @@ public sealed class AudioDatabase : IDisposable
                 al.title COLLATE NOCASE,
                 ar.name COLLATE NOCASE;
             """;
+        if (ids is not null)
+        {
+            var parameters = ids.Select((id, index) =>
+            {
+                var name = $"$album{index}";
+                Add(cmd, name, id);
+                return name;
+            });
+            cmd.CommandText = cmd.CommandText.Replace("WHERE EXISTS", $"WHERE al.id IN ({string.Join(",", parameters)}) AND EXISTS", StringComparison.Ordinal);
+        }
         Add(cmd, "$profile", ActiveProfileId);
         using var reader = cmd.ExecuteReader();
         var result = new List<AlbumInfo>();
@@ -2350,16 +2372,15 @@ public sealed class AudioDatabase : IDisposable
     {
         using var cmd = _conn.CreateCommand();
         cmd.CommandText = """
-            SELECT id,
-                   COALESCE((SELECT ps.is_favorite FROM profile_track_state ps
-                             WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), is_favorite),
+            SELECT tracks.id,
+                   COALESCE(ps.is_favorite, tracks.is_favorite),
                    genre, format, bitrate, album_id,
-                   COALESCE((SELECT ps.user_rating FROM profile_track_state ps
-                             WHERE ps.profile_id = $profile AND ps.track_id = tracks.id), user_rating),
+                   COALESCE(ps.user_rating, tracks.user_rating),
                    musicbrainz_rating, musicbrainz_rating_votes, musicbrainz_genres, musicbrainz_tags,
-                   (SELECT af.camelot_key FROM track_audio_features af
-                    WHERE af.track_id = tracks.id AND af.version = $audioFeatureVersion)
-            FROM tracks;
+                   af.camelot_key
+            FROM tracks
+            LEFT JOIN profile_track_state ps ON ps.track_id = tracks.id AND ps.profile_id = $profile
+            LEFT JOIN track_audio_features af ON af.track_id = tracks.id AND af.version = $audioFeatureVersion;
             """;
         Add(cmd, "$profile", ActiveProfileId);
         Add(cmd, "$audioFeatureVersion", AudioFeatureAnalysisService.CurrentVersion);

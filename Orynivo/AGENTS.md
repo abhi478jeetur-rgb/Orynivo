@@ -39,6 +39,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Genre Cloud shares local facet input only until catalog/profile invalidation.
+  Resolve selected albums by ID and load independent sources concurrently; never
+  fetch a complete album catalog for cloud recommendations. Preserve strict
+  failures, source identity and foreground publication ownership.
+
 - WASAPI MaxOutputSampleRateHz is a strict positive ceiling, not a preference.
   Never retain higher-rate fallback candidates. Zero retains unrestricted
   selection; no supported format within a positive cap must fail before output
@@ -356,14 +361,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   players, not active playback or queue state. Ordinary transitions keep the
   two-second wait budget; full device release drains all registered retirements,
   including older timed-out disposals and when no active player remains. A null
-  ordinary transition must not add another wait. Dispose off the dispatcher,
-  isolate disposal/reporting failures, remove completed work, and cancel unused
-  budget timers. Detach gapless event subscriptions with active ownership.
-  Regression tests use fake players and a controllable TimeProvider, never real
-  devices or single-sample wall-clock speed comparisons. Transport stop
-  registers disposal in the background. Normal window closure is deferred until
-  pending preparation and all retirements finish; reject new starts while
-  closing. Do not describe retirement alone as a complete session coordinator.
+  ordinary transition must not add another wait. Synchronous disposal runs on
+  independent LongRunning workers with TaskScheduler.Default and
+  DenyChildAttach, never shared thread-pool workers; blocking backends must not
+  occupy the pool needed by budget, preparation or drain continuations. Dispose
+  off the dispatcher, isolate disposal/reporting failures, remove completed
+  work, and cancel unused budget timers. Detach gapless event subscriptions with
+  active ownership. Regression tests use fake players and a controllable
+  TimeProvider, never real devices or single-sample wall-clock speed
+  comparisons. Transport stop registers disposal in the background. Normal
+  window closure is deferred until pending preparation and all retirements
+  finish; reject new starts while closing. Do not describe retirement alone as a
+  complete session coordinator.
 - MCP single-track Play forwards the opaque reference to PlayFileFunc so the
   existing playback preparation owns remote lookup. Mobile single-track Play
   claims a start intent and preparation lease before local/server identity
@@ -688,39 +697,40 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   data root; authenticated remote artwork URLs and API keys must never be
   written to that cache. The expensive merged nodes plus resolved track/album
   recommendations are retained separately in a bounded in-memory LRU cache keyed
-  by taxonomy level, configured server identities, and a catalog generation. The
-  key may contain a process-local hash of a server URL for configuration
-  invalidation, but never the URL or API key itself; the cache is never
-  persisted. Reopening a cached level must only rebuild its controls and bind
-  its existing rows; it must not repeat local facet queries, remote ID
-  resolution, or remote album-catalog loads. Local watcher changes and changed
-  remote `LibraryChangedAt` values increment the generation and clear completed
-  entries. An in-flight load is shared and may finish after its original
-  navigation is cancelled so an immediate return can reuse it. Settings >
-  Appearance exposes an independent clear action for these rendered mosaics. It
-  must not remove source artist images or any other remote artwork cache. The
-  same section persists a background mode of None, Albums, or Artists (default).
-  None must skip image resolution, network downloads, and rendering completely.
-  Albums use the source-aware resolved recommendation album rows. Derive the
-  column count and requested image count from the measured cloud-surface width,
-  capped at 32 images. Dedupe decoded images by perceptual fingerprint so copies
-  reached through different local or server identities are not repeated. Center
-  sparse sets as one balanced row or two balanced rows; never repeat them merely
-  to fill the available slots. A single row uses the complete mosaic height and
-  derives tile width from its actual column count; two rows divide the height
-  evenly. Preserve proportional fitting so this adaptive enlargement never crops
-  or distorts an image. Keep the independent cache-clear action beside the mode
-  selector in Appearance, and persist a zero-to-one opacity setting exposed as a
-  0–100% slider with a 50% default. Disable that slider while the None mode is
-  selected. The cloud footer starts Infinite Mix from the genres represented by
-  the current level. Below the root, store the selected parent branch in
-  `InfiniteMix.IncludedGenres`; at the root, store every visible root branch.
-  Candidate loading must expand each branch to itself plus every recursive
-  descendant so directly tagged parent tracks and all subgenres participate.
-  Open the normal profile dialog with these includes prefilled, then load those
-  branch snapshots instead of relying on a bounded root snapshot. Reuse the
-  normal initial-mix queue, progress overlay, active-playback preservation, and
-  persistence path.
+  by taxonomy level and configured server identities. Each entry retains the
+  generation of its completed load separately. The key may contain a
+  process-local hash of a server URL for configuration invalidation, but never
+  the URL or API key itself. Runtime rows are never persisted directly;
+  sanitized restart DTOs use the separate preview contract below. Cached levels
+  bind before revalidation; mode switches reuse resolved rows without source
+  requests. Local watcher changes and changed remote `LibraryChangedAt` values
+  increment the generation and reject in-flight cache ownership while retaining
+  completed entries as stale previews. An in-flight load is shared and may
+  finish after its original navigation is cancelled so an immediate return can
+  reuse it. Settings > Appearance exposes an independent clear action for these
+  rendered mosaics. It must not remove source artist images or any other remote
+  artwork cache. The same section persists a background mode of None, Albums, or
+  Artists (default). None must skip image resolution, network downloads, and
+  rendering completely. Albums use the source-aware resolved recommendation
+  album rows. Derive the column count and requested image count from the
+  measured cloud-surface width, capped at 32 images. Dedupe decoded images by
+  perceptual fingerprint so copies reached through different local or server
+  identities are not repeated. Center sparse sets as one balanced row or two
+  balanced rows; never repeat them merely to fill the available slots. A single
+  row uses the complete mosaic height and derives tile width from its actual
+  column count; two rows divide the height evenly. Preserve proportional fitting
+  so this adaptive enlargement never crops or distorts an image. Keep the
+  independent cache-clear action beside the mode selector in Appearance, and
+  persist a zero-to-one opacity setting exposed as a 0–100% slider with a 50%
+  default. Disable that slider while the None mode is selected. The cloud footer
+  starts Infinite Mix from the genres represented by the current level. Below
+  the root, store the selected parent branch in `InfiniteMix.IncludedGenres`; at
+  the root, store every visible root branch. Candidate loading must expand each
+  branch to itself plus every recursive descendant so directly tagged parent
+  tracks and all subgenres participate. Open the normal profile dialog with
+  these includes prefilled, then load those branch snapshots instead of relying
+  on a bounded root snapshot. Reuse the normal initial-mix queue, progress
+  overlay, active-playback preservation, and persistence path.
 - Matching local and Orynivo Server artists use
   `ArtistNameNormalizer.CreateComparisonKey` and one `UnifiedArtist` row. Its
   album drill-down combines every matching library while retaining each album's
@@ -1423,11 +1433,29 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   `logs/dashboard-performance.log`. Keep this persistence off the UI thread and
   never add media names, paths, server URLs, API keys, or other credentials to
   the diagnostic payload.
-- Expensive Dashboard album aggregates use one versioned in-memory catalog
-  snapshot per recommendation profile and configured server set. Concurrent
-  builds must await the same in-flight load. Local watcher changes and changed
-  remote `LibraryChangedAt` values invalidate it; cheap listening statistics,
-  calendar data, and recently played rows remain outside this cache.
+- Dashboard retains four section hosts (hero, media, recommendations, stats) and
+  refreshes their data independently. Compare display fingerprints before
+  rebuilding; unchanged controls retain scroll and animation state. Rebuild
+  retained data immediately on language, theme or responsive-layout changes,
+  without awaiting network data. Coalesce in-flight expensive source phases.
+  Guard section publication by build, root navigation, catalog generation and
+  outer Back ownership. The shared Dashboard surface must never replace Show all
+  pages after navigation.
+- Dashboard/Genre Cloud bypass the blocking content overlay and final whole-view
+  fade. Render retained content before awaiting revalidation. Genre Cloud keeps
+  stale bounded session entries after ordinary catalog notifications, but clears
+  them on profile/source changes. Only complete refreshes replace retained cloud
+  data; keep mode switches on existing resolved rows without fresh catalog work.
+- ViewPreviewStore owns atomic off-thread restart storage: 64 files, at most 4
+  MiB per file, seven-day reads. Persist only sanitized display DTOs and opaque
+  source IDs, never settings objects, API keys, authenticated URLs or bitmaps.
+  Reconstruct remote paths from current configuration on admission. Profile,
+  source and authentication changes reject older writes and clear previews;
+  navigation alone must not discard completed background cache work. Corrupt,
+  missing or oversized previews are cache misses. Test restart/held HTTP,
+  unchanged/changed data, failed refresh, configuration and secret exclusion
+  against synthetic data; do not infer a portable latency budget from these
+  ordering checks.
 - The complete unfiltered shared Artists, Albums, and Tracks results use a
   three-entry LRU session cache. Configured-server identity and a generation
   form the key; library-version, watcher, favorite, and artwork changes advance
@@ -1518,6 +1546,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   bindings must not arrange a newer cloud.
 - A cached Genre Cloud level renders immediately and must not retain the
   first-load branch-transition delay.
+- Uncached cloud admission immediately hides the previous level/results and
+  displays localized assembly feedback. Percentages count completed source and
+  assembly steps with CompletedWorkProgress, never fabricated time-based
+  increments. Shared work owns its counter; UI polling/cleanup retains
+  foreground request identity. Stop polling on cache publication, cancellation,
+  failure and navigation; obsolete cleanup must not affect newer loading or
+  another view.
 - `AppSettings.LastMainView` persists every selectable sidebar leaf tag, not a
   hard-coded view subset. Section and library-group containers, empty hints, and
   disabled Plex server headings are never persisted. Synchronously built dynamic

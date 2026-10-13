@@ -434,18 +434,21 @@ WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
   IDs, display name); multiple profiles allow switching between output devices
   without reconfiguring each time
 - `Orynivo/Audio/AudioPlayerRetirement.cs`: UI-free ownership of detached-player
-  background disposal. `MainWindow.StopPlaybackAsync` clears window playback
-  state, removes the gapless event subscription, and transfers its detached
-  player to this helper. Ordinary transitions wait at most two seconds for the
-  current disposal; an empty ordinary transition returns immediately. Timed-out
-  workers remain tracked until completion. A complete output-release wait covers
-  every retirement already registered, even when no active player remains.
-  Disposal and existing error-sink failures are isolated; completed work and
-  unused budget timers are removed. The injected TimeProvider makes deadline
-  tests deterministic. PlaybackSessionCoordinator owns active output and its
-  cancellation. Queue, history, source context and UI cleanup remain
-  window-owned; pending-start tracking is separate from this retirement helper.
-  No backend selection, PCM/DSD processing or native output changes are
+  background disposal. Each synchronous backend disposal uses an independent
+  LongRunning worker on TaskScheduler.Default with DenyChildAttach, so blocked
+  drivers do not occupy shared thread-pool workers needed by timeout callbacks,
+  preparation or drain continuations. `MainWindow.StopPlaybackAsync` clears
+  window playback state, removes the gapless event subscription, and transfers
+  its detached player to this helper. Ordinary transitions wait at most two
+  seconds for the current disposal; an empty ordinary transition returns
+  immediately. Timed-out workers remain tracked until completion. A complete
+  output-release wait covers every retirement already registered, even when no
+  active player remains. Disposal and existing error-sink failures are isolated;
+  completed work and unused budget timers are removed. The injected TimeProvider
+  makes deadline tests deterministic. PlaybackSessionCoordinator owns active
+  output and its cancellation. Queue, history, source context and UI cleanup
+  remain window-owned; pending-start tracking is separate from this retirement
+  helper. No backend selection, PCM/DSD processing or native output changes are
   introduced here.
 - `Orynivo/Audio/PlaybackSessionCoordinator.cs`: single dispatcher-affine active
   output and linked cancellation owner. TryBegin admits current uncancelled
@@ -2789,6 +2792,60 @@ WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
   no persisted ID.
 
 ## Dashboard
+
+Dashboard and Genre Cloud admit visible content before network completion and
+bypass the shared blocking overlay/final whole-surface fade. Dashboard keeps
+four stable section hosts in `MainWindow.Dashboard.Refresh.cs`; hero counts,
+media, recommendations and listening statistics refresh independently. Display
+fingerprints retain unchanged controls. Expensive in-flight phases are shared;
+publication retains build/root navigation, catalog generation and outer Back
+ownership. Show all pages retain their separate ownership of the shared panel.
+
+Genre Cloud separates stable cache identity from completed-load generation.
+Ordinary invalidation rejects old source work while keeping up to sixteen stale
+levels available for immediate display. Root visits and stale levels revalidate
+behind their interactive presentation. Failed complete-source refreshes retain
+old data; changed results restore source-aware selection and guarded scroll.
+Unchanged results preserve node controls. Mode switches reuse resolved data.
+
+Cloud source reads share local facet input within one catalog generation;
+invalidation drops the shared task and old work cannot repopulate it.
+Independent remote track and album groups load concurrently; only selected
+albums are read through `GetAlbumsByIds`, never a complete album catalog.
+Authenticated `POST /api/albums/by-ids` accepts at most 100 IDs and retains
+active-profile favorites, artwork paths and artist identity. The strict client
+falls back only for 404/405 to detail requests with four workers; other failures
+propagate. `GenreCloudService` precomputes immutable multi-parent ancestor sets
+and normalized fallback phrases. Each snapshot resolves repeated raw genre
+values once while keeping per-track identities, ratings and candidate ordering.
+Facet SQL joins profile state and current-version audio features rather than
+running three correlated subqueries per track. Lucene remains the full-text
+index: it has no dedicated taxonomy facets or album-ID fields, so it is not used
+as a substitute for authoritative genre/profile metadata.
+
+Uncached foreground branch admission hides the old cloud and recommendation
+hosts before the first await. `MainWindow.GenreCloud.Loading.cs` displays a
+localized assembly panel and observes the shared `CompletedWorkProgress`
+counter. Its fixed work units cover local facets, listening weights, each
+configured remote source, composition, track resolution and album resolution.
+Percentages count successful steps; step durations can differ. An indeterminate
+bar covers preview lookup before source admission. Cache publication immediately
+removes foreground feedback while background revalidation remains interactive.
+The timer, cancellation and completion retain the original foreground owner;
+obsolete work cannot hide another request's loading panel or destination view.
+
+`MainWindow.ViewPreviews.cs` projects separate restart DTOs into
+`ViewPreviewStore`: display data, normalized options and opaque source IDs only.
+Never serialize runtime rows/settings, credentials, authenticated URLs or
+bitmaps. Remote playback/artwork addresses are reconstructed with current
+settings; unsafe history paths are removed from disk DTOs. Profile/source
+identity selects hashed filenames. Configuration/authentication/profile changes
+reject old writes and clear retained previews. The atomic writer uses unique
+staging files and off-thread I/O, with at most 64 files, 4 MiB per file and a
+seven-day read lifetime. Missing/corrupt/incomplete/oversized files are cache
+misses. Cold Dashboard visits paint the greeting first; absent cloud previews
+fall back to normal data loading. These guarantees concern ordering and
+responsiveness, not a measured portable first-frame deadline.
 
 - The top sidebar item has tag `"Dashboard"`
 - **Internet Radio** appears directly below Dashboard. It searches Radio

@@ -4,6 +4,41 @@ All notable changes to Orynivo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.48.0] - 2026-10-12
+
+### Changed
+
+- Genre Cloud resolves selected albums instead of loading complete catalogs,
+  loads independent sources concurrently, and reuses local genre inputs until
+  catalog invalidation. Genre ancestry and phrase matching are precomputed, and
+  repeated genre values are classified once per snapshot. Joined facet reads
+  retain profile ratings, favorites and MusicBrainz enrichment. Updated servers
+  support bounded album batches; older servers use bounded detail requests.
+
+- Selecting an uncached Genre Cloud branch immediately replaces its old display
+  with a localized assembly message and a bar showing completed work steps.
+  Cached levels still appear directly; cancellation and navigation release only
+  the owning loading state.
+
+- Dashboard and Genre Cloud show their last cached display before background
+  refresh, including after restarting Orynivo. Dashboard sections refresh
+  independently, unchanged data retains existing controls, and cached views
+  remain interactive without the blocking loading overlay. Restart previews
+  exclude credentials and authenticated URLs and are bounded by size, age and
+  file count.
+
+### Fixed
+
+- Catalog changes retain the last Genre Cloud display while refreshing it;
+  unavailable sources no longer replace a retained level with an empty refresh.
+  Abandoned refreshes cannot replace another view or a newer profile/source
+  configuration.
+
+- Blocking audio-player disposal runs on independent background workers so
+  parallel retirements cannot occupy the shared thread pool needed by output
+  release, preparation and timeout continuations. Complete device release still
+  drains every owned retirement and isolates disposal failures.
+
 ## [0.47.0] - 2026-10-12
 
 ### Changed

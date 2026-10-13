@@ -58,6 +58,7 @@ public sealed class TrackCatalogEndpointsTests : IAsyncLifetime
         _app.UseMiddleware<ApiKeyMiddleware>();
         _app.UseMiddleware<ProfileContextMiddleware>();
         _app.MapTrackCatalogEndpoints(() => { Interlocked.Increment(ref _connections); return new AudioDatabase(DatabasePath); });
+        _app.MapAlbumBatchEndpoints(() => new AudioDatabase(DatabasePath));
         await _app.StartAsync();
         _client = _app.GetTestClient();
     }
@@ -164,6 +165,46 @@ public sealed class TrackCatalogEndpointsTests : IAsyncLifetime
         missing.Content = JsonContent.Create(new { isFavorite = true });
         using var missingResponse = await _client.SendAsync(missing);
         Assert.Equal(HttpStatusCode.NotFound, missingResponse.StatusCode);
+    }
+
+    /// <summary>Selected album resolution preserves profiles and rejects oversized or unauthenticated batches.</summary>
+    /// <returns>The endpoint assertion task.</returns>
+    [Fact]
+    public async Task AlbumBatch_IsBoundedSelectedAndProfileAware()
+    {
+        long albumId;
+        using (var db = new AudioDatabase(DatabasePath))
+        {
+            albumId = Assert.Single(db.GetAlbumsLite()).Id;
+            var previous = AudioDatabase.ActiveProfileId;
+            try { AudioDatabase.SetActiveProfile("alpha"); db.SetAlbumFavorite(albumId, true); }
+            finally { AudioDatabase.SetActiveProfile(previous); }
+        }
+        foreach (var profile in new[] { "alpha", "beta" })
+        {
+            using var request = Request(HttpMethod.Post, "/api/albums/by-ids", profile);
+            request.Content = JsonContent.Create(new[] { albumId, albumId, long.MaxValue });
+            using var response = await _client.SendAsync(request);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var rows = await response.Content.ReadFromJsonAsync<JsonElement>();
+            Assert.Equal(1, rows.GetArrayLength());
+            Assert.Equal(albumId, rows[0].GetProperty("id").GetInt64());
+            Assert.Equal(profile == "alpha", rows[0].GetProperty("isFavorite").GetBoolean());
+            Assert.True(rows[0].GetProperty("artistId").GetInt64() > 0);
+        }
+        using var oversized = Request(HttpMethod.Post, "/api/albums/by-ids");
+        oversized.Content = JsonContent.Create(Enumerable.Range(0, 101).Select(i => (long)i));
+        using var rejected = await _client.SendAsync(oversized);
+        Assert.Equal(HttpStatusCode.BadRequest, rejected.StatusCode);
+        using var empty = Request(HttpMethod.Post, "/api/albums/by-ids");
+        empty.Content = JsonContent.Create(Array.Empty<long>());
+        using var emptyResponse = await _client.SendAsync(empty);
+        Assert.Equal(HttpStatusCode.OK, emptyResponse.StatusCode);
+        Assert.Empty((await emptyResponse.Content.ReadFromJsonAsync<JsonElement>()).EnumerateArray());
+        using var anonymous = new HttpRequestMessage(HttpMethod.Post, "/api/albums/by-ids");
+        anonymous.Content = JsonContent.Create(new[] { albumId });
+        using var forbidden = await _client.SendAsync(anonymous);
+        Assert.Equal(HttpStatusCode.Unauthorized, forbidden.StatusCode);
     }
 
     /// <summary>Reads production JSON while requiring a successful authenticated response.</summary>

@@ -62,6 +62,10 @@ public static class GenreCloudService
     private static readonly IReadOnlyDictionary<string, Definition> ByKey =
         Definitions.ToDictionary(item => item.Key, StringComparer.Ordinal);
     private static readonly IReadOnlyDictionary<string, Definition> ByAlias = BuildAliasMap();
+    private static readonly IReadOnlyDictionary<string, HashSet<string>> Ancestors = BuildAncestorMap();
+    private static readonly (Definition Definition, string Phrase)[] PhraseDefinitions = Definitions
+        .Select(definition => (Definition: definition, Phrase: Normalize(definition.Name)))
+        .OrderByDescending(item => item.Phrase.Length).ToArray();
 
     /// <summary>Builds one compact level of the genre graph.</summary>
     /// <param name="tracks">Provider-local lightweight track facets.</param>
@@ -78,8 +82,16 @@ public static class GenreCloudService
         ArgumentNullException.ThrowIfNull(tracks);
         maximumCandidates = Math.Clamp(maximumCandidates, 1, 2000);
         var selected = NormalizeSelectedKey(parentKey);
+        var genreValues = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+        IReadOnlyList<string> Classify(TrackFacetInfo track)
+        {
+            var value = track.Genre ?? string.Empty;
+            if (!genreValues.TryGetValue(value, out var keys))
+                genreValues[value] = keys = ResolveTrackGenres(value);
+            return keys;
+        }
         var classified = tracks
-            .Select(track => new ClassifiedTrack(track, ResolveTrackGenres(track.Genre)))
+            .Select(track => new ClassifiedTrack(track, Classify(track)))
             .Where(item => item.Genres.Count > 0)
             .ToList();
 
@@ -175,25 +187,7 @@ public static class GenreCloudService
             return true;
         if (ancestorKey == MoreKey)
             return IsUnmapped(candidateKey);
-        if (!ByKey.ContainsKey(candidateKey) || !ByKey.ContainsKey(ancestorKey))
-            return false;
-
-        var pending = new Stack<string>();
-        var visited = new HashSet<string>(StringComparer.Ordinal);
-        pending.Push(candidateKey);
-        while (pending.Count > 0)
-        {
-            var current = pending.Pop();
-            if (!visited.Add(current) || !ByKey.TryGetValue(current, out var definition))
-                continue;
-            foreach (var parent in definition.Parents)
-            {
-                if (string.Equals(parent, ancestorKey, StringComparison.Ordinal))
-                    return true;
-                pending.Push(parent);
-            }
-        }
-        return false;
+        return Ancestors.TryGetValue(candidateKey, out var ancestors) && ancestors.Contains(ancestorKey);
     }
 
     /// <summary>Maps one embedded genre value to its deepest stable or dynamically preserved keys.</summary>
@@ -296,9 +290,10 @@ public static class GenreCloudService
         if (ByAlias.TryGetValue(normalized, out definition!))
             return true;
         var padded = $" {normalized} ";
-        foreach (var candidate in Definitions.OrderByDescending(item => Normalize(item.Name).Length))
+        foreach (var item in PhraseDefinitions)
         {
-            var phrase = Normalize(candidate.Name);
+            var candidate = item.Definition;
+            var phrase = item.Phrase;
             if (phrase.Length >= 4 && padded.Contains($" {phrase} ", StringComparison.Ordinal))
             {
                 definition = candidate;
@@ -357,6 +352,25 @@ public static class GenreCloudService
                 hash = (hash * 397) ^ character;
             return hash & int.MaxValue;
         }
+    }
+
+    /// <summary>Precomputes all reachable parents in the immutable multi-parent taxonomy.</summary>
+    /// <returns>Bounded ancestor sets keyed by known genre.</returns>
+    private static IReadOnlyDictionary<string, HashSet<string>> BuildAncestorMap()
+    {
+        var result = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var definition in Definitions)
+        {
+            var ancestors = new HashSet<string>(StringComparer.Ordinal);
+            var pending = new Stack<string>(definition.Parents);
+            while (pending.TryPop(out var key))
+            {
+                if (!ByKey.TryGetValue(key, out var parent) || !ancestors.Add(key)) continue;
+                foreach (var ancestor in parent.Parents) pending.Push(ancestor);
+            }
+            result[definition.Key] = ancestors;
+        }
+        return result;
     }
 
     private static IReadOnlyDictionary<string, Definition> BuildAliasMap()

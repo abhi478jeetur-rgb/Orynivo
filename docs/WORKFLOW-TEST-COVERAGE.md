@@ -1,12 +1,12 @@
 # Workflow verification scopes
 
-Updated: 2026-10-12. Counts identify the added workflow cases, not the total
+Updated: 2026-10-13. Counts identify the added workflow cases, not the total
 number of unit tests in the repository.
 
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 57 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 65 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -26,6 +26,12 @@ application. Fake queue inputs are test data, not a second application queue or
 navigation model. Gate-driven assertions check readiness separately from output
 completion, reject superseded work and drain uniquely owned disposal. Diagnostic
 timeouts only prevent stuck tests; they are not audible latency budgets.
+
+Retirement checks hold synchronous fake disposal on independent workers and
+assert that neither the caller context nor the shared thread pool owns it. Four
+simultaneous blocked retirements retain a complete drain until the final
+release. Existing failure, budget, readiness and output-switch checks remain
+active; diagnostic timeouts and test parallelism are unchanged.
 
 Physical devices/receivers, FFmpeg codecs, operating-system network disconnects,
 other-platform UI runtime behavior and portable end-to-end latency need separate
@@ -90,3 +96,36 @@ source publication, ReplayGain preference, progress, duplicate/empty rejection,
 active row identity across add/remove, cancellation ownership, backup-lock
 release, failure retry controls and rejected picker results after deactivation.
 No actual media scan or folder picker is invoked.
+
+View refresh adds seven Windows groups using real Dashboard/Genre Cloud and
+top-level navigation adapters. Deterministic held HTTP verifies early hero and
+local-statistics publication, cached/unchanged section reuse, immediate cached
+presentation changes during held HTTP, stale cloud display, changed-count
+publication, failed refresh/recovery and uncached local fallback, new-window
+restart previews before HTTP completion, late navigation rejection, runtime
+source-path reconstruction, persisted secret exclusion and configuration
+clearing. Four pure ViewPreviewStore tests cover restart context isolation,
+rejected atomic writes, corrupt/incomplete/oversized/expired reads, recovery and
+the 64-file bound. New-window restoration simulates restart in the same isolated
+temporary data root; no native app startup, physical display/audio or live
+provider is exercised. Timeouts remain failure diagnostics, not millisecond
+performance budgets.
+
+Cloud loading feedback adds one Windows group using routed Click on an actual
+compiled genre button, a held synthetic server and the headless dispatcher timer
+loop. It checks immediate old-content hiding, completed-step progress before
+HTTP completion, cached branch reuse and navigation cleanup. Three pure
+CompletedWorkProgress tests cover held/successful/faulted/cancelled steps,
+concurrent completion and percentage bounds without a clock.
+
+Cloud assembly checks also require selected server albums to appear without
+complete album catalog requests, reuse of local facet input between branches,
+and eviction of that input on catalog invalidation. Core tests cover selected
+album/profile semantics, joined enriched facets, batch profile headers, 404/405
+detail compatibility, bounds, cancellation and strict failure. An isolated
+production TestServer album-batch check verifies authentication, profile
+overrides, duplicate/missing IDs, empty requests and the 100-ID bound. These
+checks do not measure latency in a personal or live remote library.
+
+An exhaustive taxonomy test compares every known genre pair against independent
+recursive descendant expansion and checks dynamic More genres behavior.

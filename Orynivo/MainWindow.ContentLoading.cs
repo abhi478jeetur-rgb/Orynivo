@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         _topLevelViewCts = null;
         var previousCloudCancellation = _genreCloudCts;
         _genreCloudCts = null;
+        HideGenreCloudLoading();
         _genreCloudLoads.Invalidate();
         var previousPlexCancellation = _plexViewCts;
         _plexViewCts = null;
@@ -97,7 +98,8 @@ public partial class MainWindow : Window
         if (!CanPublish()) return;
         var diagnosticStopwatch = Stopwatch.StartNew();
         LogUiDiagnostics($"ShowTopLevelViewAsync start tag={tag}");
-        var showLoadingSkeleton = !tag.StartsWith("Radio:", StringComparison.Ordinal);
+        var showLoadingSkeleton = tag is not ("Dashboard" or "GenreCloud") &&
+            !tag.StartsWith("Radio:", StringComparison.Ordinal);
         if (showLoadingSkeleton)
             ShowContentLoadingSkeleton();
         using var loading = showLoadingSkeleton ? new ContentLoadingLease(HideContentLoadingSkeleton) : null;
@@ -376,7 +378,8 @@ public partial class MainWindow : Window
         finally
         {
             loading?.Dispose();
-            if (CanPublish()) FadeInVisibleContentSurface(CanPublish);
+            if (CanPublish() && tag is not ("Dashboard" or "GenreCloud"))
+                FadeInVisibleContentSurface(CanPublish);
             LogUiDiagnostics(
                 $"ShowTopLevelViewAsync finish tag={tag} elapsed={diagnosticStopwatch.ElapsedMilliseconds}ms gridVisible={ContentDataGrid.IsVisible} gridItems={GetDiagnosticItemCount(ContentDataGrid.ItemsSource)}");
         }

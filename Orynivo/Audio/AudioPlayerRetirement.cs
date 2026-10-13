@@ -23,7 +23,7 @@ internal sealed class AudioPlayerRetirement
         ArgumentOutOfRangeException.ThrowIfLessThan(_transitionBudget, TimeSpan.Zero);
     }
 
-    /// <summary>Disposes a detached player on a worker and optionally drains all previously retired players.</summary>
+    /// <summary>Disposes a detached player on an independent background worker and optionally drains all retirements.</summary>
     /// <param name="player">Uniquely detached player, or null when no active player remains.</param>
     /// <param name="waitForCompleteDisposal">Whether every retirement registered so far must finish.</param>
     /// <returns>A bounded transition wait or complete device-release wait; errors reach only the supplied sink.</returns>
@@ -35,7 +35,9 @@ internal sealed class AudioPlayerRetirement
         {
             if (player is not null)
             {
-                retirement = Task.Run(() =>
+                // Synchronous driver teardown may block. Keep it off the shared pool
+                // so budget callbacks, preparation and drain continuations can run.
+                retirement = Task.Factory.StartNew(() =>
                 {
                     try { player.Dispose(); }
                     catch (Exception exception)
@@ -43,7 +45,8 @@ internal sealed class AudioPlayerRetirement
                         try { _reportFailure(exception); }
                         catch { /* Error reporting must not prevent device-release completion. */ }
                     }
-                });
+                }, CancellationToken.None, TaskCreationOptions.LongRunning | TaskCreationOptions.DenyChildAttach,
+                    TaskScheduler.Default);
                 _pending.Add(retirement);
                 _ = retirement.ContinueWith(completed =>
                 {

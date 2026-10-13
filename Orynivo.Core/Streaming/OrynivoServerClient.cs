@@ -812,6 +812,50 @@ public sealed class OrynivoServerClient : IDisposable
         }
     }
 
+    /// <summary>Resolves at most one hundred selected albums, with bounded detail fallback on older servers.</summary>
+    /// <param name="server">Owning server settings.</param>
+    /// <param name="ids">Selected album identifiers.</param>
+    /// <param name="cancellationToken">Request cancellation.</param>
+    /// <returns>Matching compact albums; transport failures propagate.</returns>
+    public async Task<List<OrynivoAlbumInfo>> GetAlbumsByIdsAsync(
+        OrynivoServerSettings server, IReadOnlyList<long> ids, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var selected = ids.Distinct().ToArray();
+        if (selected.Length > 100) throw new ArgumentOutOfRangeException(nameof(ids));
+        if (selected.Length == 0) return [];
+        using var request = new HttpRequestMessage(HttpMethod.Post, BuildUrl(server, "/api/albums/by-ids"))
+        { Content = JsonContent.Create(selected, options: JsonOptions) };
+        request.Headers.Add("X-Api-Key", server.ApiKey);
+        AddProfileHeader(request, server);
+        using var response = await _http.SendAsync(request, cancellationToken);
+        if (response.StatusCode is not (HttpStatusCode.NotFound or HttpStatusCode.MethodNotAllowed))
+        {
+            response.EnsureSuccessStatusCode();
+            return await response.Content.ReadFromJsonAsync<List<OrynivoAlbumInfo>>(JsonOptions, cancellationToken)
+                ?? throw new JsonException("Missing album payload.");
+        }
+        // Compatibility uses bounded detail requests, never a full album catalog.
+        using var gate = new SemaphoreSlim(4);
+        var albums = await Task.WhenAll(selected.Select(async id =>
+        {
+            await gate.WaitAsync(cancellationToken);
+            try
+            {
+                using var detail = new HttpRequestMessage(HttpMethod.Get, BuildUrl(server, $"/api/albums/{id}"));
+                detail.Headers.Add("X-Api-Key", server.ApiKey);
+                AddProfileHeader(detail, server);
+                using var result = await _http.SendAsync(detail, cancellationToken);
+                if (result.StatusCode == HttpStatusCode.NotFound) return null;
+                result.EnsureSuccessStatusCode();
+                return await result.Content.ReadFromJsonAsync<OrynivoAlbumInfo>(JsonOptions, cancellationToken)
+                    ?? throw new JsonException("Missing album payload.");
+            }
+            finally { gate.Release(); }
+        }));
+        return albums.OfType<OrynivoAlbumInfo>().ToList();
+    }
+
     /// <summary>Loads compact album candidates for history-based recommendations.</summary>
     /// <param name="server">Server connection settings.</param>
     /// <param name="cancellationToken">Cancellation token.</param>

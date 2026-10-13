@@ -11,6 +11,17 @@ This file applies to `Orynivo.Core/` and supplements `../AGENTS.md`.
 
 ## Core Invariants
 
+- Genre taxonomy ancestor and phrase caches derive only from the immutable
+  embedded graph. Raw genre-value memoization stays snapshot-scoped; retain
+  multi-parent ancestry, unknown genres, candidate ordering and individual
+  state.
+
+- Selected album queries preserve active-profile favorites, artwork paths and
+  artist IDs while omitting missing/trackless albums. Facet joins preserve
+  explicit false/zero profile overrides and current-version audio features.
+  Album batch transport is bounded to 100 IDs; unsupported older routes use four
+  detail workers, never a complete catalog or silent transport failure.
+
 - Milkdrop custom elements share a **layout**, never mutable frame/point slot
   arrays. Seed saved parameters before init, preserve private user variables,
   restore init T before each element frame/instance, copy preset Q in and frame

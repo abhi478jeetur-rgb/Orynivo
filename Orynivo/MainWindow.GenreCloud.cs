@@ -42,9 +42,11 @@ public partial class MainWindow
     /// <summary>One bounded in-memory Genre Cloud cache entry.</summary>
     /// <param name="Snapshot">Resolved view data.</param>
     /// <param name="LastAccessUtc">Last access time used for least-recently-used eviction.</param>
+    /// <param name="Generation">Catalog generation when this snapshot completed.</param>
     private sealed record GenreCloudViewCacheEntry(
         GenreCloudViewSnapshot Snapshot,
-        DateTimeOffset LastAccessUtc);
+        DateTimeOffset LastAccessUtc,
+        int Generation);
 
     private static readonly TimeSpan GenreCloudBackgroundLifetime = TimeSpan.FromHours(24);
     private const int GenreCloudBackgroundMaximumImages = 32;
@@ -60,6 +62,7 @@ public partial class MainWindow
     private readonly object _genreCloudViewCacheSync = new();
     private readonly Dictionary<string, GenreCloudViewCacheEntry> _genreCloudViewCache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<GenreCloudViewSnapshot>> _genreCloudViewLoads = new(StringComparer.Ordinal);
+    private Task<List<TrackFacetInfo>>? _genreCloudLocalFacets;
     private int _genreCloudCatalogGeneration;
     private int _genreCloudNodeBindingVersion;
 
@@ -88,6 +91,7 @@ public partial class MainWindow
     /// <summary>Abandons foreground cloud publication without cancelling shared snapshot work.</summary>
     private void CancelGenreCloudViewLoad()
     {
+        HideGenreCloudLoading();
         _genreCloudLoads.Invalidate();
         CancelAndDispose(ref _genreCloudCts);
     }
@@ -105,7 +109,9 @@ public partial class MainWindow
         var cancellationToken = _genreCloudCts.Token;
         var request = _genreCloudLoads.Begin(cancellationToken);
         var cacheKey = CreateGenreCloudViewCacheKey(parentKey);
+        var generation = Volatile.Read(ref _genreCloudCatalogGeneration);
         bool OwnsAdmission() => _genreCloudLoads.IsCurrent(request) &&
+            generation == Volatile.Read(ref _genreCloudCatalogGeneration) &&
             (isParentCurrent is null || isParentCurrent()) &&
             (restoreContext is null || _navigationRestores.IsCurrent(restoreContext)) &&
             string.Equals(CreateGenreCloudViewCacheKey(parentKey), cacheKey, StringComparison.Ordinal);
@@ -125,70 +131,106 @@ public partial class MainWindow
         var hasCachedView = IsGenreCloudViewCached(parentKey);
         _genreCloudSelectedKey = parentKey;
         if (!CanPublish()) return;
+        if (!hasCachedView)
+            BeginGenreCloudLoading(request, $"{generation};{cacheKey}", CanPublish);
         try
         {
-            if (!hasCachedView && GenreCloudNodesCanvas.Children.Count > 0)
+            if (!hasCachedView)
             {
-                GenreCloudNodesCanvas.Opacity = 0;
-                await Task.Delay(140, cancellationToken);
+                var preview = await ReadViewPreviewAsync<PreviewCloud>(ViewPreviewIdentity(), "cloud;" + (parentKey ?? "<root>"));
+                if (!CanPublish()) return;
+                if (preview is not null)
+                {
+                    var retained = new GenreCloudViewSnapshot(preview.Nodes,
+                        RestorePreviewRows(preview.Tracks), RestorePreviewRows(preview.Albums));
+                    lock (_genreCloudViewCacheSync)
+                    {
+                        _genreCloudViewCache[cacheKey] = new(retained, DateTimeOffset.UtcNow, -1);
+                        TrimGenreCloudViewCache();
+                    }
+                    hasCachedView = true;
+                }
             }
-            if (!CanPublish()) return;
-            GenreCloudNodesCanvas.Children.Clear();
-            GenreCloudBreadcrumbPanel.Children.Clear();
-            GenreCloudEmptyTextBlock.IsVisible = false;
-            GenreCloudLeafTextBlock.IsVisible = false;
-            GenreCloudBackgroundImage.Opacity = 0;
-            GenreCloudBackgroundShade.Opacity = 0;
-            ContentDataGrid.ItemsSource = null;
-            AlbumArtworkListBox.ItemsSource = null;
-            ContentCountTextBlock.Text = string.Empty;
-
+            // Keep the previous image until this level has data to publish.
+            // A cached level is synchronous; a cold level paints its shell first.
+            GenreCloudPanel.Opacity = 1;
+            GenreCloudSurface.Opacity = 1;
             var snapshot = await GetGenreCloudViewSnapshotAsync(parentKey, cancellationToken);
             if (!CanPublish()) return;
-            foreach (var row in snapshot.TrackRows)
+            void Publish(GenreCloudViewSnapshot snapshot)
             {
-                if (row.OrynivoServer is not null && row.FilePath is string path)
-                    _orynivoTracksByUrl[path] = row;
-            }
-            var nodes = snapshot.Nodes;
-            _genreCloudNodes = nodes;
-            BuildGenreCloudBreadcrumb(parentKey);
-            BuildGenreCloudNodes(nodes, GenreAlbumRecommendationsRadioButton.IsChecked == true);
-            GenreCloudNodesCanvas.Opacity = 1;
-            GenreCloudEmptyTextBlock.IsVisible = nodes.Count == 0 && string.IsNullOrWhiteSpace(parentKey);
-            GenreCloudLeafTextBlock.IsVisible = nodes.Count == 0 && !string.IsNullOrWhiteSpace(parentKey);
-            GenreCloudLeafTextBlock.Text = GenreCloudLeafTextBlock.IsVisible
-                ? GetGenreCloudDisplayName(parentKey!)
-                : string.Empty;
+                if (!CanPublish()) return;
+                GenreCloudNodesCanvas.Children.Clear();
+                GenreCloudBreadcrumbPanel.Children.Clear();
+                foreach (var row in snapshot.TrackRows)
+                {
+                    if (row.OrynivoServer is not null && row.FilePath is string path)
+                        _orynivoTracksByUrl[path] = row;
+                }
+                var nodes = snapshot.Nodes;
+                _genreCloudNodes = nodes;
+                BuildGenreCloudBreadcrumb(parentKey);
+                BuildGenreCloudNodes(nodes, GenreAlbumRecommendationsRadioButton.IsChecked == true);
+                GenreCloudNodesCanvas.Opacity = 1;
+                GenreCloudEmptyTextBlock.IsVisible = nodes.Count == 0 && string.IsNullOrWhiteSpace(parentKey);
+                GenreCloudLeafTextBlock.IsVisible = nodes.Count == 0 && !string.IsNullOrWhiteSpace(parentKey);
+                GenreCloudLeafTextBlock.Text = GenreCloudLeafTextBlock.IsVisible
+                    ? GetGenreCloudDisplayName(parentKey!)
+                    : string.Empty;
 
-            var rows = snapshot.TrackRows;
-            var albumRows = snapshot.AlbumRows;
-            _genreCloudTrackRows = rows;
-            _genreCloudAlbumRows = albumRows;
-            ApplyGenreRecommendationMode();
-            var backgroundMode = _settings.GenreCloudBackground;
-            var backgroundWidth = (int)Math.Clamp(
-                Math.Ceiling(Math.Max(GenreCloudSurface.Bounds.Width, 1000) / 250d) * 250,
-                1000,
-                4000);
-            var backgroundColumns = Math.Clamp(backgroundWidth / 250, 4, 16);
-            var backgroundImageCount = Math.Min(
-                backgroundColumns * 2,
-                GenreCloudBackgroundMaximumImages);
-            _ = UpdateGenreCloudBackgroundAsync(
-                parentKey,
-                backgroundMode == GenreCloudBackgroundMode.Albums ? albumRows : rows,
-                backgroundMode,
-                backgroundWidth,
-                backgroundColumns,
-                backgroundImageCount,
-                cancellationToken,
-                CanPublish);
+                var rows = snapshot.TrackRows;
+                var albumRows = snapshot.AlbumRows;
+                _genreCloudTrackRows = rows;
+                _genreCloudAlbumRows = albumRows;
+                HideGenreCloudLoading(request);
+                ApplyGenreRecommendationMode();
+                var backgroundMode = _settings.GenreCloudBackground;
+                var backgroundWidth = (int)Math.Clamp(
+                    Math.Ceiling(Math.Max(GenreCloudSurface.Bounds.Width, 1000) / 250d) * 250,
+                    1000,
+                    4000);
+                var backgroundColumns = Math.Clamp(backgroundWidth / 250, 4, 16);
+                var backgroundImageCount = Math.Min(
+                    backgroundColumns * 2,
+                    GenreCloudBackgroundMaximumImages);
+                _ = UpdateGenreCloudBackgroundAsync(
+                    parentKey,
+                    backgroundMode == GenreCloudBackgroundMode.Albums ? albumRows : rows,
+                    backgroundMode,
+                    backgroundWidth,
+                    backgroundColumns,
+                    backgroundImageCount,
+                    cancellationToken,
+                    CanPublish);
+            }
+            Publish(snapshot);
+            if (hasCachedView && (isParentCurrent is not null || IsGenreCloudViewStale(parentKey)))
+            {
+                // Refresh behind the interactive cached level. Preserve its controls,
+                // selection and scroll when the display data did not change.
+                var fresh = await RefreshGenreCloudViewSnapshotAsync(parentKey, cancellationToken);
+                if (!CanPublish()) return;
+                if (GenreCloudDisplayFingerprint(snapshot) != GenreCloudDisplayFingerprint(fresh))
+                {
+                    var selected = GetSelectedContentRow();
+                    var offset = CaptureCurrentVerticalOffset();
+                    Publish(fresh);
+                    var rows = GenreAlbumRecommendationsRadioButton.IsChecked == true
+                        ? fresh.AlbumRows : fresh.TrackRows;
+                    RestoreSelection(rows, selected?.Id, offset, selected?.SourceKey,
+                        () => CanPublish() && ReferenceEquals(_genreCloudTrackRows, fresh.TrackRows));
+                }
+            }
         }
         catch (OperationCanceledException)
         {
             // Navigation or a newer drill-down superseded this request.
         }
+        catch (Exception)
+        {
+            // Failed refreshes retain the previously rendered level.
+        }
+        finally { HideGenreCloudLoading(request); }
     }
 
     /// <summary>
@@ -198,53 +240,135 @@ public partial class MainWindow
     /// <param name="parentKey">Selected taxonomy key, or <see langword="null"/> for the root.</param>
     /// <param name="cancellationToken">Token that cancels waiting when navigation changes.</param>
     /// <returns>The resolved nodes and recommendation rows for the requested level.</returns>
-    private async Task<GenreCloudViewSnapshot> GetGenreCloudViewSnapshotAsync(
-        string? parentKey,
-        CancellationToken cancellationToken)
+    private Task<GenreCloudViewSnapshot> GetGenreCloudViewSnapshotAsync(
+        string? parentKey, CancellationToken cancellationToken) =>
+        LoadCachedGenreCloudViewAsync(parentKey, cancellationToken, refresh: false);
+
+    /// <summary>Revalidates a retained cloud level without clearing its visible content.</summary>
+    /// <param name="parentKey">Selected taxonomy key.</param>
+    /// <param name="cancellationToken">Foreground waiting cancellation.</param>
+    /// <returns>The newly resolved level.</returns>
+    private Task<GenreCloudViewSnapshot> RefreshGenreCloudViewSnapshotAsync(
+        string? parentKey, CancellationToken cancellationToken) =>
+        LoadCachedGenreCloudViewAsync(parentKey, cancellationToken, refresh: true);
+
+    /// <summary>Shares generation-bound loads while retaining bounded stale snapshots.</summary>
+    /// <param name="parentKey">Selected taxonomy key.</param>
+    /// <param name="cancellationToken">Foreground waiting cancellation.</param>
+    /// <param name="refresh">Whether to bypass the retained presentation.</param>
+    /// <returns>Retained or freshly loaded data.</returns>
+    private async Task<GenreCloudViewSnapshot> LoadCachedGenreCloudViewAsync(
+        string? parentKey, CancellationToken cancellationToken, bool refresh)
     {
         var key = CreateGenreCloudViewCacheKey(parentKey);
+        var generation = Volatile.Read(ref _genreCloudCatalogGeneration);
+        var previewIdentity = ViewPreviewIdentity();
+        var previewVersion = Volatile.Read(ref _previewConfigurationVersion);
+        var loadKey = $"{generation};{key}";
         Task<GenreCloudViewSnapshot> loadTask;
+        CompletedWorkProgress progress;
         lock (_genreCloudViewCacheSync)
         {
-            if (_genreCloudViewCache.TryGetValue(key, out var cached))
+            if (!refresh && _genreCloudViewCache.TryGetValue(key, out var cached))
             {
                 _genreCloudViewCache[key] = cached with { LastAccessUtc = DateTimeOffset.UtcNow };
                 return cached.Snapshot;
             }
-
-            if (!_genreCloudViewLoads.TryGetValue(key, out loadTask!))
+            if (!_genreCloudViewLoads.TryGetValue(loadKey, out loadTask!))
             {
-                // The shared load deliberately outlives one navigation request. A quick
-                // departure and return can therefore reuse the work already in progress.
-                loadTask = LoadGenreCloudViewSnapshotAsync(parentKey, CancellationToken.None);
-                _genreCloudViewLoads[key] = loadTask;
+                progress = new CompletedWorkProgress((_settings.OrynivoServers ?? []).Count + 5);
+                _genreCloudLoadProgress[loadKey] = progress;
+                var completion = new TaskCompletionSource<GenreCloudViewSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
+                loadTask = completion.Task;
+                _genreCloudViewLoads[loadKey] = loadTask;
+                _ = CompleteAsync(completion);
             }
+            else progress = _genreCloudLoadProgress[loadKey];
         }
-
-        try
-        {
-            var snapshot = await loadTask.WaitAsync(cancellationToken);
-            lock (_genreCloudViewCacheSync)
-            {
-                if (key == CreateGenreCloudViewCacheKey(parentKey))
-                {
-                    _genreCloudViewCache[key] = new GenreCloudViewCacheEntry(snapshot, DateTimeOffset.UtcNow);
-                    TrimGenreCloudViewCache();
-                }
-            }
-            return snapshot;
-        }
+        try { return await loadTask.WaitAsync(cancellationToken); }
         finally
         {
             if (loadTask.IsCompleted)
             {
                 lock (_genreCloudViewCacheSync)
-                {
-                    if (_genreCloudViewLoads.TryGetValue(key, out var active) && ReferenceEquals(active, loadTask))
-                        _genreCloudViewLoads.Remove(key);
-                }
+                    if (_genreCloudViewLoads.TryGetValue(loadKey, out var active) && ReferenceEquals(active, loadTask))
+                    {
+                        _genreCloudViewLoads.Remove(loadKey);
+                        _genreCloudLoadProgress.Remove(loadKey);
+                    }
             }
         }
+        async Task CompleteAsync(TaskCompletionSource<GenreCloudViewSnapshot> completion)
+        {
+            try { completion.SetResult(await LoadAndCacheAsync()); }
+            catch (Exception exception) { completion.SetException(exception); }
+            finally
+            {
+                lock (_genreCloudViewCacheSync)
+                    if (_genreCloudViewLoads.TryGetValue(loadKey, out var active) && ReferenceEquals(active, completion.Task))
+                    {
+                        _genreCloudViewLoads.Remove(loadKey);
+                        _genreCloudLoadProgress.Remove(loadKey);
+                    }
+            }
+        }
+        async Task<GenreCloudViewSnapshot> LoadAndCacheAsync()
+        {
+            // Capture source adapters on the UI caller before yielding. Shared work
+            // finishes/cache-publishes even when every foreground waiter leaves.
+            var pending = LoadGenreCloudViewSnapshotAsync(parentKey, CancellationToken.None, progress);
+            GenreCloudViewSnapshot result;
+            var complete = true;
+            try { result = await pending; }
+            catch (Exception) when (!IsGenreCloudViewCached(parentKey))
+            {
+                // A first visit without a previous preview can still display the
+                // available local library. Never persist that as a complete result.
+                complete = false;
+                result = await LoadLocalGenreCloudPreviewAsync(parentKey);
+            }
+            lock (_genreCloudViewCacheSync)
+                if (complete && generation == Volatile.Read(ref _genreCloudCatalogGeneration) &&
+                    key == CreateGenreCloudViewCacheKey(parentKey))
+                {
+                    _genreCloudViewCache[key] = new(result, DateTimeOffset.UtcNow, generation);
+                    TrimGenreCloudViewCache();
+                    SaveViewPreview(previewIdentity, "cloud;" + (parentKey ?? "<root>"),
+                        new PreviewCloud(result.Nodes, SavePreviewRows(result.TrackRows), SavePreviewRows(result.AlbumRows)),
+                        previewVersion);
+                }
+            return result;
+        }
+    }
+
+    /// <summary>Provides usable local data when a cold cloud visit cannot load every source.</summary>
+    /// <param name="parentKey">Requested taxonomy level.</param>
+    /// <returns>A non-cacheable local-only presentation.</returns>
+    private async Task<GenreCloudViewSnapshot> LoadLocalGenreCloudPreviewAsync(string? parentKey)
+    {
+        var local = await Task.Run(() =>
+        {
+            using var db = AudioDatabase.OpenDefault();
+            return GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parentKey, 100);
+        });
+        var rows = await ResolveGenreCandidateRowsAsync(local.Candidates
+            .Select(candidate => new GenreCloudCandidate(null, candidate, 0)).ToList(),
+            CancellationToken.None, registerRemoteMetadata: false);
+        var albums = await ResolveGenreCandidateAlbumRowsAsync(rows, CancellationToken.None);
+        return new(local.Nodes.ToList(), rows, albums);
+    }
+
+    /// <summary>Compares only transient cloud display/source data, never bitmap instances.</summary>
+    /// <param name="snapshot">Resolved nodes and recommendation rows.</param>
+    /// <returns>A non-persisted display digest.</returns>
+    private static string GenreCloudDisplayFingerprint(GenreCloudViewSnapshot snapshot)
+    {
+        return ViewPreviewStore.Fingerprint(new
+        {
+            snapshot.Nodes,
+            Tracks = SavePreviewRows(snapshot.TrackRows),
+            Albums = SavePreviewRows(snapshot.AlbumRows)
+        });
     }
 
     /// <summary>Checks whether the requested level can be rendered without source loading.</summary>
@@ -257,30 +381,47 @@ public partial class MainWindow
             return _genreCloudViewCache.ContainsKey(key);
     }
 
+    /// <summary>Checks whether a retained level predates a catalog notification.</summary>
+    /// <param name="parentKey">Selected taxonomy level.</param>
+    /// <returns>Whether background revalidation is needed.</returns>
+    private bool IsGenreCloudViewStale(string? parentKey)
+    {
+        var key = CreateGenreCloudViewCacheKey(parentKey);
+        lock (_genreCloudViewCacheSync)
+            return _genreCloudViewCache.TryGetValue(key, out var cached) &&
+                cached.Generation != Volatile.Read(ref _genreCloudCatalogGeneration);
+    }
+
     /// <summary>Loads one cacheable cloud level using copied server connections without playback publication.</summary>
     /// <param name="parentKey">Selected taxonomy key, or <see langword="null"/> for the root.</param>
     /// <param name="cancellationToken">Token that cancels source and row resolution.</param>
+    /// <param name="progress">Shared completed-step counter for foreground feedback.</param>
     /// <returns>A complete cacheable view snapshot.</returns>
     private async Task<GenreCloudViewSnapshot> LoadGenreCloudViewSnapshotAsync(
         string? parentKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CompletedWorkProgress progress)
     {
         var servers = (_settings.OrynivoServers ?? []).Select(server => new OrynivoServerSettings
         {
-            Id = server.Id, Name = server.Name, BaseUrl = server.BaseUrl, ApiKey = server.ApiKey,
-            ProfileId = server.ProfileId, StreamingFormat = server.StreamingFormat,
+            Id = server.Id,
+            Name = server.Name,
+            BaseUrl = server.BaseUrl,
+            ApiKey = server.ApiKey,
+            ProfileId = server.ProfileId,
+            StreamingFormat = server.StreamingFormat,
             StreamingBitrateKbps = server.StreamingBitrateKbps
         }).ToArray();
-        var localTask = Task.Run(() =>
+        var localTask = progress.TrackAsync(LoadLocalSourceAsync());
+        async Task<GenreCloudSource> LoadLocalSourceAsync()
         {
-            using var db = AudioDatabase.OpenDefault();
-            return new GenreCloudSource(
-                null,
-                GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parentKey, 500));
-        }, cancellationToken);
-        var listeningWeightsTask = Task.Run(LoadGenreListeningWeights, cancellationToken);
+            var facets = await GetGenreCloudLocalFacetsAsync().WaitAsync(cancellationToken);
+            return await Task.Run(() => new GenreCloudSource(null,
+                GenreCloudService.BuildSnapshot(facets, parentKey, 500)), cancellationToken);
+        }
+        var listeningWeightsTask = progress.TrackAsync(Task.Run(LoadGenreListeningWeights, cancellationToken));
         var remoteTasks = servers
-            .Select(server => LoadRemoteGenreCloudAsync(server, parentKey, cancellationToken))
+            .Select(server => progress.TrackAsync(LoadRemoteGenreCloudAsync(server, parentKey, cancellationToken)))
             .ToArray();
 
         await Task.WhenAll(remoteTasks.Append<Task>(localTask).Append(listeningWeightsTask));
@@ -313,9 +454,12 @@ public partial class MainWindow
                 .ToList();
             return (Nodes: nodes, Candidates: candidates);
         }, cancellationToken);
+        progress.CompleteStep();
 
         var rows = await ResolveGenreCandidateRowsAsync(composed.Candidates, cancellationToken, registerRemoteMetadata: false);
+        progress.CompleteStep();
         var albumRows = await ResolveGenreCandidateAlbumRowsAsync(rows, cancellationToken);
+        progress.CompleteStep();
         return new GenreCloudViewSnapshot(composed.Nodes, rows, albumRows);
     }
 
@@ -327,7 +471,7 @@ public partial class MainWindow
         var servers = string.Join('|', (_settings.OrynivoServers ?? [])
             .OrderBy(server => server.Id, StringComparer.Ordinal)
             .Select(server => $"{server.Id}:{StringComparer.Ordinal.GetHashCode(server.BaseUrl ?? string.Empty)}"));
-        return $"{Volatile.Read(ref _genreCloudCatalogGeneration)};{parentKey ?? "<root>"};{servers}";
+        return $"{parentKey ?? "<root>"};{servers}";
     }
 
     /// <summary>Evicts least-recently-used Genre Cloud levels beyond the session bound.</summary>
@@ -341,14 +485,31 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>Invalidates every resolved Genre Cloud level after catalog data changes.</summary>
+    /// <summary>Shares local classification input until catalog or profile invalidation.</summary>
+    /// <returns>The current generation's compact local track facets.</returns>
+    private Task<List<TrackFacetInfo>> GetGenreCloudLocalFacetsAsync()
+    {
+        lock (_genreCloudViewCacheSync)
+        {
+            if (_genreCloudLocalFacets is null || _genreCloudLocalFacets.IsFaulted || _genreCloudLocalFacets.IsCanceled)
+                _genreCloudLocalFacets = Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    return db.GetTrackFacets();
+                });
+            return _genreCloudLocalFacets;
+        }
+    }
+
+    /// <summary>Rejects pending cloud loads while retaining the last completed presentation.</summary>
     private void InvalidateGenreCloudViewCache()
     {
         Interlocked.Increment(ref _genreCloudCatalogGeneration);
         lock (_genreCloudViewCacheSync)
         {
-            _genreCloudViewCache.Clear();
+            _genreCloudLocalFacets = null;
             _genreCloudViewLoads.Clear();
+            _genreCloudLoadProgress.Clear();
         }
     }
 
@@ -800,7 +961,7 @@ public partial class MainWindow
             StringComparison.Ordinal);
         if (returnedWrongLevel || snapshot.Nodes.Count == 0 && snapshot.Candidates.Count == 0)
         {
-            var facets = await _orynivoClient.GetTrackFacetsAsync(server, cancellationToken);
+            var facets = await _orynivoClient.GetTrackFacetsAsync(server, cancellationToken, requireComplete: true);
             snapshot = GenreCloudService.BuildSnapshot(facets, parentKey, 500);
         }
         return new GenreCloudSource(server, snapshot);
@@ -864,16 +1025,19 @@ public partial class MainWindow
 
         var remoteGroups = candidates.Where(candidate => candidate.Server is not null)
             .GroupBy(candidate => candidate.Server!.Id, StringComparer.Ordinal);
-        foreach (var group in remoteGroups)
+        var remoteResults = await Task.WhenAll(remoteGroups.Select(async group =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             var server = group.First().Server!;
             var ids = group.Select(candidate => candidate.Track.TrackId).Distinct().ToList();
-            var tracks = await _orynivoClient.GetTracksByIdsAsync(server, ids, cancellationToken);
-            if (!isCurrent()) return [];
-            foreach (var track in tracks)
-                resolved[($"server:{server.Id}", track.Id)] = ToOrynivoTrackContentRow(server, track, registerRemoteMetadata);
-        }
+            var tracks = await _orynivoClient.GetTracksByIdsAsync(server, ids, cancellationToken,
+                requireComplete: !registerRemoteMetadata);
+            return (Server: server, Tracks: tracks);
+        }));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!isCurrent()) return [];
+        foreach (var source in remoteResults)
+            foreach (var track in source.Tracks)
+                resolved[($"server:{source.Server.Id}", track.Id)] = ToOrynivoTrackContentRow(source.Server, track, registerRemoteMetadata);
 
         return candidates
             .Select(candidate => resolved.GetValueOrDefault((
@@ -893,49 +1057,35 @@ public partial class MainWindow
         IReadOnlyList<ContentRow> trackRows,
         CancellationToken cancellationToken)
     {
-        var result = new List<ContentRow>();
         var localAlbumIds = trackRows
             .Where(row => row.OrynivoServer is null && row.AlbumId.HasValue)
-            .Select(row => row.AlbumId!.Value)
-            .Distinct()
-            .ToHashSet();
-        if (localAlbumIds.Count > 0)
+            .Select(row => row.AlbumId!.Value).Distinct().ToList();
+        var localTask = Task.Run(() =>
         {
-            var localAlbums = await Task.Run(() =>
+            using var db = AudioDatabase.OpenDefault();
+            return db.GetAlbumsByIds(localAlbumIds).Select(album => new LibraryCatalogAlbum(
+                LibraryCatalogSource.Local, album.Id, album.Album, album.DisplayArtist,
+                album.Year, album.ArtworkPath, album.ThumbnailPath, album.IsFavorite, album.ArtistId)).ToList();
+        }, cancellationToken);
+        var remoteTasks = trackRows
+            .Where(row => row.OrynivoServer is not null && row.AlbumId.HasValue)
+            .GroupBy(row => row.OrynivoServer!.Id, StringComparer.Ordinal)
+            .Select(async group =>
             {
-                using var db = AudioDatabase.OpenDefault();
-                return db.GetAlbumsLite(includeArtwork: true)
-                    .Where(album => localAlbumIds.Contains(album.Id))
-                    .Select(album => new LibraryCatalogAlbum(
-                        LibraryCatalogSource.Local,
-                        album.Id,
-                        album.Album,
-                        album.DisplayArtist,
-                        album.Year,
-                        album.ArtworkPath,
-                        album.ThumbnailPath,
-                        album.IsFavorite,
-                        album.ArtistId))
-                    .ToList();
-            }, cancellationToken);
-            result.AddRange(localAlbums.Select(album => ToCatalogAlbumContentRow(album)));
-        }
-
-        foreach (var serverGroup in trackRows
-                     .Where(row => row.OrynivoServer is not null && row.AlbumId.HasValue)
-                     .GroupBy(row => row.OrynivoServer!.Id, StringComparer.Ordinal))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var server = serverGroup.First().OrynivoServer!;
-            var albumIds = serverGroup.Select(row => row.AlbumId!.Value).Distinct().ToHashSet();
-            var loaded = await LibrarySourceLoader.LoadAsync<LibraryCatalogAlbum>(
-                GetServerSourceKey(server.Id),
-                async token => await LoadAllOrynivoAlbumsAsync(server, token), cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            result.AddRange(loaded.Rows
-                .Where(album => albumIds.Contains(album.Id))
-                .Select(album => ToCatalogAlbumContentRow(album, server)));
-        }
+                var server = group.First().OrynivoServer!;
+                var ids = group.Select(row => row.AlbumId!.Value).Distinct().ToList();
+                var albums = await _orynivoClient.GetAlbumsByIdsAsync(server, ids, cancellationToken);
+                return (Server: server, Albums: albums);
+            }).ToArray();
+        await Task.WhenAll(remoteTasks.Append<Task>(localTask));
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = (await localTask).Select(album => ToCatalogAlbumContentRow(album)).ToList();
+        foreach (var source in await Task.WhenAll(remoteTasks))
+            result.AddRange(source.Albums.Select(album => ToCatalogAlbumContentRow(new LibraryCatalogAlbum(
+                LibraryCatalogSource.OrynivoServer, album.Id, album.Album, album.DisplayArtist, album.Year,
+                string.IsNullOrWhiteSpace(album.ArtworkPath) ? null : OrynivoServerClient.GetAlbumArtworkUrl(source.Server, album.Id, 320),
+                string.IsNullOrWhiteSpace(album.ThumbnailPath) ? null : OrynivoServerClient.GetAlbumArtworkUrl(source.Server, album.Id, 96),
+                IsOrynivoFavorite(source.Server, "Album", album.Id), album.ArtistId), source.Server)));
 
         var rank = trackRows
             .Where(row => row.AlbumId.HasValue)
@@ -1034,8 +1184,10 @@ public partial class MainWindow
         var parentKey = _genreCloudSelectedKey;
         var cacheKey = CreateGenreCloudViewCacheKey(parentKey);
         var navigationTag = _currentTopLevelTag;
+        var bindingGeneration = Volatile.Read(ref _genreCloudCatalogGeneration);
         var restoreContext = _navigationRestores.Context;
         bool CanArrange() => bindingVersion == _genreCloudNodeBindingVersion &&
+            bindingGeneration == Volatile.Read(ref _genreCloudCatalogGeneration) &&
             !token.IsCancellationRequested && GenreCloudPanel.IsVisible &&
             string.Equals(_currentTopLevelTag, navigationTag, StringComparison.Ordinal) &&
             string.Equals(_genreCloudSelectedKey, parentKey, StringComparison.Ordinal) &&

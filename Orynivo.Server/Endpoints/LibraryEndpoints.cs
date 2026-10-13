@@ -20,6 +20,7 @@ public static class LibraryEndpoints
     public static void MapLibraryEndpoints(this IEndpointRouteBuilder app)
     {
         app.MapTrackCatalogEndpoints();
+        app.MapAlbumBatchEndpoints();
         app.MapPlaylistCatalogEndpoints();
         var api = app.MapGroup("/api");
 
@@ -802,6 +803,20 @@ public static class LibraryEndpoints
     private static bool IsVirtualSegmentPath(string path) =>
         path.StartsWith("cue://", StringComparison.OrdinalIgnoreCase) ||
         path.StartsWith("mka://", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>Maps bounded album resolution without transferring the complete catalog.</summary>
+    /// <param name="app">Authenticated endpoint route builder.</param>
+    /// <param name="openDatabase">Optional per-request owned connection factory for isolated tests.</param>
+    public static void MapAlbumBatchEndpoints(this IEndpointRouteBuilder app, Func<AudioDatabase>? openDatabase = null)
+    {
+        var factory = openDatabase ?? AudioDatabase.OpenDefault;
+        app.MapPost("/api/albums/by-ids", (long[] ids) =>
+        {
+            if (ids.Length > 100) return Results.BadRequest();
+            using var db = factory();
+            return Results.Ok(db.GetAlbumsByIds(ids).Select(AlbumDto).ToList());
+        });
+    }
 
     private static object AlbumDto(AlbumInfo a) => new
     {

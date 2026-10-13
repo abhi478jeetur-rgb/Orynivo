@@ -38,6 +38,7 @@ using Windows.Media;
 
 namespace Orynivo;
 
+/// <summary>Dashboard entry, incremental section refresh and shared card rendering.</summary>
 public partial class MainWindow : Window
 {
     // ------------------------------------------------------------------
@@ -94,31 +95,6 @@ public partial class MainWindow : Window
         string? Genres,
         double? AverageBpm);
 
-    /// <summary>Immutable expensive catalog portion shared by repeated Dashboard builds.</summary>
-    /// <param name="RecentAlbums">Merged recently added albums.</param>
-    /// <param name="Recommendations">Ranked album recommendations for the selected profile.</param>
-    /// <param name="LocalSummary">Local library totals and normalized artist identities.</param>
-    /// <param name="RemoteSummary">Remote library totals and normalized artist identities.</param>
-    private sealed record DashboardCatalogSnapshot(
-        List<DashboardAlbum> RecentAlbums,
-        List<DashboardAlbum> Recommendations,
-        (DashboardLibrarySummary Summary, HashSet<string> ArtistKeys) LocalSummary,
-        (int AlbumCount, int TrackCount, int FavoriteCount, HashSet<string> ArtistKeys) RemoteSummary);
-
-    /// <summary>One versioned in-memory Dashboard catalog cache entry.</summary>
-    /// <param name="Key">Non-persisted cache identity derived from view options and configured server identities.</param>
-    /// <param name="ExpiresAtUtc">UTC expiry used to bound playback-history and remote-library staleness.</param>
-    /// <param name="Snapshot">Cached catalog snapshot.</param>
-    private sealed record DashboardCatalogCacheEntry(
-        string Key,
-        DateTimeOffset ExpiresAtUtc,
-        DashboardCatalogSnapshot Snapshot);
-
-    private static readonly TimeSpan DashboardCatalogCacheLifetime = TimeSpan.FromHours(24);
-    private readonly object _dashboardCatalogCacheSync = new();
-    private DashboardCatalogCacheEntry? _dashboardCatalogCache;
-    private Task<DashboardCatalogSnapshot>? _dashboardCatalogLoadTask;
-    private string? _dashboardCatalogLoadKey;
     private int _dashboardCatalogGeneration;
 
     /// <summary>Collects one Dashboard build's sanitized phase durations.</summary>
@@ -191,7 +167,7 @@ public partial class MainWindow : Window
         var now = DateTime.Now;
         if (_dashboardYear == 0)
         {
-            _dashboardYear  = now.Year;
+            _dashboardYear = now.Year;
             _dashboardMonth = now.Month;
         }
 
@@ -227,136 +203,158 @@ public partial class MainWindow : Window
         return width >= 980;
     }
 
+    /// <summary>Shows retained sections immediately and refreshes independent data in the background.</summary>
+    /// <returns>A task completing after all section refreshes settle.</returns>
     private async Task BuildDashboardAsync()
     {
+        if (_currentTopLevelTag != "Dashboard" || !DashboardScrollViewer.IsVisible)
+            return;
         var buildVersion = ++_dashboardBuildVersion;
+        var generation = Volatile.Read(ref _dashboardCatalogGeneration);
+        var previewVersion = Volatile.Read(ref _previewConfigurationVersion);
+        var previewIdentity = ViewPreviewIdentity();
+        var rootRequest = _topLevelViewLoads.CaptureCurrent();
+        var restoreContext = _navigationRestores.Context;
+        bool CanPublish() => buildVersion == _dashboardBuildVersion &&
+            generation == Volatile.Read(ref _dashboardCatalogGeneration) &&
+            _topLevelViewLoads.IsCurrent(rootRequest) &&
+            (restoreContext is null || _navigationRestores.IsCurrent(restoreContext)) &&
+            _currentTopLevelTag == "Dashboard" && DashboardScrollViewer.IsVisible;
         var metrics = new DashboardBuildMetrics(buildVersion);
-        var committed = false;
         var visiblePanel = _dashboardRootPanel ?? DashboardPanel;
+        DashboardPanel = visiblePanel;
         _dashboardRootPanel = visiblePanel;
-        var buildPanel = new StackPanel
+        _dashboardTwoColumnLayout = ComputeDashboardTwoColumn();
+        RefreshDashboardPresentation();
+        // Show all pages reuse this panel; reattach only the four retained slots.
+        if (visiblePanel.Children.Count != _dashboardSections.Length ||
+            !ReferenceEquals(visiblePanel.Children[0], _dashboardSections[0]))
         {
-            Spacing = visiblePanel.Spacing,
-            Margin = visiblePanel.Margin,
-            Orientation = visiblePanel.Orientation,
-            HorizontalAlignment = visiblePanel.HorizontalAlignment,
-            VerticalAlignment = visiblePanel.VerticalAlignment
-        };
-
-        DashboardPanel = buildPanel;
-        try
-        {
-            _calendarInner = null;
-            _dashboardTwoColumnLayout = ComputeDashboardTwoColumn();
-
-            // The expensive catalog portion is reused briefly between navigations.
-            // Its loader still overlaps all independent local and remote requests.
-            var catalogTask = GetDashboardCatalogSnapshotAsync(metrics);
-            var recentlyPlayedTask = metrics.MeasureAsync(
-                "recently-played",
-                () => LoadRecentlyPlayedAsync(20));
-            var calendarDataTask = metrics.MeasureAsync("calendar", () => Task.Run(() =>
-            {
-                using var db = AudioDatabase.OpenDefault();
-                return db.GetCalendarData(_dashboardYear, _dashboardMonth);
-            }));
-            if (buildVersion != _dashboardBuildVersion)
-                return;
-            var since = StatsPeriodSinceUnix(_dashboardStatsPeriod);
-            var listeningStatsTask = metrics.MeasureAsync("listening", () => Task.Run(() =>
-            {
-                using var db = AudioDatabase.OpenDefault();
-                var total = db.GetTotalListeningSeconds(since);
-                var trend = db.GetListeningTrend(since, DashboardListeningBucketCount(_dashboardStatsPeriod));
-                double previous = 0;
-                if (since is long currentStart)
-                {
-                    var nowUnix = DateTimeOffset.Now.ToUnixTimeSeconds();
-                    var span = Math.Max(1, nowUnix - currentStart);
-                    previous = db.GetTotalListeningSeconds(currentStart - span, currentStart);
-                }
-                return (Total: total, Previous: previous, Trend: trend);
-            }));
-            var topGenresTask = metrics.MeasureAsync("top-genres", () => Task.Run(() =>
-            {
-                using var db = AudioDatabase.OpenDefault();
-                return db.GetTopGenres(10, since);
-            }));
-            var topAlbumsTask = metrics.MeasureAsync("top-albums", () => Task.Run(() =>
-            {
-                using var db = AudioDatabase.OpenDefault();
-                return db.GetTopAlbums(10, since);
-            }));
-            var topArtistsTask = metrics.MeasureAsync("top-artists", () => Task.Run(() =>
-            {
-                using var db = AudioDatabase.OpenDefault();
-                return db.GetTopArtists(10, since);
-            }));
-
-            await Task.WhenAll(
-                catalogTask,
-                recentlyPlayedTask,
-                calendarDataTask,
-                listeningStatsTask,
-                topGenresTask,
-                topAlbumsTask,
-                topArtistsTask);
-            if (buildVersion != _dashboardBuildVersion)
-                return;
-
-            var catalog = await catalogTask;
-            var recentAlbums = catalog.RecentAlbums;
-            var recommendations = catalog.Recommendations;
-            var localLibrary = catalog.LocalSummary;
-            var remoteLibrary = catalog.RemoteSummary;
-            var (recentlyPlayed, recentThumbs, recentFavorites) = await recentlyPlayedTask;
-            var calendarData = await calendarDataTask;
-            var listeningStats = await listeningStatsTask;
-            var topGenres = await topGenresTask;
-            var topAlbums = await topAlbumsTask;
-            var topArtists = await topArtistsTask;
-
-            var unifiedArtistKeys = new HashSet<string>(localLibrary.ArtistKeys, StringComparer.Ordinal);
-            unifiedArtistKeys.UnionWith(remoteLibrary.ArtistKeys);
-            var librarySummary = localLibrary.Summary with
-            {
-                AlbumCount = localLibrary.Summary.AlbumCount + remoteLibrary.AlbumCount,
-                TrackCount = localLibrary.Summary.TrackCount + remoteLibrary.TrackCount,
-                ArtistCount = unifiedArtistKeys.Count,
-                FavoriteCount = localLibrary.Summary.FavoriteCount + remoteLibrary.FavoriteCount
-            };
-
-            metrics.Measure("ui-build", () =>
-            {
-                DashboardBuildGreeting(librarySummary);
-                DashboardBuildMediaOverview(recentlyPlayed, recentThumbs, recentFavorites, recentAlbums);
-                DashboardBuildRecommendations(recommendations);
-                DashboardBuildStatsSection(
-                    calendarData, topGenres, topAlbums, topArtists,
-                    listeningStats.Total, listeningStats.Previous, listeningStats.Trend,
-                    librarySummary);
-            });
-            if (buildVersion != _dashboardBuildVersion)
-                return;
-
-            DashboardPanel = visiblePanel;
             visiblePanel.Children.Clear();
-            while (buildPanel.Children.Count > 0)
-            {
-                var child = buildPanel.Children[0];
-                buildPanel.Children.RemoveAt(0);
-                visiblePanel.Children.Add(child);
-            }
-            committed = true;
+            foreach (var section in _dashboardSections)
+                visiblePanel.Children.Add(section);
         }
-        finally
+        DashboardScrollViewer.Opacity = 1;
+        PublishDashboardSection(0, new { Summary = _dashboardLastSummary, Hour = DateTime.Now.Hour },
+            () => DashboardBuildGreeting(_dashboardLastSummary));
+
+        // Yield before source admission so even a cold visit paints its hero.
+        await Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() => { },
+            Avalonia.Threading.DispatcherPriority.Background);
+        if (!CanPublish()) return;
+        var since = StatsPeriodSinceUnix(_dashboardStatsPeriod);
+        var year = _dashboardYear;
+        var month = _dashboardMonth;
+        var period = _dashboardStatsPeriod;
+        var statsKey = $"dashboard-stats;{period};{year};{month}";
+        var recommendationKey = $"dashboard-recommendations;{_dashboardRecommendationPeriod};{_dashboardRecommendationMood}";
+        await RestoreDashboardPreviewAsync(previewIdentity, statsKey, recommendationKey, CanPublish);
+        if (!CanPublish()) return;
+        var recentAlbumsTask = ShareDashboardRefreshAsync("recent-albums",
+            () => metrics.MeasureAsync("recent-albums", () => LoadRecentAlbumsAsync(metrics: metrics)));
+        var recommendationsTask = ShareDashboardRefreshAsync("recommendations",
+            () => metrics.MeasureAsync("recommendations", () => LoadDashboardRecommendationsAsync(metrics)));
+        var recentlyPlayedTask = metrics.MeasureAsync("recently-played", () => LoadRecentlyPlayedAsync(20));
+        var localSummaryTask = Task.Run(() =>
         {
-            if (ReferenceEquals(DashboardPanel, buildPanel))
-                DashboardPanel = visiblePanel;
-            metrics.Complete(
-                committed ? "completed" : buildVersion != _dashboardBuildVersion ? "superseded" : "incomplete",
-                (_settings.OrynivoServers ?? []).Count);
+            using var db = AudioDatabase.OpenDefault();
+            return (Summary: db.GetDashboardLibrarySummary(), Keys: db.GetArtistsLite()
+                .Select(artist => ArtistNameNormalizer.CreateComparisonKey(artist.Artist))
+                .ToHashSet(StringComparer.Ordinal));
+        });
+        var remoteSummaryTask = ShareDashboardRefreshAsync("remote-summary",
+            () => ResolveDashboardRemoteLibrarySummaryAsync(metrics));
+        var statsTask = metrics.MeasureAsync("statistics", () => Task.Run(() =>
+        {
+            using var db = AudioDatabase.OpenDefault();
+            var total = db.GetTotalListeningSeconds(since);
+            double previous = 0;
+            if (since is long currentStart)
+            {
+                var span = Math.Max(1, DateTimeOffset.Now.ToUnixTimeSeconds() - currentStart);
+                previous = db.GetTotalListeningSeconds(currentStart - span, currentStart);
+            }
+            return new PreviewStats(db.GetCalendarData(year, month), db.GetTopGenres(10, since),
+                db.GetTopAlbums(10, since), db.GetTopArtists(10, since),
+                total, previous, db.GetListeningTrend(since, DashboardListeningBucketCount(period)));
+        }));
+
+        void PublishStats()
+        {
+            if (!CanPublish() || !statsTask.IsCompletedSuccessfully) return;
+            var stats = statsTask.Result;
+            PublishDashboardSection(3, new { stats, period, year, month, Summary = _dashboardLastSummary }, () =>
+                DashboardBuildStatsSection(stats.Calendar, stats.Genres, stats.Albums, stats.Artists,
+                    stats.Total, stats.Previous, stats.Trend, _dashboardLastSummary));
         }
+        async Task RefreshStatsAsync()
+        {
+            var stats = await statsTask;
+            if (!CanPublish()) return;
+            PublishStats();
+            SaveViewPreview(previewIdentity, statsKey, stats with
+            {
+                Albums = stats.Albums.Select(album => album with
+                { Path = PreviewSafePath(album.Path), ThumbPath = PreviewSafePath(album.ThumbPath) }).ToList(),
+                Artists = stats.Artists.Select(artist => artist with { Path = PreviewSafePath(artist.Path) }).ToList()
+            }, previewVersion);
+        }
+        async Task RefreshSummaryAsync()
+        {
+            await Task.WhenAll(localSummaryTask, remoteSummaryTask);
+            if (!CanPublish()) return;
+            var local = localSummaryTask.Result;
+            var remote = remoteSummaryTask.Result;
+            local.Keys.UnionWith(remote.ArtistKeys);
+            _dashboardLastSummary = local.Summary with
+            {
+                AlbumCount = local.Summary.AlbumCount + remote.AlbumCount,
+                TrackCount = local.Summary.TrackCount + remote.TrackCount,
+                ArtistCount = local.Keys.Count,
+                FavoriteCount = local.Summary.FavoriteCount + remote.FavoriteCount
+            };
+            PublishDashboardSection(0, new { Summary = _dashboardLastSummary, Hour = DateTime.Now.Hour },
+                () => DashboardBuildGreeting(_dashboardLastSummary));
+            PublishStats();
+            SaveViewPreview(previewIdentity, "dashboard-summary", _dashboardLastSummary, previewVersion);
+        }
+        async Task RefreshRecommendationsAsync()
+        {
+            var albums = await recommendationsTask;
+            if (!CanPublish()) return;
+            PublishDashboardSection(2, new
+            {
+                Albums = DashboardAlbumDisplayInputs(albums),
+                _dashboardRecommendationPeriod,
+                _dashboardRecommendationMood,
+                _settings.DashboardRecommendationStageView
+            },
+                () => DashboardBuildRecommendations(albums));
+            SaveViewPreview(previewIdentity, recommendationKey, SavePreviewAlbums(albums), previewVersion);
+        }
+        async Task RefreshMediaAsync()
+        {
+            await Task.WhenAll(recentAlbumsTask, recentlyPlayedTask);
+            if (!CanPublish()) return;
+            var history = recentlyPlayedTask.Result;
+            var albums = recentAlbumsTask.Result;
+            PublishDashboardSection(1, new { history, Albums = DashboardAlbumDisplayInputs(albums) }, () =>
+                DashboardBuildMediaOverview(history.Entries, history.Thumbs, history.FavoriteTrackIds, albums));
+            SaveViewPreview(previewIdentity, "dashboard-media", new PreviewMedia(
+                history.Entries.Select(entry => entry with { Path = PreviewSafePath(entry.Path) ?? string.Empty }).ToList(),
+                history.Thumbs.Where(pair => PreviewSafePath(pair.Value) is not null)
+                    .ToDictionary(pair => pair.Key, pair => pair.Value),
+                history.FavoriteTrackIds, SavePreviewAlbums(albums)), previewVersion);
+        }
+        // Each section settles independently; one failed refresh preserves its old content.
+        async Task ObserveAsync(Task refresh)
+        {
+            try { await refresh; }
+            catch (Exception) { metrics.Record("section-refresh-failed", 0); }
+        }
+        await Task.WhenAll(ObserveAsync(RefreshStatsAsync()), ObserveAsync(RefreshSummaryAsync()),
+            ObserveAsync(RefreshRecommendationsAsync()), ObserveAsync(RefreshMediaAsync()));
+        metrics.Complete(CanPublish() ? "completed" : "superseded", (_settings.OrynivoServers ?? []).Count);
     }
 
     /// <summary>
@@ -685,8 +683,8 @@ public partial class MainWindow : Window
 
         var tb = new TextBlock
         {
-            Text       = title,
-            FontSize   = ResolveFontSize("FontSizeSubtitle"),
+            Text = title,
+            FontSize = ResolveFontSize("FontSizeSubtitle"),
             FontWeight = FontWeight.SemiBold,
             Foreground = FindResource<IBrush>("AppPrimaryTextBrush"),
             VerticalAlignment = VerticalAlignment.Center
@@ -744,15 +742,15 @@ public partial class MainWindow : Window
     {
         return new Button
         {
-            Content    = symbol,
-            FontSize   = 13,
-            Padding    = new Thickness(8, 3, 8, 3),
-            Margin     = new Thickness(4, 0, 0, 0),
+            Content = symbol,
+            FontSize = 13,
+            Padding = new Thickness(8, 3, 8, 3),
+            Margin = new Thickness(4, 0, 0, 0),
             Background = FindResource<IBrush>("AppButtonBrush"),
             Foreground = FindResource<IBrush>("AppPrimaryTextBrush"),
             BorderBrush = FindResource<IBrush>("AppGridLineBrush"),
             BorderThickness = new Thickness(1),
-            Cursor     = new Cursor(StandardCursorType.Hand),
+            Cursor = new Cursor(StandardCursorType.Hand),
             VerticalAlignment = VerticalAlignment.Center
         };
     }
