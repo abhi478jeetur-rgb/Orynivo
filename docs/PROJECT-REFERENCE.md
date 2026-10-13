@@ -434,18 +434,21 @@ WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
   IDs, display name); multiple profiles allow switching between output devices
   without reconfiguring each time
 - `Orynivo/Audio/AudioPlayerRetirement.cs`: UI-free ownership of detached-player
-  background disposal. `MainWindow.StopPlaybackAsync` clears window playback
-  state, removes the gapless event subscription, and transfers its detached
-  player to this helper. Ordinary transitions wait at most two seconds for the
-  current disposal; an empty ordinary transition returns immediately. Timed-out
-  workers remain tracked until completion. A complete output-release wait covers
-  every retirement already registered, even when no active player remains.
-  Disposal and existing error-sink failures are isolated; completed work and
-  unused budget timers are removed. The injected TimeProvider makes deadline
-  tests deterministic. PlaybackSessionCoordinator owns active output and its
-  cancellation. Queue, history, source context and UI cleanup remain
-  window-owned; pending-start tracking is separate from this retirement helper.
-  No backend selection, PCM/DSD processing or native output changes are
+  background disposal. Each synchronous backend disposal uses an independent
+  LongRunning worker on TaskScheduler.Default with DenyChildAttach, so blocked
+  drivers do not occupy shared thread-pool workers needed by timeout callbacks,
+  preparation or drain continuations. `MainWindow.StopPlaybackAsync` clears
+  window playback state, removes the gapless event subscription, and transfers
+  its detached player to this helper. Ordinary transitions wait at most two
+  seconds for the current disposal; an empty ordinary transition returns
+  immediately. Timed-out workers remain tracked until completion. A complete
+  output-release wait covers every retirement already registered, even when no
+  active player remains. Disposal and existing error-sink failures are isolated;
+  completed work and unused budget timers are removed. The injected TimeProvider
+  makes deadline tests deterministic. PlaybackSessionCoordinator owns active
+  output and its cancellation. Queue, history, source context and UI cleanup
+  remain window-owned; pending-start tracking is separate from this retirement
+  helper. No backend selection, PCM/DSD processing or native output changes are
   introduced here.
 - `Orynivo/Audio/PlaybackSessionCoordinator.cs`: single dispatcher-affine active
   output and linked cancellation owner. TryBegin admits current uncancelled

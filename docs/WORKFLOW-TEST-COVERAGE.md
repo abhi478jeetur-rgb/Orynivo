@@ -27,6 +27,12 @@ navigation model. Gate-driven assertions check readiness separately from output
 completion, reject superseded work and drain uniquely owned disposal. Diagnostic
 timeouts only prevent stuck tests; they are not audible latency budgets.
 
+Retirement checks hold synchronous fake disposal on independent workers and
+assert that neither the caller context nor the shared thread pool owns it. Four
+simultaneous blocked retirements retain a complete drain until the final
+release. Existing failure, budget, readiness and output-switch checks remain
+active; diagnostic timeouts and test parallelism are unchanged.
+
 Physical devices/receivers, FFmpeg codecs, operating-system network disconnects,
 other-platform UI runtime behavior and portable end-to-end latency need separate
 opt-in evidence. Fresh-profile first-playback usability remains a separate

@@ -361,14 +361,18 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   players, not active playback or queue state. Ordinary transitions keep the
   two-second wait budget; full device release drains all registered retirements,
   including older timed-out disposals and when no active player remains. A null
-  ordinary transition must not add another wait. Dispose off the dispatcher,
-  isolate disposal/reporting failures, remove completed work, and cancel unused
-  budget timers. Detach gapless event subscriptions with active ownership.
-  Regression tests use fake players and a controllable TimeProvider, never real
-  devices or single-sample wall-clock speed comparisons. Transport stop
-  registers disposal in the background. Normal window closure is deferred until
-  pending preparation and all retirements finish; reject new starts while
-  closing. Do not describe retirement alone as a complete session coordinator.
+  ordinary transition must not add another wait. Synchronous disposal runs on
+  independent LongRunning workers with TaskScheduler.Default and
+  DenyChildAttach, never shared thread-pool workers; blocking backends must not
+  occupy the pool needed by budget, preparation or drain continuations. Dispose
+  off the dispatcher, isolate disposal/reporting failures, remove completed
+  work, and cancel unused budget timers. Detach gapless event subscriptions with
+  active ownership. Regression tests use fake players and a controllable
+  TimeProvider, never real devices or single-sample wall-clock speed
+  comparisons. Transport stop registers disposal in the background. Normal
+  window closure is deferred until pending preparation and all retirements
+  finish; reject new starts while closing. Do not describe retirement alone as a
+  complete session coordinator.
 - MCP single-track Play forwards the opaque reference to PlayFileFunc so the
   existing playback preparation owns remote lookup. Mobile single-track Play
   claims a start intent and preparation lease before local/server identity

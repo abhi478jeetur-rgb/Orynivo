@@ -70,7 +70,8 @@ public sealed class AudioPlayerRetirementTests
         await owner.RetireAsync(null, waitForCompleteDisposal: true).WaitAsync(TimeSpan.FromSeconds(10));
     }
 
-    /// <summary>Worker disposal leaves the caller's synchronization context responsive and cancels unused timers.</summary>
+    /// <summary>Blocking disposal runs outside the caller context and shared thread pool, and cancels unused timers.</summary>
+    /// <returns>The worker isolation and timer cleanup assertion task.</returns>
     [Fact]
     public async Task Disposal_RunsOutsideCallerContextAndCancelsBudgetTimer()
     {
@@ -89,6 +90,7 @@ public sealed class AudioPlayerRetirementTests
         finally { SynchronizationContext.SetSynchronizationContext(original); }
         await player.Started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         Assert.NotSame(marker, player.DisposalContext);
+        Assert.False(player.DisposalUsesThreadPool);
         Assert.False(transition.IsCompleted);
         player.Release();
         await transition.WaitAsync(TimeSpan.FromSeconds(10));
@@ -136,6 +138,34 @@ public sealed class AudioPlayerRetirementTests
         await complete.WaitAsync(TimeSpan.FromSeconds(10));
     }
 
+    /// <summary>Concurrent blocked retirements have independent workers and remain owned until the complete drain.</summary>
+    /// <returns>The worker isolation and drain assertion task.</returns>
+    [Fact]
+    public async Task ConcurrentBlockedDisposals_HaveIndependentWorkersAndDrainTogether()
+    {
+        var owner = new AudioPlayerRetirement(_ => { });
+        var players = Enumerable.Range(0, 4).Select(_ => new BlockingPlayer()).ToArray();
+        var drains = players.Select(player => owner.RetireAsync(player, waitForCompleteDisposal: true)).ToArray();
+        try
+        {
+            await Task.WhenAll(players.Select(player => player.Started.Task)).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.All(players, player => Assert.False(player.DisposalUsesThreadPool));
+            var complete = owner.RetireAsync(null, waitForCompleteDisposal: true);
+            Assert.False(complete.IsCompleted);
+            foreach (var player in players.Take(3)) player.Release();
+            await Task.WhenAll(players.Take(3).Select(player => player.Finished.Task)).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(complete.IsCompleted);
+            players[3].Release();
+            await complete.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.All(players, player => Assert.Equal(1, player.DisposalCalls));
+        }
+        finally
+        {
+            foreach (var player in players) player.Release();
+            await Task.WhenAll(drains).WaitAsync(TimeSpan.FromSeconds(10));
+        }
+    }
+
     /// <summary>A fake player blocks only its worker disposal until the test releases it.</summary>
     /// <param name="failure">Optional synthetic disposal failure.</param>
     private sealed class BlockingPlayer(Exception? failure = null) : IAudioPlayer
@@ -149,6 +179,8 @@ public sealed class AudioPlayerRetirementTests
         internal int DisposalCalls { get; private set; }
         /// <summary>Gets the synchronization context observed by disposal.</summary>
         internal SynchronizationContext? DisposalContext { get; private set; }
+        /// <summary>Gets whether disposal occupies a shared thread-pool worker.</summary>
+        internal bool DisposalUsesThreadPool { get; private set; }
         /// <inheritdoc/>
         public TimeSpan Duration => TimeSpan.Zero;
         /// <inheritdoc/>
@@ -176,6 +208,7 @@ public sealed class AudioPlayerRetirementTests
         {
             DisposalCalls++;
             DisposalContext = SynchronizationContext.Current;
+            DisposalUsesThreadPool = Thread.CurrentThread.IsThreadPoolThread;
             Started.TrySetResult();
             _released.Wait();
             Finished.TrySetResult();
