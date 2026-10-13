@@ -1742,6 +1742,7 @@
                     ClipToBounds="True"
                     IsVisible="False">
                 <Grid>
+                <Grid x:Name="GenreCloudDisplay">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
@@ -1842,6 +1843,31 @@
                             </StackPanel>
                         </Border>
                     </Grid>
+                </Grid>
+                <Border x:Name="GenreCloudLoadingPanel"
+                        IsVisible="False"
+                        HorizontalAlignment="Center"
+                        VerticalAlignment="Center"
+                        MaxWidth="480"
+                        Margin="20">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="{DynamicResource L_GenreCloudLoading}"
+                                   TextWrapping="Wrap"
+                                   TextAlignment="Center"
+                                   FontSize="{DynamicResource FontSizeSubtitle}"
+                                   Foreground="{DynamicResource AppPrimaryTextBrush}"
+                                   AutomationProperties.LiveSetting="Polite"/>
+                        <ProgressBar x:Name="GenreCloudLoadingProgressBar"
+                                     Minimum="0" Maximum="100"
+                                     Height="8" MinWidth="220"
+                                     IsIndeterminate="True"
+                                     AutomationProperties.Name="{DynamicResource L_GenreCloudLoading}"/>
+                        <TextBlock x:Name="GenreCloudLoadingProgressTextBlock"
+                                   TextAlignment="Center"
+                                   TextWrapping="Wrap"
+                                   Foreground="{DynamicResource AppSecondaryTextBrush}"/>
+                    </StackPanel>
+                </Border>
                 </Grid>
             </Border>
 

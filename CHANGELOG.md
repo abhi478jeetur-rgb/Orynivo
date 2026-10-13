@@ -8,6 +8,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Selecting an uncached Genre Cloud branch immediately replaces its old display
+  with a localized assembly message and a bar showing completed work steps.
+  Cached levels still appear directly; cancellation and navigation release only
+  the owning loading state.
+
 - Dashboard and Genre Cloud show their last cached display before background
   refresh, including after restarting Orynivo. Dashboard sections refresh
   independently, unchanged data retains existing controls, and cached views

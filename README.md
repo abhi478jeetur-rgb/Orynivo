@@ -1301,6 +1301,11 @@ work while replacing the earlier view request.
 Genre button layout and entrance animations follow the current cloud binding;
 changing mode or leaving the view abandons pending callbacks.
 
+Selecting a branch that needs loading immediately hides the previous cloud and
+recommendations and shows an assembly message with a progress bar. Its
+percentage counts completed source and assembly steps. Cached branches appear
+directly; navigation or cancellation clears the loading feedback.
+
 Resolved cloud levels are retained in a bounded in-memory session cache. After
 the first load, reopening the root or one of the recently visited branches
 reuses its merged taxonomy and source-aware recommendations instead of querying

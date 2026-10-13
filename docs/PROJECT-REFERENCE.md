@@ -2805,6 +2805,17 @@ behind their interactive presentation. Failed complete-source refreshes retain
 old data; changed results restore source-aware selection and guarded scroll.
 Unchanged results preserve node controls. Mode switches reuse resolved data.
 
+Uncached foreground branch admission hides the old cloud and recommendation
+hosts before the first await. `MainWindow.GenreCloud.Loading.cs` displays a
+localized assembly panel and observes the shared `CompletedWorkProgress`
+counter. Its fixed work units cover local facets, listening weights, each
+configured remote source, composition, track resolution and album resolution.
+Percentages count successful steps; step durations can differ. An indeterminate
+bar covers preview lookup before source admission. Cache publication immediately
+removes foreground feedback while background revalidation remains interactive.
+The timer, cancellation and completion retain the original foreground owner;
+obsolete work cannot hide another request's loading panel or destination view.
+
 `MainWindow.ViewPreviews.cs` projects separate restart DTOs into
 `ViewPreviewStore`: display data, normalized options and opaque source IDs only.
 Never serialize runtime rows/settings, credentials, authenticated URLs or

@@ -1537,6 +1537,13 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
   bindings must not arrange a newer cloud.
 - A cached Genre Cloud level renders immediately and must not retain the
   first-load branch-transition delay.
+- Uncached cloud admission immediately hides the previous level/results and
+  displays localized assembly feedback. Percentages count completed source and
+  assembly steps with CompletedWorkProgress, never fabricated time-based
+  increments. Shared work owns its counter; UI polling/cleanup retains
+  foreground request identity. Stop polling on cache publication, cancellation,
+  failure and navigation; obsolete cleanup must not affect newer loading or
+  another view.
 - `AppSettings.LastMainView` persists every selectable sidebar leaf tag, not a
   hard-coded view subset. Section and library-group containers, empty hints, and
   disabled Plex server headings are never persisted. Synchronously built dynamic

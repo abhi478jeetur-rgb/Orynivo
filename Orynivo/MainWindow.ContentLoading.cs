@@ -55,6 +55,7 @@ public partial class MainWindow : Window
         _topLevelViewCts = null;
         var previousCloudCancellation = _genreCloudCts;
         _genreCloudCts = null;
+        HideGenreCloudLoading();
         _genreCloudLoads.Invalidate();
         var previousPlexCancellation = _plexViewCts;
         _plexViewCts = null;

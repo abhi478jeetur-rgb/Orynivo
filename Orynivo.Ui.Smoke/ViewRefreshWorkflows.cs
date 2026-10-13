@@ -3,6 +3,7 @@ using System.Net;
 using System.Reflection;
 using Avalonia.Controls;
 using Avalonia.Threading;
+using Avalonia.Interactivity;
 using Orynivo;
 using Orynivo.Library;
 using Orynivo.Localization;
@@ -92,6 +93,45 @@ internal static class ViewRefreshWorkflows
             Finish(Show(window, "GenreCloud")); Finish((Task)Get(window, "_previewWriteTask")!);
             var nodes = (List<GenreCloudNode>)Get(window, "_genreCloudNodes")!;
             Check(nodes.Any(node => node.Key == "rock"), "Synthetic cloud failed to publish.");
+            var loadingPanel = window.FindControl<Border>("GenreCloudLoadingPanel")!;
+            var display = window.FindControl<Grid>("GenreCloudDisplay")!;
+            var progressBar = window.FindControl<ProgressBar>("GenreCloudLoadingProgressBar")!;
+            var genreButton = window.FindControl<Canvas>("GenreCloudNodesCanvas")!.Children
+                .OfType<Button>().First(button => button.Tag as string == "rock");
+            handler.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously); before = handler.Requests;
+            var click = new RetryCompletion();
+            var previousContext = SynchronizationContext.Current;
+            SynchronizationContext.SetSynchronizationContext(click);
+            try { genreButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); }
+            finally { SynchronizationContext.SetSynchronizationContext(previousContext); }
+            Check(loadingPanel.IsVisible && !display.IsVisible && !window.FindControl<DataGrid>("ContentDataGrid")!.IsVisible,
+                "Cloud click did not immediately acknowledge admission and hide previous content.");
+            var timerBudget = Stopwatch.StartNew();
+            while ((progressBar.IsIndeterminate || progressBar.Value <= 0) && timerBudget.Elapsed < TimeSpan.FromSeconds(15))
+            {
+                using var cycle = new CancellationTokenSource(50);
+                Dispatcher.UIThread.MainLoop(cycle.Token);
+            }
+            Check(!progressBar.IsIndeterminate && progressBar.Value > 0 && progressBar.Value < 100 && !click.IsCompleted,
+                "Held cloud assembly did not expose completed-step progress.");
+            handler.Pending.SetResult(); Pump(() => click.IsCompleted);
+            Check(!loadingPanel.IsVisible && display.IsVisible, "Completed cloud assembly retained its loading panel.");
+
+            // A memory-cached branch must render immediately without a blocking panel.
+            Finish((Task)Call(window, "ShowGenreCloudAsync", "rock", null)!);
+            Check(!loadingPanel.IsVisible, "Cached branch selection unnecessarily blocked interaction.");
+            handler.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously); before = handler.Requests;
+            var abandonedBranch = (Task)Call(window, "ShowGenreCloudAsync", "jazz", null)!;
+            Check(loadingPanel.IsVisible, "New uncached branch did not show feedback.");
+            Pump(() => handler.Requests > before);
+            Finish(Show(window, "Queue"));
+            Check(!loadingPanel.IsVisible, "Navigation left cloud feedback active.");
+            handler.Pending.SetResult(); Finish(abandonedBranch);
+            Check(!loadingPanel.IsVisible && window.FindControl<DataGrid>("ContentDataGrid")!.IsVisible,
+                "Late cloud cleanup hid the destination view.");
+            handler.Pending = null; Finish(Show(window, "GenreCloud"));
+            Console.WriteLine("PASS: cloud click immediately hides old content, reports real work steps and cleans up on completion/navigation");
+
             handler.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously); before = handler.Requests;
             Call(window, "InvalidateGenreCloudViewCache");
             var cloud = Show(window, "GenreCloud"); Pump(() => handler.Requests > before);

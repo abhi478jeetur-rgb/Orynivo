@@ -6,7 +6,7 @@ number of unit tests in the repository.
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 64 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 65 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -104,3 +104,10 @@ the 64-file bound. New-window restoration simulates restart in the same isolated
 temporary data root; no native app startup, physical display/audio or live
 provider is exercised. Timeouts remain failure diagnostics, not millisecond
 performance budgets.
+
+Cloud loading feedback adds one Windows group using routed Click on an actual
+compiled genre button, a held synthetic server and the headless dispatcher timer
+loop. It checks immediate old-content hiding, completed-step progress before
+HTTP completion, cached branch reuse and navigation cleanup. Three pure
+CompletedWorkProgress tests cover held/successful/faulted/cancelled steps,
+concurrent completion and percentage bounds without a clock.

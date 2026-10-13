@@ -90,6 +90,7 @@ public partial class MainWindow
     /// <summary>Abandons foreground cloud publication without cancelling shared snapshot work.</summary>
     private void CancelGenreCloudViewLoad()
     {
+        HideGenreCloudLoading();
         _genreCloudLoads.Invalidate();
         CancelAndDispose(ref _genreCloudCts);
     }
@@ -129,6 +130,8 @@ public partial class MainWindow
         var hasCachedView = IsGenreCloudViewCached(parentKey);
         _genreCloudSelectedKey = parentKey;
         if (!CanPublish()) return;
+        if (!hasCachedView)
+            BeginGenreCloudLoading(request, $"{generation};{cacheKey}", CanPublish);
         try
         {
             if (!hasCachedView)
@@ -178,6 +181,7 @@ public partial class MainWindow
                 var albumRows = snapshot.AlbumRows;
                 _genreCloudTrackRows = rows;
                 _genreCloudAlbumRows = albumRows;
+                HideGenreCloudLoading(request);
                 ApplyGenreRecommendationMode();
                 var backgroundMode = _settings.GenreCloudBackground;
                 var backgroundWidth = (int)Math.Clamp(
@@ -225,6 +229,7 @@ public partial class MainWindow
         {
             // Failed refreshes retain the previously rendered level.
         }
+        finally { HideGenreCloudLoading(request); }
     }
 
     /// <summary>
@@ -260,6 +265,7 @@ public partial class MainWindow
         var previewVersion = Volatile.Read(ref _previewConfigurationVersion);
         var loadKey = $"{generation};{key}";
         Task<GenreCloudViewSnapshot> loadTask;
+        CompletedWorkProgress progress;
         lock (_genreCloudViewCacheSync)
         {
             if (!refresh && _genreCloudViewCache.TryGetValue(key, out var cached))
@@ -269,11 +275,14 @@ public partial class MainWindow
             }
             if (!_genreCloudViewLoads.TryGetValue(loadKey, out loadTask!))
             {
+                progress = new CompletedWorkProgress((_settings.OrynivoServers ?? []).Count + 5);
+                _genreCloudLoadProgress[loadKey] = progress;
                 var completion = new TaskCompletionSource<GenreCloudViewSnapshot>(TaskCreationOptions.RunContinuationsAsynchronously);
                 loadTask = completion.Task;
                 _genreCloudViewLoads[loadKey] = loadTask;
                 _ = CompleteAsync(completion);
             }
+            else progress = _genreCloudLoadProgress[loadKey];
         }
         try { return await loadTask.WaitAsync(cancellationToken); }
         finally
@@ -284,6 +293,7 @@ public partial class MainWindow
                     if (_genreCloudViewLoads.TryGetValue(loadKey, out var active) && ReferenceEquals(active, loadTask))
                     {
                         _genreCloudViewLoads.Remove(loadKey);
+                        _genreCloudLoadProgress.Remove(loadKey);
                     }
             }
         }
@@ -297,6 +307,7 @@ public partial class MainWindow
                     if (_genreCloudViewLoads.TryGetValue(loadKey, out var active) && ReferenceEquals(active, completion.Task))
                     {
                         _genreCloudViewLoads.Remove(loadKey);
+                        _genreCloudLoadProgress.Remove(loadKey);
                     }
             }
         }
@@ -304,7 +315,7 @@ public partial class MainWindow
         {
             // Capture source adapters on the UI caller before yielding. Shared work
             // finishes/cache-publishes even when every foreground waiter leaves.
-            var pending = LoadGenreCloudViewSnapshotAsync(parentKey, CancellationToken.None);
+            var pending = LoadGenreCloudViewSnapshotAsync(parentKey, CancellationToken.None, progress);
             GenreCloudViewSnapshot result;
             var complete = true;
             try { result = await pending; }
@@ -383,10 +394,12 @@ public partial class MainWindow
     /// <summary>Loads one cacheable cloud level using copied server connections without playback publication.</summary>
     /// <param name="parentKey">Selected taxonomy key, or <see langword="null"/> for the root.</param>
     /// <param name="cancellationToken">Token that cancels source and row resolution.</param>
+    /// <param name="progress">Shared completed-step counter for foreground feedback.</param>
     /// <returns>A complete cacheable view snapshot.</returns>
     private async Task<GenreCloudViewSnapshot> LoadGenreCloudViewSnapshotAsync(
         string? parentKey,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        CompletedWorkProgress progress)
     {
         var servers = (_settings.OrynivoServers ?? []).Select(server => new OrynivoServerSettings
         {
@@ -398,16 +411,16 @@ public partial class MainWindow
             StreamingFormat = server.StreamingFormat,
             StreamingBitrateKbps = server.StreamingBitrateKbps
         }).ToArray();
-        var localTask = Task.Run(() =>
+        var localTask = progress.TrackAsync(Task.Run(() =>
         {
             using var db = AudioDatabase.OpenDefault();
             return new GenreCloudSource(
                 null,
                 GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parentKey, 500));
-        }, cancellationToken);
-        var listeningWeightsTask = Task.Run(LoadGenreListeningWeights, cancellationToken);
+        }, cancellationToken));
+        var listeningWeightsTask = progress.TrackAsync(Task.Run(LoadGenreListeningWeights, cancellationToken));
         var remoteTasks = servers
-            .Select(server => LoadRemoteGenreCloudAsync(server, parentKey, cancellationToken))
+            .Select(server => progress.TrackAsync(LoadRemoteGenreCloudAsync(server, parentKey, cancellationToken)))
             .ToArray();
 
         await Task.WhenAll(remoteTasks.Append<Task>(localTask).Append(listeningWeightsTask));
@@ -440,9 +453,12 @@ public partial class MainWindow
                 .ToList();
             return (Nodes: nodes, Candidates: candidates);
         }, cancellationToken);
+        progress.CompleteStep();
 
         var rows = await ResolveGenreCandidateRowsAsync(composed.Candidates, cancellationToken, registerRemoteMetadata: false);
+        progress.CompleteStep();
         var albumRows = await ResolveGenreCandidateAlbumRowsAsync(rows, cancellationToken);
+        progress.CompleteStep();
         return new GenreCloudViewSnapshot(composed.Nodes, rows, albumRows);
     }
 
@@ -475,6 +491,7 @@ public partial class MainWindow
         lock (_genreCloudViewCacheSync)
         {
             _genreCloudViewLoads.Clear();
+            _genreCloudLoadProgress.Clear();
         }
     }
 
