@@ -4,6 +4,24 @@ All notable changes to Orynivo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [0.48.0] - 2026-10-12
+
+### Changed
+
+- Dashboard and Genre Cloud show their last cached display before background
+  refresh, including after restarting Orynivo. Dashboard sections refresh
+  independently, unchanged data retains existing controls, and cached views
+  remain interactive without the blocking loading overlay. Restart previews
+  exclude credentials and authenticated URLs and are bounded by size, age and
+  file count.
+
+### Fixed
+
+- Catalog changes retain the last Genre Cloud display while refreshing it;
+  unavailable sources no longer replace a retained level with an empty refresh.
+  Abandoned refreshes cannot replace another view or a newer profile/source
+  configuration.
+
 ## [0.47.0] - 2026-10-12
 
 ### Changed

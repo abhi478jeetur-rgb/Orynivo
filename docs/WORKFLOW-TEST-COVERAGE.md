@@ -1,12 +1,12 @@
 # Workflow verification scopes
 
-Updated: 2026-10-12. Counts identify the added workflow cases, not the total
+Updated: 2026-10-13. Counts identify the added workflow cases, not the total
 number of unit tests in the repository.
 
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 57 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 64 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -90,3 +90,17 @@ source publication, ReplayGain preference, progress, duplicate/empty rejection,
 active row identity across add/remove, cancellation ownership, backup-lock
 release, failure retry controls and rejected picker results after deactivation.
 No actual media scan or folder picker is invoked.
+
+View refresh adds seven Windows groups using real Dashboard/Genre Cloud and
+top-level navigation adapters. Deterministic held HTTP verifies early hero and
+local-statistics publication, cached/unchanged section reuse, immediate cached
+presentation changes during held HTTP, stale cloud display, changed-count
+publication, failed refresh/recovery and uncached local fallback, new-window
+restart previews before HTTP completion, late navigation rejection, runtime
+source-path reconstruction, persisted secret exclusion and configuration
+clearing. Four pure ViewPreviewStore tests cover restart context isolation,
+rejected atomic writes, corrupt/incomplete/oversized/expired reads, recovery and
+the 64-file bound. New-window restoration simulates restart in the same isolated
+temporary data root; no native app startup, physical display/audio or live
+provider is exercised. Timeouts remain failure diagnostics, not millisecond
+performance budgets.

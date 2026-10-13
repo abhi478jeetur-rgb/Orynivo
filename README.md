@@ -1030,9 +1030,12 @@ byte-range streaming without FFmpeg.
   `logs/dashboard-performance.log` beneath the Orynivo data directory. It
   contains only phase names, elapsed times, build outcome, and server count;
   library paths, media names, URLs, and credentials are never recorded.
-  Expensive album catalog aggregates use a short in-memory snapshot across
-  repeated Dashboard visits; overlapping loads are coalesced, and local or
-  remote library-version changes invalidate the snapshot automatically.
+  Dashboard displays its last available sections immediately and refreshes
+  counters, media, recommendations, and listening statistics independently.
+  Unchanged sections retain their controls and scroll position; overlapping
+  source loads are coalesced. Sanitized restart previews also make the previous
+  Dashboard available before server requests finish after launching Orynivo.
+  Without a previous preview, the greeting appears first and data follows.
 - The last selectable sidebar view is restored on restart, including Genre
   Cloud, Dashboard, AI Chat, playlists, saved radio/podcast entries, Orynivo
   Server views, and Plex libraries. Missing or removed entries fall back to
@@ -1302,8 +1305,21 @@ Resolved cloud levels are retained in a bounded in-memory session cache. After
 the first load, reopening the root or one of the recently visited branches
 reuses its merged taxonomy and source-aware recommendations instead of querying
 and resolving every library again. Local file-watcher changes and newer remote
-server library versions invalidate these entries automatically; the cache is
-never persisted, and its identity contains neither server URLs nor credentials.
+server library versions mark these entries stale without removing the last
+displayed data. Reopening a stale level shows it first and revalidates in the
+background; a top-level visit also refreshes a retained level. Unchanged results
+retain the existing controls, while changed recommendations preserve
+source-aware selection and scroll where possible. Failed refreshes keep the
+previous level.
+
+Credential-free display previews also restore recently visited levels after a
+restart, before network requests complete. They contain display data and opaque
+source IDs; playback and artwork URLs are reconstructed from current settings.
+Dashboard and cloud previews share bounded storage under `view-previews-v1` in
+the data directory: at most 64 files, 4 MiB each, and seven days of reuse.
+Source, authentication, and profile changes clear these previews. File I/O runs
+in the background, and missing or corrupt previews fall back to ordinary
+loading.
 
 The current level uses available images from its recommended local and remote
 artists as a muted grayscale tile background. Images are proportionally fitted

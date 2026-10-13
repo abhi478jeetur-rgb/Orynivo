@@ -14,6 +14,10 @@ public partial class MainWindow
         CancelRemoteViewLoad();
         InvalidateDashboardCatalogCache();
         InvalidateGenreCloudViewCache();
+        ClearDashboardPresentationCache();
+        ClearViewPreviews();
+        lock (_genreCloudViewCacheSync)
+            _genreCloudViewCache.Clear();
         InvalidateUnifiedLibraryViewCache();
     }
 

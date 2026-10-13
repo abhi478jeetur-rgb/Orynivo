@@ -75,3 +75,11 @@ affect the pure desktop unit tests.
   ORYNIVO_SMOKE_RENDER_DIR optionally exports synthetic frames outside ordinary
   CI. Keep them uncommitted. Contrast assertions apply only to opaque theme
   colors, not physical monitors or accessibility certification.
+- View preview checks use synthetic source/profile identity and deterministic
+  held HTTP. A new unshown window may simulate restart in the same temporary
+  data root. Verify cached content before network completion, changed/unchanged
+  publication, immediate presentation changes, failed/cold local fallback and
+  source-aware navigation. Inspect only synthetic preview bytes for secret
+  exclusion; never inspect personal caches. Drain shared snapshot tasks and
+  optional preview writes before transport teardown. These ordering checks do
+  not establish a native first-frame or millisecond latency budget.

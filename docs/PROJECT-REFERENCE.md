@@ -2790,6 +2790,34 @@ WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
 
 ## Dashboard
 
+Dashboard and Genre Cloud admit visible content before network completion and
+bypass the shared blocking overlay/final whole-surface fade. Dashboard keeps
+four stable section hosts in `MainWindow.Dashboard.Refresh.cs`; hero counts,
+media, recommendations and listening statistics refresh independently. Display
+fingerprints retain unchanged controls. Expensive in-flight phases are shared;
+publication retains build/root navigation, catalog generation and outer Back
+ownership. Show all pages retain their separate ownership of the shared panel.
+
+Genre Cloud separates stable cache identity from completed-load generation.
+Ordinary invalidation rejects old source work while keeping up to sixteen stale
+levels available for immediate display. Root visits and stale levels revalidate
+behind their interactive presentation. Failed complete-source refreshes retain
+old data; changed results restore source-aware selection and guarded scroll.
+Unchanged results preserve node controls. Mode switches reuse resolved data.
+
+`MainWindow.ViewPreviews.cs` projects separate restart DTOs into
+`ViewPreviewStore`: display data, normalized options and opaque source IDs only.
+Never serialize runtime rows/settings, credentials, authenticated URLs or
+bitmaps. Remote playback/artwork addresses are reconstructed with current
+settings; unsafe history paths are removed from disk DTOs. Profile/source
+identity selects hashed filenames. Configuration/authentication/profile changes
+reject old writes and clear retained previews. The atomic writer uses unique
+staging files and off-thread I/O, with at most 64 files, 4 MiB per file and a
+seven-day read lifetime. Missing/corrupt/incomplete/oversized files are cache
+misses. Cold Dashboard visits paint the greeting first; absent cloud previews
+fall back to normal data loading. These guarantees concern ordering and
+responsiveness, not a measured portable first-frame deadline.
+
 - The top sidebar item has tag `"Dashboard"`
 - **Internet Radio** appears directly below Dashboard. It searches Radio
   Browser, plays streams through the existing FFmpeg PCM path, and adds stations
