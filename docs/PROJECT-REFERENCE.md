@@ -2805,6 +2805,21 @@ behind their interactive presentation. Failed complete-source refreshes retain
 old data; changed results restore source-aware selection and guarded scroll.
 Unchanged results preserve node controls. Mode switches reuse resolved data.
 
+Cloud source reads share local facet input within one catalog generation;
+invalidation drops the shared task and old work cannot repopulate it.
+Independent remote track and album groups load concurrently; only selected
+albums are read through `GetAlbumsByIds`, never a complete album catalog.
+Authenticated `POST /api/albums/by-ids` accepts at most 100 IDs and retains
+active-profile favorites, artwork paths and artist identity. The strict client
+falls back only for 404/405 to detail requests with four workers; other failures
+propagate. `GenreCloudService` precomputes immutable multi-parent ancestor sets
+and normalized fallback phrases. Each snapshot resolves repeated raw genre
+values once while keeping per-track identities, ratings and candidate ordering.
+Facet SQL joins profile state and current-version audio features rather than
+running three correlated subqueries per track. Lucene remains the full-text
+index: it has no dedicated taxonomy facets or album-ID fields, so it is not used
+as a substitute for authoritative genre/profile metadata.
+
 Uncached foreground branch admission hides the old cloud and recommendation
 hosts before the first await. `MainWindow.GenreCloud.Loading.cs` displays a
 localized assembly panel and observes the shared `CompletedWorkProgress`

@@ -91,6 +91,9 @@ internal static class ViewRefreshWorkflows
 
             handler.Pending = null;
             Finish(Show(window, "GenreCloud")); Finish((Task)Get(window, "_previewWriteTask")!);
+            var localFacets = Get(window, "_genreCloudLocalFacets");
+            Check(((List<ContentRow>)Get(window, "_genreCloudAlbumRows")!).Any(row => row.OrynivoServer?.Id == "preview" && row.AlbumId == 80001),
+                "Targeted cloud album resolution lost the selected server album.");
             var nodes = (List<GenreCloudNode>)Get(window, "_genreCloudNodes")!;
             Check(nodes.Any(node => node.Key == "rock"), "Synthetic cloud failed to publish.");
             var loadingPanel = window.FindControl<Border>("GenreCloudLoadingPanel")!;
@@ -130,10 +133,15 @@ internal static class ViewRefreshWorkflows
             Check(!loadingPanel.IsVisible && window.FindControl<DataGrid>("ContentDataGrid")!.IsVisible,
                 "Late cloud cleanup hid the destination view.");
             handler.Pending = null; Finish(Show(window, "GenreCloud"));
+            Check(ReferenceEquals(localFacets, Get(window, "_genreCloudLocalFacets")),
+                "Cloud navigation reread unchanged local facets.");
+            Check(handler.AlbumBatches > 0 && handler.FullAlbums == 0,
+                "Cloud assembly transferred a complete album catalog.");
             Console.WriteLine("PASS: cloud click immediately hides old content, reports real work steps and cleans up on completion/navigation");
 
             handler.Pending = new(TaskCreationOptions.RunContinuationsAsynchronously); before = handler.Requests;
             Call(window, "InvalidateGenreCloudViewCache");
+            Check(Get(window, "_genreCloudLocalFacets") is null, "Catalog invalidation retained old facet input.");
             var cloud = Show(window, "GenreCloud"); Pump(() => handler.Requests > before);
             var canvas = window.FindControl<Canvas>("GenreCloudNodesCanvas")!;
             var firstButton = canvas.Children.FirstOrDefault();
@@ -233,6 +241,12 @@ internal static class ViewRefreshWorkflows
 internal sealed class ViewRefreshHandler : HttpMessageHandler
 {
     private int _requests;
+    private int _albumBatches;
+    private int _fullAlbums;
+    /// <summary>Gets selected album batch requests.</summary>
+    internal int AlbumBatches => Volatile.Read(ref _albumBatches);
+    /// <summary>Gets complete album catalog requests.</summary>
+    internal int FullAlbums => Volatile.Read(ref _fullAlbums);
     /// <summary>Gets the number of admitted synthetic requests.</summary>
     internal int Requests => Volatile.Read(ref _requests);
     /// <summary>Gets or sets an optional deterministic response gate.</summary>
@@ -252,6 +266,8 @@ internal sealed class ViewRefreshHandler : HttpMessageHandler
         if (pending is not null) await pending.Task;
         if (Fail) return new HttpResponseMessage(HttpStatusCode.ServiceUnavailable);
         var path = request.RequestUri!.AbsolutePath;
+        if (path == "/api/albums/by-ids") Interlocked.Increment(ref _albumBatches);
+        if (path == "/api/albums") Interlocked.Increment(ref _fullAlbums);
         var parent = request.RequestUri.Query.TrimStart('?').Split('&')
             .FirstOrDefault(parameter => parameter.StartsWith("parent=", StringComparison.Ordinal))?[7..];
         var parentJson = parent is null ? "null" : "\"" + Uri.UnescapeDataString(parent) + "\"";
@@ -259,7 +275,8 @@ internal sealed class ViewRefreshHandler : HttpMessageHandler
         {
             "/api/genres/cloud" => "{\"parentKey\":" + parentJson + ",\"breadcrumbKeys\":[],\"nodes\":[{\"key\":\"rock\",\"displayName\":\"Rock\",\"trackCount\":" + count +
                 ",\"albumCount\":1,\"hasChildren\":true}],\"candidates\":[{\"trackId\":70001,\"genreKey\":\"rock\",\"isFavorite\":false}]}",
-            "/api/tracks/by-ids" => "[{\"id\":70001,\"path\":\"synthetic-track.flac\",\"fileName\":\"synthetic-track.flac\",\"title\":\"Synthetic cloud track\",\"artist\":\"Synthetic source\",\"genre\":\"Rock\"}]",
+            "/api/tracks/by-ids" => "[{\"id\":70001,\"path\":\"synthetic-track.flac\",\"fileName\":\"synthetic-track.flac\",\"title\":\"Synthetic cloud track\",\"artist\":\"Synthetic source\",\"genre\":\"Rock\",\"albumId\":80001}]",
+            "/api/albums/by-ids" => "[{\"id\":80001,\"album\":\"Synthetic selected album\",\"displayArtist\":\"Synthetic source\"}]",
             "/api/library/summary" => "{\"albumCount\":1,\"trackCount\":3,\"artistCount\":1,\"favoriteCount\":0}",
             "/api/scan" => "{}",
             _ => "[]"

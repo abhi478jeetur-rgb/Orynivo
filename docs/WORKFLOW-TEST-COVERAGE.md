@@ -111,3 +111,15 @@ loop. It checks immediate old-content hiding, completed-step progress before
 HTTP completion, cached branch reuse and navigation cleanup. Three pure
 CompletedWorkProgress tests cover held/successful/faulted/cancelled steps,
 concurrent completion and percentage bounds without a clock.
+
+Cloud assembly checks also require selected server albums to appear without
+complete album catalog requests, reuse of local facet input between branches,
+and eviction of that input on catalog invalidation. Core tests cover selected
+album/profile semantics, joined enriched facets, batch profile headers, 404/405
+detail compatibility, bounds, cancellation and strict failure. An isolated
+production TestServer album-batch check verifies authentication, profile
+overrides, duplicate/missing IDs, empty requests and the 100-ID bound. These
+checks do not measure latency in a personal or live remote library.
+
+An exhaustive taxonomy test compares every known genre pair against independent
+recursive descendant expansion and checks dynamic More genres behavior.

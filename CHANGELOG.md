@@ -8,6 +8,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
+- Genre Cloud resolves selected albums instead of loading complete catalogs,
+  loads independent sources concurrently, and reuses local genre inputs until
+  catalog invalidation. Genre ancestry and phrase matching are precomputed, and
+  repeated genre values are classified once per snapshot. Joined facet reads
+  retain profile ratings, favorites and MusicBrainz enrichment. Updated servers
+  support bounded album batches; older servers use bounded detail requests.
+
 - Selecting an uncached Genre Cloud branch immediately replaces its old display
   with a localized assembly message and a bar showing completed work steps.
   Cached levels still appear directly; cancellation and navigation release only

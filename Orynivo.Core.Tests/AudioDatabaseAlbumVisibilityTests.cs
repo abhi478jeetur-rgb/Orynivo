@@ -7,6 +7,54 @@ namespace Orynivo.Core.Tests;
 /// <summary>Verifies that catalog queries hide album records without indexed tracks.</summary>
 public sealed class AudioDatabaseAlbumVisibilityTests
 {
+    /// <summary>Selected album and joined facet reads retain explicit profile overrides and genre enrichment.</summary>
+    [Fact]
+    public void SelectedAlbumsAndFacets_PreserveProfileAndGenreMetadata()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"orynivo-selected-albums-{Guid.NewGuid():N}");
+        Directory.CreateDirectory(root);
+        var databasePath = Path.Combine(root, "library.db");
+        var previous = AudioDatabase.ActiveProfileId;
+        try
+        {
+            using var db = new AudioDatabase(databasePath);
+            db.Upsert(CreateTrack(Path.Combine(root, "one", "a.flac"), "Selected", "Artist"));
+            db.Upsert(CreateTrack(Path.Combine(root, "two", "b.flac"), "Excluded", "Artist"));
+            var album = db.GetAlbumsLite().Single(row => row.Album == "Selected");
+            var track = db.GetTrackListByAlbum(album.Id).Single();
+            AudioDatabase.SetActiveProfile("alpha");
+            db.SetAlbumFavorite(album.Id, true);
+            db.SetTrackFavorite(track.Id, true);
+            db.SetTrackUserRating(track.Id, 4);
+            db.SetTrackMusicBrainzRating(track.Id, "synthetic-recording", 3.5, 8, 1, "[\"Synth-pop\"]", "[\"80s\"]");
+            var selected = Assert.Single(db.GetAlbumsByIds([album.Id, album.Id, long.MaxValue]));
+            Assert.Equal(album.ArtistId, selected.ArtistId);
+            Assert.True(selected.IsFavorite);
+            var facet = db.GetTrackFacets().Single(row => row.Id == track.Id);
+            Assert.True(facet.IsFavorite);
+            Assert.Equal(4, facet.UserRating);
+            Assert.Equal(3.5, facet.MusicBrainzRating);
+            Assert.Equal(8, facet.MusicBrainzRatingVotes);
+            Assert.Contains("Synth-pop", facet.Genre);
+            Assert.Contains("80s", facet.Genre);
+            AudioDatabase.SetActiveProfile("beta");
+            db.SetAlbumFavorite(album.Id, false);
+            db.SetTrackFavorite(track.Id, false);
+            db.SetTrackUserRating(track.Id, 0);
+            Assert.False(Assert.Single(db.GetAlbumsByIds([album.Id])).IsFavorite);
+            facet = db.GetTrackFacets().Single(row => row.Id == track.Id);
+            Assert.False(facet.IsFavorite);
+            Assert.Equal(0, facet.UserRating);
+            Assert.Empty(db.GetAlbumsByIds([]));
+        }
+        finally
+        {
+            AudioDatabase.SetActiveProfile(previous);
+            CoreTestDatabase.ClearPool(databasePath);
+            Directory.Delete(root, recursive: true);
+        }
+    }
+
     /// <summary>Preserves recent ordering and compact recommendation aggregates after track-first grouping.</summary>
     [Fact]
     public void DashboardAlbumQueries_AggregateTracksBeforeJoiningAlbumMetadata()

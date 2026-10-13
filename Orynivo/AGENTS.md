@@ -39,6 +39,11 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Genre Cloud shares local facet input only until catalog/profile invalidation.
+  Resolve selected albums by ID and load independent sources concurrently; never
+  fetch a complete album catalog for cloud recommendations. Preserve strict
+  failures, source identity and foreground publication ownership.
+
 - WASAPI MaxOutputSampleRateHz is a strict positive ceiling, not a preference.
   Never retain higher-rate fallback candidates. Zero retains unrestricted
   selection; no supported format within a positive cap must fail before output

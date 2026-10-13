@@ -62,6 +62,7 @@ public partial class MainWindow
     private readonly object _genreCloudViewCacheSync = new();
     private readonly Dictionary<string, GenreCloudViewCacheEntry> _genreCloudViewCache = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Task<GenreCloudViewSnapshot>> _genreCloudViewLoads = new(StringComparer.Ordinal);
+    private Task<List<TrackFacetInfo>>? _genreCloudLocalFacets;
     private int _genreCloudCatalogGeneration;
     private int _genreCloudNodeBindingVersion;
 
@@ -411,13 +412,13 @@ public partial class MainWindow
             StreamingFormat = server.StreamingFormat,
             StreamingBitrateKbps = server.StreamingBitrateKbps
         }).ToArray();
-        var localTask = progress.TrackAsync(Task.Run(() =>
+        var localTask = progress.TrackAsync(LoadLocalSourceAsync());
+        async Task<GenreCloudSource> LoadLocalSourceAsync()
         {
-            using var db = AudioDatabase.OpenDefault();
-            return new GenreCloudSource(
-                null,
-                GenreCloudService.BuildSnapshot(db.GetTrackFacets(), parentKey, 500));
-        }, cancellationToken));
+            var facets = await GetGenreCloudLocalFacetsAsync().WaitAsync(cancellationToken);
+            return await Task.Run(() => new GenreCloudSource(null,
+                GenreCloudService.BuildSnapshot(facets, parentKey, 500)), cancellationToken);
+        }
         var listeningWeightsTask = progress.TrackAsync(Task.Run(LoadGenreListeningWeights, cancellationToken));
         var remoteTasks = servers
             .Select(server => progress.TrackAsync(LoadRemoteGenreCloudAsync(server, parentKey, cancellationToken)))
@@ -484,12 +485,29 @@ public partial class MainWindow
         }
     }
 
+    /// <summary>Shares local classification input until catalog or profile invalidation.</summary>
+    /// <returns>The current generation's compact local track facets.</returns>
+    private Task<List<TrackFacetInfo>> GetGenreCloudLocalFacetsAsync()
+    {
+        lock (_genreCloudViewCacheSync)
+        {
+            if (_genreCloudLocalFacets is null || _genreCloudLocalFacets.IsFaulted || _genreCloudLocalFacets.IsCanceled)
+                _genreCloudLocalFacets = Task.Run(() =>
+                {
+                    using var db = AudioDatabase.OpenDefault();
+                    return db.GetTrackFacets();
+                });
+            return _genreCloudLocalFacets;
+        }
+    }
+
     /// <summary>Rejects pending cloud loads while retaining the last completed presentation.</summary>
     private void InvalidateGenreCloudViewCache()
     {
         Interlocked.Increment(ref _genreCloudCatalogGeneration);
         lock (_genreCloudViewCacheSync)
         {
+            _genreCloudLocalFacets = null;
             _genreCloudViewLoads.Clear();
             _genreCloudLoadProgress.Clear();
         }
@@ -1007,17 +1025,19 @@ public partial class MainWindow
 
         var remoteGroups = candidates.Where(candidate => candidate.Server is not null)
             .GroupBy(candidate => candidate.Server!.Id, StringComparer.Ordinal);
-        foreach (var group in remoteGroups)
+        var remoteResults = await Task.WhenAll(remoteGroups.Select(async group =>
         {
-            cancellationToken.ThrowIfCancellationRequested();
             var server = group.First().Server!;
             var ids = group.Select(candidate => candidate.Track.TrackId).Distinct().ToList();
             var tracks = await _orynivoClient.GetTracksByIdsAsync(server, ids, cancellationToken,
                 requireComplete: !registerRemoteMetadata);
-            if (!isCurrent()) return [];
-            foreach (var track in tracks)
-                resolved[($"server:{server.Id}", track.Id)] = ToOrynivoTrackContentRow(server, track, registerRemoteMetadata);
-        }
+            return (Server: server, Tracks: tracks);
+        }));
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!isCurrent()) return [];
+        foreach (var source in remoteResults)
+            foreach (var track in source.Tracks)
+                resolved[($"server:{source.Server.Id}", track.Id)] = ToOrynivoTrackContentRow(source.Server, track, registerRemoteMetadata);
 
         return candidates
             .Select(candidate => resolved.GetValueOrDefault((
@@ -1037,51 +1057,35 @@ public partial class MainWindow
         IReadOnlyList<ContentRow> trackRows,
         CancellationToken cancellationToken)
     {
-        var result = new List<ContentRow>();
         var localAlbumIds = trackRows
             .Where(row => row.OrynivoServer is null && row.AlbumId.HasValue)
-            .Select(row => row.AlbumId!.Value)
-            .Distinct()
-            .ToHashSet();
-        if (localAlbumIds.Count > 0)
+            .Select(row => row.AlbumId!.Value).Distinct().ToList();
+        var localTask = Task.Run(() =>
         {
-            var localAlbums = await Task.Run(() =>
+            using var db = AudioDatabase.OpenDefault();
+            return db.GetAlbumsByIds(localAlbumIds).Select(album => new LibraryCatalogAlbum(
+                LibraryCatalogSource.Local, album.Id, album.Album, album.DisplayArtist,
+                album.Year, album.ArtworkPath, album.ThumbnailPath, album.IsFavorite, album.ArtistId)).ToList();
+        }, cancellationToken);
+        var remoteTasks = trackRows
+            .Where(row => row.OrynivoServer is not null && row.AlbumId.HasValue)
+            .GroupBy(row => row.OrynivoServer!.Id, StringComparer.Ordinal)
+            .Select(async group =>
             {
-                using var db = AudioDatabase.OpenDefault();
-                return db.GetAlbumsLite(includeArtwork: true)
-                    .Where(album => localAlbumIds.Contains(album.Id))
-                    .Select(album => new LibraryCatalogAlbum(
-                        LibraryCatalogSource.Local,
-                        album.Id,
-                        album.Album,
-                        album.DisplayArtist,
-                        album.Year,
-                        album.ArtworkPath,
-                        album.ThumbnailPath,
-                        album.IsFavorite,
-                        album.ArtistId))
-                    .ToList();
-            }, cancellationToken);
-            result.AddRange(localAlbums.Select(album => ToCatalogAlbumContentRow(album)));
-        }
-
-        foreach (var serverGroup in trackRows
-                     .Where(row => row.OrynivoServer is not null && row.AlbumId.HasValue)
-                     .GroupBy(row => row.OrynivoServer!.Id, StringComparer.Ordinal))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var server = serverGroup.First().OrynivoServer!;
-            var albumIds = serverGroup.Select(row => row.AlbumId!.Value).Distinct().ToHashSet();
-            var loaded = await LibrarySourceLoader.LoadAsync<LibraryCatalogAlbum>(
-                GetServerSourceKey(server.Id),
-                async token => await LoadAllOrynivoAlbumsAsync(server, token), cancellationToken);
-            cancellationToken.ThrowIfCancellationRequested();
-            if (loaded.Status != LibraryLoadStatus.Complete)
-                throw new InvalidOperationException("Incomplete cloud album refresh.");
-            result.AddRange(loaded.Rows
-                .Where(album => albumIds.Contains(album.Id))
-                .Select(album => ToCatalogAlbumContentRow(album, server)));
-        }
+                var server = group.First().OrynivoServer!;
+                var ids = group.Select(row => row.AlbumId!.Value).Distinct().ToList();
+                var albums = await _orynivoClient.GetAlbumsByIdsAsync(server, ids, cancellationToken);
+                return (Server: server, Albums: albums);
+            }).ToArray();
+        await Task.WhenAll(remoteTasks.Append<Task>(localTask));
+        cancellationToken.ThrowIfCancellationRequested();
+        var result = (await localTask).Select(album => ToCatalogAlbumContentRow(album)).ToList();
+        foreach (var source in await Task.WhenAll(remoteTasks))
+            result.AddRange(source.Albums.Select(album => ToCatalogAlbumContentRow(new LibraryCatalogAlbum(
+                LibraryCatalogSource.OrynivoServer, album.Id, album.Album, album.DisplayArtist, album.Year,
+                string.IsNullOrWhiteSpace(album.ArtworkPath) ? null : OrynivoServerClient.GetAlbumArtworkUrl(source.Server, album.Id, 320),
+                string.IsNullOrWhiteSpace(album.ThumbnailPath) ? null : OrynivoServerClient.GetAlbumArtworkUrl(source.Server, album.Id, 96),
+                IsOrynivoFavorite(source.Server, "Album", album.Id), album.ArtistId), source.Server)));
 
         var rank = trackRows
             .Where(row => row.AlbumId.HasValue)

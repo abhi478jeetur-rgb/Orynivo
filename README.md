@@ -1298,6 +1298,12 @@ current recommendations, register playback metadata, or assign background
 images. Branch and recommendation-mode changes reuse shared in-flight catalog
 work while replacing the earlier view request.
 
+Cloud assembly reuses local genre inputs until the catalog changes and loads
+independent servers concurrently. Repeated genre values share classification,
+and genre ancestry is precomputed. Album recommendations request only selected
+album IDs. Updated servers support a single bounded batch; older servers use
+bounded parallel detail requests without transferring the complete catalog.
+
 Genre button layout and entrance animations follow the current cloud binding;
 changing mode or leaving the view abandons pending callbacks.
 

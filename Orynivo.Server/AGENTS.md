@@ -208,3 +208,8 @@ areas.
   races. Managed test children validate process lifetime, not FFmpeg codecs or
   physical network/audio behavior; never launch arbitrary user-controlled test
   commands.
+
+- MapAlbumBatchEndpoints maps authenticated POST /api/albums/by-ids from the
+  normal library mapper. Reject batches above 100 IDs; preserve active-profile
+  favorites and compact album DTOs. Injected database factories are per-request
+  owned for isolated TestServer checks; do not invoke scans or startup.
