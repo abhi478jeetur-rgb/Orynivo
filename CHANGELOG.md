@@ -4,15 +4,6 @@ All notable changes to Orynivo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
-
-### Fixed
-
-- Blocking audio-player disposal runs on independent background workers so
-  parallel retirements cannot occupy the shared thread pool needed by output
-  release, preparation and timeout continuations. Complete device release still
-  drains every owned retirement and isolates disposal failures.
-
 ## [0.48.0] - 2026-10-12
 
 ### Changed
@@ -42,6 +33,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   unavailable sources no longer replace a retained level with an empty refresh.
   Abandoned refreshes cannot replace another view or a newer profile/source
   configuration.
+
+- Blocking audio-player disposal runs on independent background workers so
+  parallel retirements cannot occupy the shared thread pool needed by output
+  release, preparation and timeout continuations. Complete device release still
+  drains every owned retirement and isolates disposal failures.
 
 ## [0.47.0] - 2026-10-12
 
