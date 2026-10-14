@@ -1,12 +1,12 @@
 # Workflow verification scopes
 
-Updated: 2026-10-13. Counts identify the added workflow cases, not the total
+Updated: 2026-10-14. Counts identify the added workflow cases, not the total
 number of unit tests in the repository.
 
 | Scope                      | Tracked evidence                                                                                                                                                   | Execution                                                   | Limits                                                                                                                |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
 | Playback lifecycle         | 14 PlaybackSessionLifecycleTests cases, including four output-switch cases and one composed gapless queue-edit case; separate ownership/drain/refresh tests remain | Desktop unit tests                                          | Fake factories, seek, positions, pause, completion and disposal; no hardware or physical audio                        |
-| Desktop setup and recovery | 65 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
+| Desktop setup and recovery | 66 Orynivo.Ui.Smoke groups using production adapters, original history and source collisions                                                                       | Windows Debug/Release CI configuration and local verify-all | MainWindow unshown; synthetic SQLite/HTTP and bounded headless layout; no pointer-dispatch or other-platform UI claim |
 | Track HTTP routes          | Eight paging/detail/ID/auth/profile cases                                                                                                                          | Server TestServer unit-test project                         | Real route/middleware subset with temporary SQLite; no startup services or TCP listener                               |
 | Playlist HTTP routes       | Seven order/duplicate/mutation/profile/smart-resolution cases                                                                                                      | Server TestServer unit-test project                         | Shared definitions and per-request track state; synthetic catalog                                                     |
 | Original-file streaming    | Thirteen full/range/error/access/file-write cancellation cases                                                                                                     | Server TestServer unit-test project                         | Synthetic opaque files; no audio decoding, FFmpeg codec or physical network disconnect                                |
@@ -37,6 +37,12 @@ Physical devices/receivers, FFmpeg codecs, operating-system network disconnects,
 other-platform UI runtime behavior and portable end-to-end latency need separate
 opt-in evidence. Fresh-profile first-playback usability remains a separate
 follow-up. Keep these boundaries when adding features or reporting verification.
+
+Shuffle adds one Windows group using the actual routed control across seven view
+tags, with a synthetic refresh adapter that cannot prepare audio. It checks
+enable/disable refresh, distinct-path exhaustion, duplicate exclusion and
+forward history after Previous through the real queue navigation methods. This
+does not exercise native gapless output or audible playback.
 
 Fresh-profile setup adds ten Windows UI groups: source visibility (empty, local
 and server-only), compiled layout/focus/automation names across seven languages,

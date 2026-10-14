@@ -39,6 +39,10 @@ This file applies to the Windows, Linux, and macOS Avalonia desktop client under
 
 ## Client Invariants
 
+- Shuffle changes must refresh prepared gapless output through the existing
+  coordinator, preserving position, pause and start ownership. Automatic queue
+  advancement must include forward shuffle history after Previous.
+
 - Genre Cloud shares local facet input only until catalog/profile invalidation.
   Resolve selected albums by ID and load independent sources concurrently; never
   fetch a complete album catalog for cloud recommendations. Preserve strict

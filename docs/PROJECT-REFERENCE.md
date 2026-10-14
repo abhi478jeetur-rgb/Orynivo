@@ -2479,8 +2479,11 @@ WavPack metadata, PCM/DSD caps and an empty eligible candidate set.
   device. Audible track changes are derived from rendered/buffered frame counts
   so transport metadata and playback history change at the actual boundary.
 - Gapless playback is disabled for shuffle queues and native ASIO DSD (DSF/DFF).
-  Those paths retain title-by-title device handling; DSD converted to PCM
-  through WASAPI participates in the PCM gapless pipeline.
+  Changing Shuffle refreshes already prepared output through the shared gapless
+  refresh coordinator, preserving current position and pause state. Automatic
+  advancement includes forward shuffle history after Previous. Those paths
+  retain title-by-title device handling; DSD converted to PCM through WASAPI
+  participates in the PCM gapless pipeline.
 - Seeking remains available inside multi-track gapless PCM sessions. A seek
   clears buffered output, restarts the current FFmpeg decoder at the selected
   position, and rebuilds preparation of the following track.
