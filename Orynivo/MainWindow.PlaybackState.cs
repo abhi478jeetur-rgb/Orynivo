@@ -556,10 +556,13 @@ public partial class MainWindow : Window
         _queueIndex < _queue.Count &&
         string.Equals(_queue[_queueIndex].FilePath, _currentFilePath, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Checks sequential successors or forward history and unplayed shuffle candidates.</summary>
+    /// <returns>Whether automatic playback can advance within the current queue.</returns>
     private bool HasNextQueueItem()
     {
         if (_shuffleEnabled)
-            return HasUnplayedShuffleCandidate();
+            return _shuffleHistoryPosition + 1 < _shuffleHistory.Count ||
+                HasUnplayedShuffleCandidate();
         return _queueIndex == -1
             ? _queue.Count > 0
             : _queueIndex + 1 < _queue.Count;
@@ -668,12 +671,18 @@ public partial class MainWindow : Window
             NextButton.IsEnabled);
     }
 
-    private void ShuffleButton_OnClick(object? sender, RoutedEventArgs e)
+    /// <summary>Applies shuffle immediately to navigation and the prepared gapless output.</summary>
+    /// <param name="sender">The shuffle button.</param>
+    /// <param name="e">The routed click event.</param>
+    private async void ShuffleButton_OnClick(object? sender, RoutedEventArgs e)
     {
         _shuffleEnabled = !_shuffleEnabled;
         ResetShuffleHistory();
         UpdateShuffleButton();
         RefreshQueueNavigationButtons();
+        try { await RefreshActiveGaplessQueueAsync(); }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { CrashLogger.Log(ex, "Shuffle gapless refresh"); }
     }
 
     private void ResetQueuePlaybackState()

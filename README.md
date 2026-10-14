@@ -757,7 +757,8 @@ byte-range streaming without FFmpeg.
   views, removal, reordering, complete clearing, restore-last-queue, playlist
   saving, and shuffle without repeating a track within the currently loaded
   queue. The queue is stored in the SQLite library database instead of the JSON
-  settings file.
+  settings file. Changing shuffle during playback immediately updates the
+  prepared sequence while preserving position and pause state.
 - Optional fade transitions can smooth queue advances that are not already
   handled by the gapless PCM engine.
 - The transport progress control shows a waveform-style peak view for local
