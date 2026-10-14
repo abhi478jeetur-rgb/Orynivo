@@ -4,7 +4,7 @@ All notable changes to Orynivo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
-## [Unreleased]
+## [0.48.1] - 2026-10-14
 
 ### Fixed
 
@@ -12,7 +12,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   current position and preserves pause state, including Genre Cloud queues.
   Automatic advancement also respects forward history after Previous.
 
-## [0.48.0] - 2026-10-12
+## [0.48.0] - 2026-10-13
 
 ### Changed
 
