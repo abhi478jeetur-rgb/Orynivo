@@ -33,6 +33,10 @@ jobs:
         shell: pwsh
         run: ./scripts/verify-github-actions-pins.ps1
 
+      - name: Verify release upload recovery
+        shell: bash
+        run: bash .github/scripts/test-upload-release-assets.sh
+
   build:
     name: Build ${{ matrix.configuration }}
     runs-on: windows-latest

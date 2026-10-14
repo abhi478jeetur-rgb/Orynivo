@@ -1723,6 +1723,10 @@ accept only semantic `vMAJOR.MINOR.PATCH` tags whose commit is contained in
 `main`; the tag version is embedded into desktop and server assemblies at build
 time. To trigger a release by pushing the tag. **Workflow dispatch** may only
 rebuild an already existing tag that passes the same `main` containment check.
+Uploads reject a tag that moved away from the commit used to build the packages.
+Retries replace any existing asset before uploading again, including transfers
+that succeeded despite an HTTP error. The CI verify job exercises this recovery
+offline with `.github/scripts/test-upload-release-assets.sh`.
 
 After the draft is published, `update-manifest.yml` hashes the supported
 Windows, Linux, macOS, and server packages, creates `update-manifest.json`,
