@@ -4,6 +4,14 @@ All notable changes to Orynivo are documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- Release uploads reconcile existing assets on every retry so interrupted
+  successful transfers do not repeatedly fail with duplicate-name errors.
+  Workflows reject obsolete assets after a release tag moves to another commit.
+
 ## [0.48.1] - 2026-10-14
 
 ### Fixed

@@ -239,7 +239,12 @@ run fine in CI, so nothing else catches the drift.
 `Orynivo <version>` draft release. Linux, macOS, and server matrix jobs must
 locate that exact draft through its numeric release ID and upload their assets
 to it; they must never independently create a draft by tag because concurrent
-draft lookup can create duplicate releases.
+draft lookup can create duplicate releases. The shared uploader validates the
+live tag against the build checkout before release admission and each upload
+attempt. Moved tags reject obsolete builds. Every retry reconciles an existing
+asset before POST, including uploads that arrived despite an HTTP error. Offline
+command-substitution checks cover normal upload, replacement, interrupted
+success, tag changes and bounded failure in the CI verify job.
 
 `.github/workflows/player-linux-release.yml` publishes tagged self-contained
 desktop builds for `linux-x64` and `linux-arm64` as portable tarballs, DEB, and

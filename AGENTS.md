@@ -68,6 +68,10 @@ declaration without a `<summary>`.
 
 ## Maintenance Requirement
 
+Release upload retries must reconcile existing assets on each attempt and reject
+workflows whose release tag no longer resolves to their build checkout. Keep
+offline upload recovery checks in the CI verify job.
+
 Keep this file updated whenever architecture, build behavior, or user-visible
 behavior changes.
 
