@@ -17,8 +17,9 @@ keeps your files and listening data yours, Orynivo is built for you.
 
 **Website:** [orynivo.app](https://orynivo.app/) · **Downloads:**
 [latest release](https://github.com/bschlaack/Orynivo/releases/latest) ·
-**Docs:** [GitHub Wiki](https://github.com/bschlaack/Orynivo/wiki) ·
-**Full feature reference:** [docs/FULL-FEATURE-REFERENCE.md](docs/FULL-FEATURE-REFERENCE.md)
+**Docs:** [GitHub Wiki](https://github.com/bschlaack/Orynivo/wiki) · **Full
+feature reference:**
+[docs/FULL-FEATURE-REFERENCE.md](docs/FULL-FEATURE-REFERENCE.md)
 
 ## See Orynivo in action
 
@@ -58,10 +59,10 @@ If the embedded video does not play in your browser,
   macOS, and Windows that exposes your library over the local network via REST
   and HTTP streaming. Desktop clients merge local and remote libraries into one
   unified Artists / Albums / Tracks experience.
-- **Made for large collections.** Artists, albums, tracks, and folder views;
-  CUE sheets and MKA chapters; smart playlists; full-text search across local
-  and remote sources; bulk favorite/rating/genre editing that never rewrites
-  your media files.
+- **Made for large collections.** Artists, albums, tracks, and folder views; CUE
+  sheets and MKA chapters; smart playlists; full-text search across local and
+  remote sources; bulk favorite/rating/genre editing that never rewrites your
+  media files.
 - **Discovery built in.** A hierarchical Genre Cloud across all connected
   sources, Infinite Mix that keeps a queue replenished from your listening
   habits, internet radio, podcasts, and lyrics.
@@ -69,24 +70,24 @@ If the embedded video does not play in your browser,
   native AirPlay 2 bridge, verified with clean audible playback on a Sonos
   stereo pair.
 - **AI that stays local.** Embedded AI chat through LM Studio, Ollama, or any
-  OpenAI-compatible endpoint, and an MCP server with 37 individually
-  toggleable tools for external assistants such as Claude Desktop.
-- **Private by design.** Apache-2.0 licensed, no telemetry, no account. API
-  keys and tokens live in an encrypted per-user credential store. The full UI
-  is available in English, German, French, Spanish, Russian, Simplified
-  Chinese, and Hindi.
+  OpenAI-compatible endpoint, and an MCP server with 37 individually toggleable
+  tools for external assistants such as Claude Desktop.
+- **Private by design.** Apache-2.0 licensed, no telemetry, no account. API keys
+  and tokens live in an encrypted per-user credential store. The full UI is
+  available in English, German, French, Spanish, Russian, Simplified Chinese,
+  and Hindi.
 
 ## Download
 
 Self-contained builds (the .NET runtime is bundled; no prerequisites) from the
 [latest release](https://github.com/bschlaack/Orynivo/releases/latest):
 
-| Component        | Packages                                                            |
-| ---------------- | ------------------------------------------------------------------- |
-| Windows player   | `Setup.exe`, portable ZIP (Windows 10/11 x64)                       |
-| Linux player     | DEB, RPM, Arch `.pkg.tar.zst`, portable tar.gz (x64 and ARM64)      |
-| macOS player     | PKG and portable app ZIP (Apple Silicon and Intel)                  |
-| Orynivo Server   | DEB and RPM (Linux x64 / ARM64, incl. Raspberry Pi)                 |
+| Component      | Packages                                                       |
+| -------------- | -------------------------------------------------------------- |
+| Windows player | `Setup.exe`, portable ZIP (Windows 10/11 x64)                  |
+| Linux player   | DEB, RPM, Arch `.pkg.tar.zst`, portable tar.gz (x64 and ARM64) |
+| macOS player   | PKG and portable app ZIP (Apple Silicon and Intel)             |
+| Orynivo Server | DEB and RPM (Linux x64 / ARM64, incl. Raspberry Pi)            |
 
 The signed in-app updater installs updates through your native package manager
 on Linux and verifies download digests on every platform.
@@ -104,12 +105,14 @@ complete REST API and setup.
 
 ## Supported formats
 
-`DSF`, `DFF`, `FLAC`, `MP3`, `WAV`, `AIFF`, `M4A`, `MKA` (with chapters),
-`AAC`, `OGG`, `Opus`, `WMA`, and CUE sheets referencing PCM sources. PCM is
-decoded via FFmpeg, which Orynivo locates or downloads automatically.
+`DSF`, `DFF`, `FLAC`, `MP3`, `WAV`, `AIFF`, `M4A`, `MKA` (with chapters), `AAC`,
+`OGG`, `Opus`, `WMA`, and CUE sheets referencing PCM sources. PCM is decoded via
+FFmpeg, which Orynivo locates or downloads automatically.
 
 ## Documentation
 
+- [HTTPS and reverse proxies](docs/SERVER-REVERSE-PROXY.md) — Caddy and nginx
+  examples for Orynivo Server and authenticated MCP access
 - [GitHub Wiki](https://github.com/bschlaack/Orynivo/wiki) — end-user guides
 - [Full feature & technical reference](docs/FULL-FEATURE-REFERENCE.md) — every
   feature, output profile, format behavior, and build detail
@@ -369,7 +372,7 @@ size/redirect/timeout limits, no arbitrary downloads, request logging).
 Configure the SearXNG URL and limits under **Settings → Integration → MCP Server
 → Web browsing**.
 
-## Orynivo Server
+## Orynivo Server reference
 
 `Orynivo.Server` is a self-contained headless music server that runs on
 **Windows, Linux, and macOS**. It scans the same local library directories and
@@ -1332,7 +1335,7 @@ architecture before opening the normal macOS Installer.
   ImageMagick or other external image conversion tools are not required.
 - No ASIO drivers or Windows dependencies
 
-## Download
+## Release package reference
 
 Download the latest builds from
 [Releases](https://github.com/bschlaack/Orynivo/releases).
@@ -2029,8 +2032,8 @@ required checks for each held-back line are recorded in
 ## Contributing
 
 Issues, feature requests, and pull requests are welcome — please target the
-`development` branch. See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev
-setup, test suite, and what the maintainers look for.
+`development` branch. See [CONTRIBUTING.md](CONTRIBUTING.md) for the dev setup,
+test suite, and what the maintainers look for.
 
 ## License
 
